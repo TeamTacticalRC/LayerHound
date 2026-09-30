@@ -31,3 +31,24 @@ Bambu Lab printers need the IP, serial number, and the 8-character access code f
 This build intentionally does **not** expose printer controls yet. It establishes the connection/monitoring layer first.
 
 The existing iMac DAS remains completely separate from this project.
+
+### Running on the home lab board
+The board runs a single process: the backend also serves the built dashboard, on port 80.
+
+**First time**, on the board: install a Debian-based OS (e.g. Armbian or Debian 12), connect it to the network, and make sure you can `ssh` into it from the Mac.
+
+**Deploy (first install and every update)**, from the Mac, in this folder:
+```bash
+deploy/deploy.sh user@BOARD-HOSTNAME.local --with-db
+```
+`--with-db` copies this Mac's printer list to the board. Leave it off for later updates so the board keeps its own list.
+
+The script builds the frontend, copies the project to `~/ttrc-dashboard` on the board, and runs `deploy/setup.sh` there, which installs Python packages and a `ttrc-dashboard` systemd service (starts on boot, restarts on crashes). Then open `http://BOARD-HOSTNAME.local`.
+
+Useful commands on the board:
+```bash
+systemctl status ttrc-dashboard
+journalctl -u ttrc-dashboard -f
+```
+
+**Only run one copy at a time.** Bambu P1-series printers accept only one local connection, so once the board is live, stop the dashboard on the Mac or the P1S will show offline on one of them.

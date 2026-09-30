@@ -6,9 +6,12 @@ import paho.mqtt.client as mqtt
 import psutil
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-DB_PATH=Path(__file__).with_name('ttrc.db'); TIMEOUT=4
+DB_PATH=Path(os.environ.get('TTRC_DB') or Path(__file__).with_name('ttrc.db')); TIMEOUT=4
+# Built frontend (npm run build). When present, this server hosts the whole dashboard.
+DIST=Path(__file__).resolve().parent.parent/'dist'
 TYPES=('moonraker','octoprint','bambu'); MODELS={'moonraker':'Klipper / Moonraker','octoprint':'OctoPrint','bambu':'Bambu Lab'}
 app=FastAPI(title='TTRC Home Lab API',version='0.3.0')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
@@ -163,3 +166,6 @@ def remove(pid:int):
 @app.post('/api/printers/{pid}/test')
 def test(pid:int):
  x=printer(pid); return {'ok':x['connected'],'printer':x,'message':'Connection successful' if x['connected'] else (x['error'] or 'Connection failed')}
+
+# Must stay last: a mount at / would otherwise shadow the /api routes above
+if DIST.is_dir(): app.mount('/',StaticFiles(directory=DIST,html=True),name='web')

@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.*
+!.env.example
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local printer database: holds access codes and API keys, never commit it
+backend/*.db
+backend/*.db-journal

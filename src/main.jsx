@@ -49,8 +49,10 @@ const SECRET_LABEL = { octoprint: "API key", bambu: "Access code" };
 function formatEta(seconds) {
   const s = Number(seconds) || 0;
   if (s <= 0) return "—";
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
+  // Round to whole minutes first so 30h 59.6m shows as 31h 0m, not 30h 60m
+  const total = Math.round(s / 60);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   return h ? `${h}h ${m}m` : `${m}m`;
 }
 
@@ -121,20 +123,18 @@ function PrinterCard({ printer, onSelect }) {
   const [label, text, border, bg] = styles[printer.state] ?? styles.idle;
 
   return (
-    <button onClick={() => onSelect(printer)} className={`group text-left rounded-2xl border ${border} ${bg} p-5 transition hover:-translate-y-0.5 hover:border-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}>
-      <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          <div className="truncate text-base font-semibold text-white">{printer.name}</div>
-          <div className="mt-1 text-xs text-slate-500">{printer.model}</div>
-        </div>
-        <div className={`flex shrink-0 items-center gap-2 text-[10px] font-bold tracking-widest ${text}`}>
+    <button onClick={() => onSelect(printer)} className={`group min-w-0 text-left rounded-2xl border ${border} ${bg} p-4 transition hover:-translate-y-0.5 hover:border-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}>
+      <div className="truncate text-sm font-semibold text-white" title={printer.name}>{printer.name}</div>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className="truncate text-xs text-slate-500">{PRINTER_TYPES[printer.type]?.short ?? printer.model}</span>
+        <span className={`flex shrink-0 items-center gap-1.5 text-[9px] font-bold tracking-widest ${text}`}>
           <StatusDot good={printer.state !== "offline"} /> {label}
-        </div>
+        </span>
       </div>
 
-      <div className="mt-5">
+      <div className="mt-4">
         <div className="flex justify-between text-xs">
-          <span className="truncate pr-3 text-slate-400">{printer.job || "No active job"}</span>
+          <span className="truncate pr-3 text-slate-400" title={printer.job || undefined}>{printer.job || "No active job"}</span>
           <span className="font-semibold text-white">{printer.progress}%</span>
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/6">
@@ -142,12 +142,12 @@ function PrinterCard({ printer, onSelect }) {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/6 pt-4 text-xs">
-        <div><div className="text-slate-600">Nozzle</div><div className="mt-1 font-medium text-slate-300">{printer.nozzle ? `${printer.nozzle}°C` : "—"}</div></div>
-        <div><div className="text-slate-600">Bed</div><div className="mt-1 font-medium text-slate-300">{printer.bed ? `${printer.bed}°C` : "—"}</div></div>
+      <div className="mt-4 grid grid-cols-3 gap-1.5 whitespace-nowrap border-t border-white/6 pt-3 text-xs">
+        <div><div className="text-slate-600">Nozzle</div><div className="mt-1 font-medium text-slate-300">{printer.nozzle ? `${Math.round(printer.nozzle)}°C` : "—"}</div></div>
+        <div><div className="text-slate-600">Bed</div><div className="mt-1 font-medium text-slate-300">{printer.bed ? `${Math.round(printer.bed)}°C` : "—"}</div></div>
         <div><div className="text-slate-600">ETA</div><div className="mt-1 font-medium text-slate-300">{printer.eta}</div></div>
       </div>
-      <div className="mt-4 flex items-center justify-end gap-1 text-xs text-slate-600 group-hover:text-slate-300">
+      <div className="mt-3 flex items-center justify-end gap-1 text-xs text-slate-600 group-hover:text-slate-300">
         Details <ChevronRight size={14} />
       </div>
     </button>
@@ -296,6 +296,9 @@ function Field({ label, hint, children }) {
     </label>
   );
 }
+
+// Five across on wide screens (both the Dashboard and Print Farm pages)
+const PRINTER_GRID = "grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5";
 
 const inputClass = "w-full rounded-lg border border-white/10 bg-[#0b0e15] px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-violet-400 focus:outline-none";
 
@@ -499,7 +502,7 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
           <button onClick={onAdd} className="mt-5 flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400"><Plus size={16} /> Add printer</button>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className={PRINTER_GRID}>
           {printers.map(p => <PrinterCard key={p.id} printer={p} onSelect={onSelect} />)}
         </div>
       )}
@@ -902,8 +905,8 @@ function Dashboard() {
                       <Plus size={16} /> Add your first printer
                     </button>
                   ) : (
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      {printers.slice(0, 4).map(p => <PrinterCard key={p.id} printer={p} onSelect={setSelected} />)}
+                    <div className={PRINTER_GRID}>
+                      {printers.map(p => <PrinterCard key={p.id} printer={p} onSelect={setSelected} />)}
                     </div>
                   )}
                 </section>

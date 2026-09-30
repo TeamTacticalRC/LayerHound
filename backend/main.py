@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import json, os, platform, socket, sqlite3, ssl, threading, urllib.parse, urllib.request
+import json, os, platform, socket, sqlite3, ssl, sys, threading, time, urllib.parse, urllib.request
 import paho.mqtt.client as mqtt
 import psutil
 from fastapi import FastAPI, HTTPException
@@ -116,16 +117,90 @@ def snapshot(r):
 
 @app.get('/api/health')
 def health(): return {'status':'ok','service':'ttrc-api','timestamp':now()}
+# ---- Server monitoring ----------------------------------------------------------
+# Temperature sensors differ per board. Linux thermal zones (e.g. the ROCK 4D's
+# "soc_thermal", "bigcore_thermal") often have blank labels, so match on the group
+# name too. First match in this list wins for the headline temperature.
+TEMP_PREFS=('soc','cpu','package','bigcore','core')
+def temperatures():
+ out=[]
+ try: groups=psutil.sensors_temperatures() if hasattr(psutil,'sensors_temperatures') else {}
+ except Exception: groups={}
+ for group,sensors in groups.items():
+  for i,t in enumerate(sensors):
+   if t.current is None or t.current<=0: continue
+   name=f'{group} {t.label}'.strip() if t.label else (group if len(sensors)==1 else f'{group} {i}')
+   out.append({'name':name,'celsius':round(t.current,1),'high':t.high or None,'critical':t.critical or None})
+ return out
+def main_temp(temps):
+ for pref in TEMP_PREFS:
+  for t in temps:
+   if pref in t['name'].lower(): return t['celsius']
+ return temps[0]['celsius'] if temps else None
+
+def disks():
+ out=[]; mac=sys.platform=='darwin'
+ for p in psutil.disk_partitions():
+  m=p.mountpoint
+  if p.fstype in ('squashfs','overlay','tmpfs','devtmpfs') or m.startswith(('/snap','/boot')): continue
+  # macOS: "/" is the read-only system volume; your files live on the Data volume
+  if mac and m.startswith('/System/Volumes/') and m!='/System/Volumes/Data': continue
+  if mac and m=='/': continue
+  try: u=psutil.disk_usage(m)
+  except OSError: continue
+  out.append({'mount':'/' if m=='/System/Volumes/Data' else m,'device':p.device,'fstype':p.fstype,'total_gb':round(u.total/2**30,1),'used_gb':round(u.used/2**30,1),'percent':u.percent})
+ return sorted(out,key=lambda d:(d['mount']!='/',d['mount']))
+
+def os_name():
+ try:
+  for line in open('/etc/os-release'):
+   if line.startswith('PRETTY_NAME='): return line.split('=',1)[1].strip().strip('"')
+ except OSError: pass
+ return f'macOS {platform.mac_ver()[0]}' if sys.platform=='darwin' else platform.platform()
+
+# One background sampler owns psutil.cpu_percent (it measures "since the last call",
+# so several callers would skew each other) and keeps an hour of history.
+SAMPLE_EVERY=5; HISTORY=deque(maxlen=3600//SAMPLE_EVERY)
+latest={'cpu':0.0,'per_core':[],'rx_bps':0.0,'tx_bps':0.0,'temps':[]}
+def net_totals():
+ n=psutil.net_io_counters(pernic=True); real=[v for k,v in n.items() if not k.startswith('lo')]
+ return sum(v.bytes_recv for v in real),sum(v.bytes_sent for v in real)
+def sampler():
+ psutil.cpu_percent(percpu=True); rx0,tx0=net_totals(); t0=time.time()
+ while True:
+  time.sleep(SAMPLE_EVERY)
+  try:
+   cores=psutil.cpu_percent(percpu=True); rx,tx=net_totals(); t=time.time(); dt=max(t-t0,1e-6)
+   temps=temperatures()
+   latest.update(cpu=round(sum(cores)/len(cores),1),per_core=cores,rx_bps=max(0,(rx-rx0)/dt),tx_bps=max(0,(tx-tx0)/dt),temps=temps)
+   rx0,tx0,t0=rx,tx,t
+   HISTORY.append({'t':round(t),'cpu':latest['cpu'],'memory':psutil.virtual_memory().percent,'temp':main_temp(temps),'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps'])})
+  except Exception as e: print('sampler error:',e,flush=True)
+threading.Thread(target=sampler,daemon=True,name='ttrc-sampler').start()
+
 @app.get('/api/system')
 def system():
- vm=psutil.virtual_memory(); d=psutil.disk_usage('/'); temp=None
- try:
-  for group in psutil.sensors_temperatures().values():
-   for s in group:
-    if s.current is not None and any(k in (s.label or '').lower() for k in ('cpu','soc','package')): temp=round(s.current,1); break
-   if temp is not None: break
- except Exception: pass
- return {'hostname':socket.gethostname(),'platform':platform.platform(),'cpu_percent':psutil.cpu_percent(interval=.1),'memory_percent':vm.percent,'memory_used_gb':round(vm.used/2**30,2),'memory_total_gb':round(vm.total/2**30,2),'storage_percent':d.percent,'storage_used_gb':round(d.used/2**30,1),'storage_total_gb':round(d.total/2**30,1),'temperature_c':temp,'uptime_seconds':round(datetime.now(timezone.utc).timestamp()-psutil.boot_time()),'timestamp':now()}
+ vm=psutil.virtual_memory(); root=next((d for d in disks() if d['mount']=='/'),None); temps=latest['temps'] or temperatures()
+ return {'hostname':socket.gethostname(),'platform':platform.platform(),'cpu_percent':latest['cpu'],'memory_percent':vm.percent,'memory_used_gb':round((vm.total-vm.available)/2**30,2),'memory_total_gb':round(vm.total/2**30,2),'storage_percent':root['percent'] if root else 0,'storage_used_gb':root['used_gb'] if root else 0,'storage_total_gb':root['total_gb'] if root else 0,'temperature_c':main_temp(temps),'uptime_seconds':round(time.time()-psutil.boot_time()),'timestamp':now()}
+
+@app.get('/api/server')
+def server():
+ vm=psutil.virtual_memory(); sw=psutil.swap_memory(); temps=latest['temps'] or temperatures()
+ try: freq=psutil.cpu_freq()
+ except Exception: freq=None
+ ips=[{'interface':n,'address':a.address} for n,addrs in psutil.net_if_addrs().items() for a in addrs if a.family==socket.AF_INET and not a.address.startswith('127.')]
+ me=psutil.Process()
+ return {'hostname':socket.gethostname(),'os':os_name(),'kernel':platform.release(),'arch':platform.machine(),'python':platform.python_version(),
+  'boot_time':datetime.fromtimestamp(psutil.boot_time(),timezone.utc).isoformat(),'uptime_seconds':round(time.time()-psutil.boot_time()),
+  'cpu':{'percent':latest['cpu'],'per_core':latest['per_core'],'cores':psutil.cpu_count(),'physical_cores':psutil.cpu_count(logical=False),'freq_mhz':round(freq.current) if freq else None,'freq_max_mhz':round(freq.max) if freq and freq.max else None,'load_avg':[round(x,2) for x in os.getloadavg()]},
+  'memory':{'percent':vm.percent,'used_gb':round((vm.total-vm.available)/2**30,2),'total_gb':round(vm.total/2**30,2),'swap_percent':sw.percent,'swap_used_gb':round(sw.used/2**30,2),'swap_total_gb':round(sw.total/2**30,2)},
+  'temperature_c':main_temp(temps),'sensors':temps,'disks':disks(),
+  'network':{'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps']),'addresses':ips},
+  'app':{'memory_mb':round(me.memory_info().rss/2**20,1),'threads':me.num_threads(),'started':datetime.fromtimestamp(me.create_time(),timezone.utc).isoformat()},
+  'sample_seconds':SAMPLE_EVERY,'timestamp':now()}
+
+@app.get('/api/server/history')
+def server_history(): return {'sample_seconds':SAMPLE_EVERY,'points':list(HISTORY)}
 @app.get('/api/printers')
 def printers():
  c=db(); rows=c.execute('SELECT * FROM printers ORDER BY sort_order,id').fetchall(); c.close()

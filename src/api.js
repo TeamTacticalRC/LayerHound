@@ -6,3 +6,5 @@ export const deletePrinter=id=>req(`/api/printers/${id}`,{method:'DELETE'});
 export const testPrinter=id=>req(`/api/printers/${id}/test`,{method:'POST'});
 export const updatePrinter=(id,p)=>req(`/api/printers/${id}`,{method:'PUT',body:JSON.stringify(p)});
 export const reorderPrinters=ids=>req('/api/printers/order',{method:'PUT',body:JSON.stringify({ids})});
+export const getServer=()=>req('/api/server');
+export const getServerHistory=()=>req('/api/server/history');

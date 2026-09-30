@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getSystem, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getSystem, getServer, getServerHistory, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, CircleGauge, Cpu,
-  Database, GripVertical, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Clock, Database, GripVertical, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap
 } from "lucide-react";
 import "./index.css";
@@ -516,6 +516,257 @@ function formatUptime(seconds) {
   return `${minutes}m`;
 }
 
+function formatRate(bps) {
+  const b = Number(bps) || 0;
+  if (b >= 1e6) return `${(b / 1e6).toFixed(1)} MB/s`;
+  if (b >= 1e3) return `${(b / 1e3).toFixed(0)} KB/s`;
+  return `${Math.round(b)} B/s`;
+}
+
+// Temperature bands for small ARM boards; most throttle around 85°C.
+function tempStatus(c) {
+  if (c == null) return null;
+  if (c >= 75) return { label: "Hot", cls: "text-red-300", Icon: AlertTriangle };
+  if (c >= 60) return { label: "Warm", cls: "text-amber-300", Icon: AlertTriangle };
+  return { label: "Normal", cls: "text-emerald-300", Icon: ShieldCheck };
+}
+
+function Bar({ percent, warnAt = 80 }) {
+  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  return (
+    <div className="h-1.5 overflow-hidden rounded-full bg-white/6">
+      <div className={`h-full rounded-full ${p >= warnAt ? "bg-amber-400" : "bg-violet-500"}`} style={{ width: `${p}%` }} />
+    </div>
+  );
+}
+
+function Card({ title, icon: Icon, sub, children, className = "" }) {
+  return (
+    <div className={`rounded-2xl border border-white/8 bg-[#11151f] p-5 ${className}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-white">{title}</h2>
+          {sub && <p className="mt-1 text-xs text-slate-600">{sub}</p>}
+        </div>
+        {Icon && <Icon className="shrink-0 text-violet-400" size={18} />}
+      </div>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
+function Row({ label, value }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-b border-white/5 py-2 text-sm last:border-0">
+      <span className="shrink-0 whitespace-nowrap text-slate-500">{label}</span>
+      <span className="min-w-0 truncate text-right text-slate-200" title={typeof value === "string" ? value : undefined}>{value ?? "—"}</span>
+    </div>
+  );
+}
+
+// One measurement over the last hour. Hover (or touch) shows the value at that moment.
+function HistoryChart({ title, points, field, unit, max, empty }) {
+  const wrap = React.useRef(null);
+  const [width, setWidth] = useState(300);
+  const [hover, setHover] = useState(null);
+  useEffect(() => {
+    if (!wrap.current) return;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.max(120, e.contentRect.width)));
+    ro.observe(wrap.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const data = points.filter(p => p[field] != null);
+  const H = 120, L = 34, R = 8, T = 8, B = 20;
+  const values = data.map(p => p[field]);
+  const top = max ?? Math.max(10, Math.ceil((Math.max(...values, 0) + 5) / 10) * 10);
+  const bottom = max ? 0 : Math.max(0, Math.floor((Math.min(...values, top) - 5) / 10) * 10);
+  const t0 = data[0]?.t, t1 = data[data.length - 1]?.t;
+  const span = Math.max(1, (t1 ?? 0) - (t0 ?? 0));
+  const x = t => L + ((t - t0) / span) * (width - L - R);
+  const y = v => T + (1 - (v - bottom) / (top - bottom || 1)) * (H - T - B);
+  const line = data.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p[field]).toFixed(1)}`).join("");
+  const area = data.length > 1 ? `${line}L${x(t1).toFixed(1)},${H - B}L${x(t0).toFixed(1)},${H - B}Z` : "";
+  const ticks = [bottom, (bottom + top) / 2, top];
+  const latest = data[data.length - 1];
+  const shown = hover ?? latest;
+  const minutes = Math.round(span / 60);
+
+  const onMove = e => {
+    if (data.length < 2) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const px = (e.touches?.[0]?.clientX ?? e.clientX) - box.left;
+    const t = t0 + ((px - L) / (width - L - R)) * span;
+    let best = data[0];
+    for (const p of data) if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+    setHover(best);
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-sm font-semibold text-white">{title}</h3>
+        <div className="text-right">
+          <span className="text-lg font-semibold tabular-nums text-white">{shown ? `${shown[field]}${unit}` : "—"}</span>
+          <div className="text-[11px] text-slate-600">{hover ? new Date(hover.t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "Now"}</div>
+        </div>
+      </div>
+      <div ref={wrap} className="relative mt-3">
+        {data.length < 2 ? (
+          <div className="flex h-[120px] items-center justify-center rounded-xl border border-dashed border-white/8 px-4 text-center text-xs text-slate-600">{empty ?? "Collecting data. The chart fills in over the next few minutes."}</div>
+        ) : (
+          <svg width={width} height={H} className="block touch-none select-none" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onTouchMove={onMove} onTouchEnd={() => setHover(null)} role="img" aria-label={`${title}, last ${minutes} minutes, now ${latest[field]}${unit}`}>
+            {ticks.map(v => (
+              <g key={v}>
+                <line x1={L} x2={width - R} y1={y(v)} y2={y(v)} stroke="rgba(255,255,255,.06)" />
+                <text x={L - 6} y={y(v) + 3.5} textAnchor="end" className="fill-slate-600 text-[10px] tabular-nums">{Math.round(v)}</text>
+              </g>
+            ))}
+            <path d={area} fill="rgba(139,92,246,.12)" />
+            <path d={line} fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            <text x={L} y={H - 4} className="fill-slate-600 text-[10px]">{minutes ? `${minutes} min ago` : "just now"}</text>
+            <text x={width - R} y={H - 4} textAnchor="end" className="fill-slate-600 text-[10px]">now</text>
+            {hover && (
+              <g>
+                <line x1={x(hover.t)} x2={x(hover.t)} y1={T} y2={H - B} stroke="rgba(255,255,255,.25)" />
+                <circle cx={x(hover.t)} cy={y(hover[field])} r="4.5" fill="#a78bfa" stroke="#11151f" strokeWidth="2" />
+              </g>
+            )}
+          </svg>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ServerPage() {
+  const [info, setInfo] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const loadInfo = async () => {
+      try { const d = await getServer(); if (active) { setInfo(d); setError(""); } }
+      catch (e) { if (active) setError(e.message || "network error"); }
+    };
+    const loadHistory = async () => {
+      try { const d = await getServerHistory(); if (active) setHistory(d.points ?? []); } catch { /* info poll reports errors */ }
+    };
+    loadInfo(); loadHistory();
+    const a = setInterval(loadInfo, 3000), b = setInterval(loadHistory, 5000);
+    return () => { active = false; clearInterval(a); clearInterval(b); };
+  }, []);
+
+  if (!info) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-500">
+        {error ? <span className="flex items-center gap-2 text-red-300"><AlertTriangle size={16} /> Couldn't reach the server API ({error}).</span> : <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading server details…</span>}
+      </div>
+    );
+  }
+
+  const { cpu, memory, network } = info;
+  const status = tempStatus(info.temperature_c);
+  const root = info.disks.find(d => d.mount === "/") ?? info.disks[0];
+
+  return (
+    <>
+      <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold tracking-tight text-white">Server</h1>
+          <p className="mt-2 truncate text-sm text-slate-500">{info.hostname} · {info.os} · {info.arch}</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          {error && <span className="rounded-full border border-red-500/20 bg-red-500/5 px-3 py-1.5 text-red-300">Connection lost, retrying</span>}
+          <span className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/[.03] px-3 py-1.5"><Clock size={13} /> Up {formatUptime(info.uptime_seconds)}</span>
+        </div>
+      </div>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={Cpu} label="CPU" value={`${Math.round(cpu.percent)}%`} sub={`Load ${cpu.load_avg.join(" / ")}`} progress={cpu.percent} />
+        <Metric icon={Database} label="Memory" value={`${Math.round(memory.percent)}%`} sub={`${memory.used_gb} GB / ${memory.total_gb} GB`} progress={memory.percent} />
+        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Thermometer size={15} /> Temperature</div>
+          <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{info.temperature_c != null ? `${info.temperature_c}°C` : "—"}</div>
+          {status
+            ? <div className={`mt-1 flex items-center gap-1 text-xs ${status.cls}`}><status.Icon size={12} /> {status.label}</div>
+            : <div className="mt-1 text-xs text-slate-500">No sensor on this machine</div>}
+        </div>
+        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Network size={15} /> Network</div>
+          <div className="mt-3 flex items-center gap-4 text-white">
+            <span className="flex items-center gap-1.5 text-lg font-semibold tabular-nums"><ArrowDownToLine size={16} className="text-slate-500" aria-label="Download" />{formatRate(network.rx_bps)}</span>
+            <span className="flex items-center gap-1.5 text-lg font-semibold tabular-nums"><ArrowUpFromLine size={16} className="text-slate-500" aria-label="Upload" />{formatRate(network.tx_bps)}</span>
+          </div>
+          <div className="mt-1 truncate text-xs text-slate-500">{network.addresses.map(a => a.address).join(", ") || "No network address"}</div>
+        </div>
+      </section>
+
+      <section className="mt-4 grid gap-4 md:grid-cols-3">
+        <HistoryChart title="CPU usage" points={history} field="cpu" unit="%" max={100} />
+        <HistoryChart title="Memory usage" points={history} field="memory" unit="%" max={100} />
+        <HistoryChart title="Temperature" points={history} field="temp" unit="°C" empty={info.temperature_c == null ? "This machine doesn't report temperature. It will show up on the board." : undefined} />
+      </section>
+
+      <section className="mt-4 grid gap-4 xl:grid-cols-2">
+        <Card title="CPU cores" icon={Cpu} sub={`${cpu.cores} cores${cpu.freq_mhz ? ` · ${(cpu.freq_mhz / 1000).toFixed(2)} GHz` : ""}${cpu.freq_max_mhz && cpu.freq_max_mhz !== cpu.freq_mhz ? ` (max ${(cpu.freq_max_mhz / 1000).toFixed(2)} GHz)` : ""}`}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-x-5 gap-y-3">
+            {cpu.per_core.map((p, i) => (
+              <div key={i}>
+                <div className="mb-1 flex justify-between gap-2 whitespace-nowrap text-xs"><span className="text-slate-500">Core {i}</span><span className="tabular-nums text-slate-300">{Math.round(p)}%</span></div>
+                <Bar percent={p} warnAt={101} />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 text-xs text-slate-600">Load average (1 / 5 / 15 min): <span className="text-slate-400">{cpu.load_avg.join(" / ")}</span></div>
+        </Card>
+
+        <Card title="Storage" icon={HardDrive} sub={root ? `${root.used_gb} GB of ${root.total_gb} GB used on the main drive` : undefined}>
+          <div className="space-y-4">
+            {info.disks.map(d => (
+              <div key={d.mount}>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+                  <span className="truncate text-slate-200">{d.mount === "/" ? "Main drive (/)" : d.mount}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-slate-400">{d.used_gb} / {d.total_gb} GB · {Math.round(d.percent)}%</span>
+                </div>
+                <Bar percent={d.percent} warnAt={85} />
+              </div>
+            ))}
+            <div className="text-xs text-slate-600">Swap: {memory.swap_used_gb} GB of {memory.swap_total_gb} GB used</div>
+          </div>
+        </Card>
+      </section>
+
+      <section className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Card title="System" icon={Server}>
+          <Row label="Hostname" value={info.hostname} />
+          <Row label="Operating system" value={info.os} />
+          <Row label="Kernel" value={info.kernel} />
+          <Row label="Architecture" value={info.arch} />
+          <Row label="Last boot" value={new Date(info.boot_time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} />
+        </Card>
+        <Card title="Network addresses" icon={Wifi} sub="Use these to reach the dashboard from other devices.">
+          {network.addresses.length ? network.addresses.map(a => <Row key={a.interface + a.address} label={a.interface} value={a.address} />) : <div className="text-sm text-slate-500">No network address</div>}
+        </Card>
+        <Card title="Temperature sensors" icon={Thermometer} className="md:col-span-2 xl:col-span-1">
+          {info.sensors.length ? info.sensors.map(t => <Row key={t.name} label={t.name} value={`${t.celsius}°C`} />) : <div className="text-sm text-slate-500">This machine doesn't report temperatures. On the board, each sensor (CPU cores, GPU, NVMe) will be listed here.</div>}
+        </Card>
+      </section>
+
+      <section className="mt-4">
+        <Card title="Dashboard service" icon={Activity}>
+          <div className="grid gap-x-8 md:grid-cols-3">
+            <Row label="Memory used" value={`${info.app.memory_mb} MB`} />
+            <Row label="Python" value={info.python} />
+            <Row label="Running since" value={new Date(info.app.started).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} />
+          </div>
+        </Card>
+      </section>
+    </>
+  );
+}
+
 function Dashboard() {
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState("dashboard");
@@ -583,7 +834,7 @@ function Dashboard() {
   const active = useMemo(() => printers.filter(p => p.state === "printing").length, [printers]);
   const online = useMemo(() => printers.filter(p => p.state !== "offline").length, [printers]);
 
-  const placeholder = page !== "dashboard" && page !== "printers";
+  const placeholder = !['dashboard', 'printers', 'server'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
 
   return (
@@ -606,7 +857,9 @@ function Dashboard() {
           </header>
 
           <div className="p-4 sm:p-6 lg:p-8">
-            {page === "printers" ? (
+            {page === "server" ? (
+              <ServerPage />
+            ) : page === "printers" ? (
               <PrintFarmPage printers={printers} usingDemo={usingDemo} printerError={printerError} onSelect={setSelected} onAdd={() => setAdding(true)} onSaveOrder={saveOrder} />
             ) : placeholder ? (
               <div className="flex min-h-[60vh] items-center justify-center">

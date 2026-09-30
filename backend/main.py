@@ -178,10 +178,25 @@ def sampler():
   except Exception as e: print('sampler error:',e,flush=True)
 threading.Thread(target=sampler,daemon=True,name='ttrc-sampler').start()
 
+def primary_ip():
+ # First IPv4 on an interface that's up, skipping loopback and virtual/VPN adapters
+ skip=('lo','docker','br-','veth','utun','bridge','tailscale','zt','wg')
+ stats=psutil.net_if_stats()
+ for n,addrs in psutil.net_if_addrs().items():
+  if n.startswith(skip) or not getattr(stats.get(n),'isup',False): continue
+  for a in addrs:
+   if a.family==socket.AF_INET and not a.address.startswith(('127.','169.254.')): return a.address
+ return None
+
+def database_check():
+ try:
+  c=db(); n=c.execute('SELECT COUNT(*) FROM printers').fetchone()[0]; c.close(); return {'ok':True,'printers':n}
+ except Exception as e: return {'ok':False,'error':f'{type(e).__name__}: {e}'}
+
 @app.get('/api/system')
 def system():
  vm=psutil.virtual_memory(); root=next((d for d in disks() if d['mount']=='/'),None); temps=latest['temps'] or temperatures()
- return {'hostname':socket.gethostname(),'platform':platform.platform(),'cpu_percent':latest['cpu'],'memory_percent':vm.percent,'memory_used_gb':round((vm.total-vm.available)/2**30,2),'memory_total_gb':round(vm.total/2**30,2),'storage_percent':root['percent'] if root else 0,'storage_used_gb':root['used_gb'] if root else 0,'storage_total_gb':root['total_gb'] if root else 0,'temperature_c':main_temp(temps),'uptime_seconds':round(time.time()-psutil.boot_time()),'timestamp':now()}
+ return {'hostname':socket.gethostname(),'platform':platform.platform(),'cpu_percent':latest['cpu'],'memory_percent':vm.percent,'memory_used_gb':round((vm.total-vm.available)/2**30,2),'memory_total_gb':round(vm.total/2**30,2),'storage_percent':root['percent'] if root else 0,'storage_used_gb':root['used_gb'] if root else 0,'storage_total_gb':root['total_gb'] if root else 0,'temperature_c':main_temp(temps),'uptime_seconds':round(time.time()-psutil.boot_time()),'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps']),'ip':primary_ip(),'database':database_check(),'timestamp':now()}
 
 @app.get('/api/server')
 def server():

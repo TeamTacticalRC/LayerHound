@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { getSystem, getServer, getServerHistory, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
-  Activity, AlertTriangle, Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, CircleGauge, Cpu,
+  Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
   ArrowDownToLine, ArrowUpFromLine, Clock, Database, GripVertical, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap
 } from "lucide-react";
@@ -16,15 +16,6 @@ const DEMO_PRINTERS = [
   { id: "demo-2", name: "Printer 02", model: "OctoPrint", state: "idle", job: null, progress: 0, eta: "—", nozzle: 31, bed: 29, layer: "—" },
   { id: "demo-3", name: "Printer 03", model: "Klipper", state: "complete", job: "NASCAR_Display_Base.gcode", progress: 100, eta: "Complete", nozzle: 29, bed: 27, layer: "142 / 142" },
   { id: "demo-4", name: "Printer 04", model: "Klipper", state: "offline", job: null, progress: 0, eta: "—", nozzle: 0, bed: 0, layer: "—" },
-];
-
-const services = [
-  ["Docker", "Running", true],
-  ["FastAPI", "Running", true],
-  ["SQLite", "Running", true],
-  ["Printer Monitor", "Connected", true],
-  ["Home Assistant", "Secondary node", true],
-  ["Pi-hole", "Secondary node", true],
 ];
 
 const PAGE_TITLES = {
@@ -91,8 +82,46 @@ function normalizePrinter(p) {
   };
 }
 
-function StatusDot({ good = true }) {
-  return <span className={`inline-block h-2.5 w-2.5 rounded-full ${good ? "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.55)]" : "bg-red-400 shadow-[0_0_10px_rgba(248,113,113,.45)]"}`} />;
+const DOT_TONES = {
+  good: "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.55)]",
+  warn: "bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,.45)]",
+  bad: "bg-red-400 shadow-[0_0_10px_rgba(248,113,113,.45)]",
+  off: "bg-slate-600",
+};
+function StatusDot({ good = true, tone }) {
+  return <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${DOT_TONES[tone ?? (good ? "good" : "bad")]}`} />;
+}
+
+// Alerts are worked out from data the dashboard already has; "bad" sorts first.
+function buildAlerts({ apiError, usingDemo, printerError, printers, system }) {
+  const list = [];
+  if (apiError) list.push({ tone: "bad", text: "Can't reach the dashboard backend" });
+  if (usingDemo) list.push({ tone: "bad", text: `Printer status unavailable (${printerError})` });
+  if (!usingDemo) for (const p of printers) if (p.state === "offline") list.push({ tone: "warn", text: `${p.name} is offline` });
+  if (system && !apiError) {
+    const t = system.temperature_c;
+    if (t != null && t >= 85) list.push({ tone: "bad", text: `Server is overheating (${t}°C)` });
+    else if (t != null && t >= 75) list.push({ tone: "warn", text: `Server is running hot (${t}°C)` });
+    if (system.storage_percent >= 90) list.push({ tone: system.storage_percent >= 97 ? "bad" : "warn", text: `Main drive is ${Math.round(system.storage_percent)}% full` });
+    if (system.memory_percent >= 92) list.push({ tone: "warn", text: `Memory is ${Math.round(system.memory_percent)}% used` });
+    if (system.database && !system.database.ok) list.push({ tone: "bad", text: "Printer database error" });
+  }
+  return list.sort((a, b) => (a.tone === "bad" ? 0 : 1) - (b.tone === "bad" ? 0 : 1));
+}
+
+function alertSummary(alerts) {
+  if (!alerts.length) return { tone: "good", text: "All systems nominal" };
+  const bad = alerts.some(a => a.tone === "bad");
+  return { tone: bad ? "bad" : "warn", text: alerts.length === 1 ? alerts[0].text : `${alerts.length} alerts` };
+}
+
+// "Updated 4s ago", ticking on its own so the whole dashboard doesn't re-render every second
+function UpdatedAgo({ at }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(t); }, []);
+  if (!at) return <>Waiting for data</>;
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+  return <>Updated {s < 5 ? "just now" : s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`}</>;
 }
 
 function Metric({ icon: Icon, label, value, sub, progress }) {
@@ -154,7 +183,7 @@ function PrinterCard({ printer, onSelect }) {
   );
 }
 
-function Sidebar({ page, setPage, open, setOpen, usingDemo }) {
+function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
   const items = [
     ["Dashboard", LayoutDashboard, "dashboard"],
     ["Print Farm", Printer, "printers"],
@@ -184,7 +213,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo }) {
           ))}
         </nav>
         <div className="m-3 rounded-xl border border-white/6 bg-white/[.025] p-3">
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-300"><StatusDot good={!usingDemo} /> {usingDemo ? "Printer API not reachable" : "All systems nominal"}</div>
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-300"><StatusDot tone={summary.tone} /> <span className="truncate">{summary.text}</span></div>
           <div className="mt-2 text-[10px] text-slate-600">Dashboard {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
         </div>
       </aside>
@@ -780,6 +809,7 @@ function Dashboard() {
   const [printerError, setPrinterError] = useState("");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [updatedAt, setUpdatedAt] = useState(null);
 
   const printersInFlight = React.useRef(false);
   const printersGen = React.useRef(0);
@@ -808,7 +838,7 @@ function Dashboard() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      try { const data = await getSystem(); if (active) { setSystem(data); setApiError(false); } }
+      try { const data = await getSystem(); if (active) { setSystem(data); setApiError(false); setUpdatedAt(Date.now()); } }
       catch { if (active) setApiError(true); }
     };
     load();
@@ -836,6 +866,18 @@ function Dashboard() {
 
   const active = useMemo(() => printers.filter(p => p.state === "printing").length, [printers]);
   const online = useMemo(() => printers.filter(p => p.state !== "offline").length, [printers]);
+  const alerts = useMemo(() => buildAlerts({ apiError, usingDemo, printerError, printers, system }), [apiError, usingDemo, printerError, printers, system]);
+  const summary = alertSummary(alerts);
+  const tempState = tempStatus(system?.temperature_c);
+  const services = [
+    { name: "Dashboard API", tone: apiError ? "bad" : system ? "good" : "off", status: apiError ? "Not responding" : system ? "Running" : "Connecting" },
+    { name: "Database", tone: !system ? "off" : system.database?.ok ? "good" : "bad", status: !system ? "—" : system.database?.ok ? `${system.database.printers} printer${system.database.printers === 1 ? "" : "s"}` : "Error" },
+    { name: "Printers", tone: usingDemo ? "bad" : online === printers.length ? "good" : "warn", status: usingDemo ? "Not responding" : `${online} of ${printers.length} online` },
+    // Planned for the board; shown grey until they're actually installed and checked
+    { name: "Docker", tone: "off", status: "Not set up" },
+    { name: "Home Assistant", tone: "off", status: "Not set up" },
+    { name: "Pi-hole", tone: "off", status: "Not set up" },
+  ];
 
   const placeholder = !['dashboard', 'printers', 'server'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
@@ -843,7 +885,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-[#090b12] text-slate-200">
       <div className="flex min-h-screen">
-        <Sidebar page={page} setPage={setPage} open={menu} setOpen={setMenu} usingDemo={usingDemo} />
+        <Sidebar page={page} setPage={setPage} open={menu} setOpen={setMenu} usingDemo={usingDemo} summary={summary} />
         <main className="min-w-0 flex-1">
           <header className="flex h-20 items-center justify-between border-b border-white/7 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
@@ -854,8 +896,8 @@ function Dashboard() {
               </div>
             </div>
             <div className="flex items-center gap-3 text-xs">
-              <div className="hidden items-center gap-2 rounded-full border border-emerald-500/15 bg-emerald-500/6 px-3 py-1.5 text-emerald-300 sm:flex"><StatusDot /> System online</div>
-              <div className={`rounded-full border px-3 py-1.5 ${apiError ? "border-red-500/20 bg-red-500/5 text-red-300" : "border-violet-500/15 bg-violet-500/5 text-violet-300"}`}>{apiError ? "API offline" : system ? "Live system data" : "Connecting..."}</div>
+              <button onClick={() => setPage("dashboard")} className={`hidden max-w-[16rem] items-center gap-2 rounded-full border px-3 py-1.5 sm:flex ${{ good: "border-emerald-500/15 bg-emerald-500/6 text-emerald-300", warn: "border-amber-500/20 bg-amber-500/6 text-amber-200", bad: "border-red-500/20 bg-red-500/6 text-red-300" }[summary.tone]}`}><StatusDot tone={summary.tone} /> <span className="truncate">{summary.tone === "good" ? "All systems online" : summary.text}</span></button>
+              <div className={`rounded-full border px-3 py-1.5 ${apiError ? "border-red-500/20 bg-red-500/5 text-red-300" : "border-violet-500/15 bg-violet-500/5 text-violet-300"}`}>{apiError ? "API offline" : <UpdatedAgo at={updatedAt} />}</div>
             </div>
           </header>
 
@@ -881,7 +923,6 @@ function Dashboard() {
                       <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">Home Lab / Print Farm</h1>
                       <p className="mt-2 text-sm text-slate-500">One place to see what's happening across the shop.</p>
                     </div>
-                    <div className="text-right text-xs text-slate-600">Updated just now</div>
                   </div>
                 </div>
 
@@ -913,29 +954,61 @@ function Dashboard() {
 
                 <section className="mt-8 grid gap-4 lg:grid-cols-3">
                   <div className="lg:col-span-2 rounded-2xl border border-white/8 bg-[#11151f] p-5">
-                    <div className="flex items-center justify-between">
-                      <div><h2 className="font-semibold text-white">Server Health</h2><p className="mt-1 text-xs text-slate-600">Values are simulated until the ROCK 4D is online.</p></div>
-                      <CircleGauge className="text-violet-400" size={20} />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0"><h2 className="font-semibold text-white">Server Health</h2><p className="mt-1 truncate text-xs text-slate-600">{system ? `${system.hostname}${system.ip ? ` · ${system.ip}` : ""}` : "Waiting for API"}</p></div>
+                      <button onClick={() => setPage("server")} className="flex shrink-0 items-center gap-1 text-xs font-medium text-violet-400 hover:text-violet-300">Details <ChevronRight size={14} /></button>
                     </div>
                     <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-xl bg-white/[.025] p-4"><div className="text-xs text-slate-600">Temperature</div><div className="mt-2 text-xl font-semibold text-white">{system?.temperature_c != null ? `${system.temperature_c}°C` : "N/A"}</div><div className="mt-1 text-xs text-emerald-400">{system?.temperature_c != null ? "Live reading" : "Sensor unavailable"}</div></div>
-                      <div className="rounded-xl bg-white/[.025] p-4"><div className="text-xs text-slate-600">Uptime</div><div className="mt-2 text-xl font-semibold text-white">{system ? formatUptime(system.uptime_seconds) : "—"}</div><div className="mt-1 text-xs text-slate-600">{system ? "Live reading" : "Waiting for API"}</div></div>
-                      <div className="rounded-xl bg-white/[.025] p-4"><div className="text-xs text-slate-600">Network</div><div className="mt-2 text-xl font-semibold text-white">1 Gbps</div><div className="mt-1 flex items-center gap-1 text-xs text-emerald-400"><Wifi size={12} /> Connected</div></div>
+                      <div className="rounded-xl bg-white/[.025] p-4">
+                        <div className="text-xs text-slate-600">Temperature</div>
+                        <div className="mt-2 text-xl font-semibold text-white">{system?.temperature_c != null ? `${system.temperature_c}°C` : "N/A"}</div>
+                        {tempState ? <div className={`mt-1 flex items-center gap-1 text-xs ${tempState.cls}`}><tempState.Icon size={12} /> {tempState.label}</div> : <div className="mt-1 text-xs text-slate-600">No sensor on this machine</div>}
+                      </div>
+                      <div className="rounded-xl bg-white/[.025] p-4">
+                        <div className="text-xs text-slate-600">Uptime</div>
+                        <div className="mt-2 text-xl font-semibold text-white">{system ? formatUptime(system.uptime_seconds) : "—"}</div>
+                        <div className="mt-1 text-xs text-slate-600">Since last restart</div>
+                      </div>
+                      <div className="rounded-xl bg-white/[.025] p-4">
+                        <div className="text-xs text-slate-600">Network</div>
+                        <div className="mt-2 flex flex-wrap gap-x-3 text-base font-semibold tabular-nums text-white">
+                          <span className="flex items-center gap-1"><ArrowDownToLine size={14} className="text-slate-500" aria-label="Download" />{system ? formatRate(system.rx_bps) : "—"}</span>
+                          <span className="flex items-center gap-1"><ArrowUpFromLine size={14} className="text-slate-500" aria-label="Upload" />{system ? formatRate(system.tx_bps) : "—"}</span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-1 text-xs text-slate-600"><Wifi size={12} /> {system?.ip ?? "No network address"}</div>
+                      </div>
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
-                    <div className="flex items-center justify-between"><div><h2 className="font-semibold text-white">Services</h2><p className="mt-1 text-xs text-slate-600">Planned stack</p></div><ShieldCheck className="text-emerald-400" size={20} /></div>
+                    <div className="flex items-center justify-between"><div><h2 className="font-semibold text-white">Services</h2><p className="mt-1 text-xs text-slate-600">Live checks</p></div><ShieldCheck className="text-violet-400" size={20} /></div>
                     <div className="mt-4 space-y-3">
-                      {services.map(([name, status, good]) => <div key={name} className="flex items-center justify-between text-sm"><span className="text-slate-400">{name}</span><span className="flex items-center gap-2 text-xs text-slate-500"><StatusDot good={good} />{status}</span></div>)}
+                      {services.map(sv => (
+                        <div key={sv.name} className="flex items-center justify-between gap-3 text-sm">
+                          <span className={sv.tone === "off" ? "text-slate-600" : "text-slate-400"}>{sv.name}</span>
+                          <span className="flex items-center gap-2 whitespace-nowrap text-xs text-slate-500"><StatusDot tone={sv.tone} />{sv.status}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </section>
 
-                <section className="mt-4 grid gap-4 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4"><div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-600"><Archive size={15} /> Storage</div><div className="mt-3 text-sm font-medium text-white">TTRC Files</div><div className="mt-1 text-xs text-slate-600">NVMe storage • independent from iMac DAS</div></div>
-                  <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4"><div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-600"><Network size={15} /> Network</div><div className="mt-3 text-sm font-medium text-white">Gigabit Ethernet</div><div className="mt-1 text-xs text-slate-600">Wi-Fi available as secondary path</div></div>
-                  <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4"><div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-600"><AlertTriangle size={15} /> Alerts</div><div className="mt-3 text-sm font-medium text-white">0 active alerts</div><div className="mt-1 text-xs text-slate-600">Alert system will be added later</div></div>
+                <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+                  <div className="flex items-center justify-between">
+                    <div><h2 className="font-semibold text-white">Alerts</h2><p className="mt-1 text-xs text-slate-600">Printers offline, server temperature, storage and memory</p></div>
+                    <AlertTriangle className={alerts.length ? "text-amber-300" : "text-slate-600"} size={18} />
+                  </div>
+                  {alerts.length ? (
+                    <ul className="mt-4 space-y-2">
+                      {alerts.map(a => (
+                        <li key={a.text} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${a.tone === "bad" ? "border-red-500/20 bg-red-500/6 text-red-200" : "border-amber-500/20 bg-amber-500/6 text-amber-100"}`}>
+                          <StatusDot tone={a.tone} /> {a.text}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="mt-4 flex items-center gap-2 text-sm text-emerald-300"><ShieldCheck size={16} /> No active alerts. Everything is running normally.</div>
+                  )}
                 </section>
               </>
             )}

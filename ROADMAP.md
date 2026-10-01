@@ -22,9 +22,26 @@ Five LEDs, one per printer, in the dashboard's display order.
 | Finished (optional) | Blue |
 | Idle (optional) | Dim |
 
-Two options. Pick based on where the LEDs will sit:
-- **On the ROCK 4D's 40-pin header:** APA102/SK9822 ("DotStar") LEDs driven over SPI, with a 74AHCT125 level shifter. Avoid WS2812/NeoPixel; the Raspberry Pi libraries for them don't work on Rockchip boards.
-- **Separate Wi-Fi bar near the printers:** an ESP32 with 5 LEDs that polls the dashboard API. Works independently of the board's pins.
+**Decided (2026-10-01):** a separate Wi-Fi bar mounted by the printers. An ESP32 polls the dashboard API and drives an 8-LED NeoPixel Stick. Eight LEDs leave room for more printers, and other farm sizes if this is sold. It doesn't depend on the ROCK 4D, so it can be built and tested against the dashboard on the Mac.
+
+#### Parts to order
+| Part | Where | Price |
+|---|---|---|
+| ESP32 38-pin "narrow" board + matching screw-terminal breakout (DORHEA set). Check that the listing says "38-Pin Narrow… with Breakout Board". | [Amazon (ASIN B0C8HDDNLV)](https://www.amazon.com/dp/B0C8HDDNLV) or [Newegg 3-set](https://www.newegg.com/p/3C6-020A-01JA0) | ~$10–15 |
+| NeoPixel Stick, 8 × 5050 RGB LEDs (Adafruit #1426) | [Adafruit](https://www.adafruit.com/product/1426) | $5.95 |
+| 74AHCT125 level shifter (Adafruit #1787). Required: the LEDs need a stronger data signal than the ESP32's 3.3V. | [Adafruit](https://www.adafruit.com/product/1787) | $1.50 |
+| Half-size breadboard + jumper wire bundle (Adafruit #3314) | [Adafruit](https://www.adafruit.com/product/3314) | $9.95 |
+| Female/male jumper wires, 6" (Adafruit #1954) | [Adafruit](https://www.adafruit.com/product/1954) | $1.95 |
+| USB power adapter (5V, 1A+) and a cable matching the ESP32 board (Micro-USB or USB-C) | On hand | — |
+
+About $30–35 total. All the Adafruit parts can go in one order. Prices were checked on 2026-10-01.
+
+#### Build notes
+- Solder three wires to the stick's input pads: **5V**, **GND** and **DIN** (data in). Use the input side, not DOUT.
+- Rough wiring: the stick's 5V and GND go to the ESP32's 5V/VIN and GND. The 74AHCT125 is powered from 5V/GND, with its 1OE pin to GND. An ESP32 data pin goes to the chip's 1A pin, and the chip's 1Y pin goes to the stick's DIN. Make a proper wiring diagram when building.
+- At status-light brightness, 8 LEDs draw well under what USB power provides.
+- Design a 3D-printed bar with a diffuser (translucent PETG or white PLA over the LEDs) and printer labels.
+- Software: a small read-only status endpoint on the dashboard and ESP32 firmware that polls it. Once login exists, the bar uses a read-only access key (see the Login plan).
 
 ## Packaging for release
 Goal: make installing as easy as possible for other people, once it's proven on the ROCK 4D.

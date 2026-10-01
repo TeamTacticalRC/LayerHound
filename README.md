@@ -6,6 +6,8 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
 
 > LayerHound is not affiliated with or endorsed by Bambu Lab, Klipper, Moonraker, OctoPrint, Creality, Elegoo, Snapmaker or any other printer maker or project it works with.
 
+![LayerHound dashboard: five printers with progress, temperatures and time left, plus server health, services and alerts](docs/screenshots/dashboard.png)
+
 ## What it does
 
 | Page | What you get |
@@ -27,6 +29,25 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
 | **Bambu Lab** (P1, X1, A1 series) | Local MQTT on port 8883 | The printer's IP, serial number and 8-character access code (printer screen → network/WLAN settings). Some firmware versions also need **LAN Only** mode. |
 
 Printer monitoring is **read-only**: LayerHound shows what your printers are doing but doesn't control them.
+
+## Screenshots
+
+**Network:** internet health, monitored devices, traffic and a scan that recognizes printers.
+![Network page](docs/screenshots/network.png)
+
+**Services:** health checks, quick-launch tiles, Home Assistant and Pi-hole stats, and Docker containers.
+![Services page](docs/screenshots/services.png)
+
+**Storage:** drive usage and health, usage trend, and the shared files folder.
+![Storage page](docs/screenshots/storage.png)
+
+**Server:** CPU, memory, temperature and storage for the machine running LayerHound.
+![Server page](docs/screenshots/server.png)
+
+**Settings:** branding, accent color, units, alert thresholds and backups.
+![Settings page](docs/screenshots/settings.png)
+
+<sub>Printer data in these screenshots is from a real five-printer farm. The services, containers and files are example entries, and network details such as addresses and serial numbers have been replaced.</sub>
 
 ## Quick start (try it on your computer)
 

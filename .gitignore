@@ -12,3 +12,6 @@ __pycache__/
 # Local printer database: holds access codes and API keys, never commit it
 backend/*.db
 backend/*.db-journal
+
+# Downloaded by deploy/setup.sh (IEEE manufacturer list for network discovery)
+backend/data/

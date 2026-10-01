@@ -13,7 +13,8 @@ echo "==> Installing system packages"
 sudo apt-get update -qq
 # avahi-daemon lets you reach the board as http://<hostname>.local
 # smartmontools (smartctl) reads drive health for the Storage page
-sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools >/dev/null
+# iputils-ping and iproute2 are used by the Network page (ping checks, router address, scan)
+sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools iputils-ping iproute2 curl >/dev/null
 
 # Drive health needs root, so allow exactly the read-only health command and nothing else
 SUDOERS=/etc/sudoers.d/ttrc-dashboard
@@ -27,6 +28,15 @@ cd "$APP_DIR/backend"
 [ -x .venv/bin/python ] || python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements.txt
+
+echo "==> Manufacturer list for network discovery"
+# Public IEEE list that maps device MAC addresses to manufacturers. Optional: discovery works without it.
+mkdir -p "$APP_DIR/backend/data"
+if [ ! -s "$APP_DIR/backend/data/oui.csv" ] || [ -n "$(find "$APP_DIR/backend/data/oui.csv" -mtime +90)" ]; then
+  curl -fsSL --max-time 60 -o "$APP_DIR/backend/data/oui.csv.tmp" https://standards-oui.ieee.org/oui/oui.csv \
+    && mv "$APP_DIR/backend/data/oui.csv.tmp" "$APP_DIR/backend/data/oui.csv" \
+    || echo "   (skipped: couldn't download the list; device manufacturers won't be shown)"
+fi
 
 echo "==> systemd service ($SERVICE, port $PORT)"
 sudo tee /etc/systemd/system/$SERVICE.service >/dev/null <<EOF

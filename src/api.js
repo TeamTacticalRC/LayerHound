@@ -17,3 +17,9 @@ export const emptyTrash=()=>req('/api/files/trash/empty',{method:'POST'});
 export const downloadUrl=path=>`/api/files/download?path=${encodeURIComponent(path)}`;
 // XHR instead of fetch: fetch can't report upload progress
 export function uploadFile(path,file,onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('PUT',`/api/files/upload?path=${encodeURIComponent(path)}&name=${encodeURIComponent(file.name)}`);x.upload.onprogress=e=>e.lengthComputable&&onProgress(e.loaded/e.total);x.onload=()=>{if(x.status<300)resolve(JSON.parse(x.responseText));else{let m=`Upload failed (${x.status})`;try{m=JSON.parse(x.responseText).detail||m}catch{}reject(Error(m))}};x.onerror=()=>reject(Error('Network error during upload'));x.send(file)})}
+export const getNetwork=()=>req('/api/network');
+export const addNetDevice=d=>req('/api/network/devices',{method:'POST',body:JSON.stringify(d)});
+export const editNetDevice=(id,d)=>req(`/api/network/devices/${id}`,{method:'PUT',body:JSON.stringify(d)});
+export const deleteNetDevice=id=>req(`/api/network/devices/${id}`,{method:'DELETE'});
+export const startScan=()=>req('/api/network/scan',{method:'POST'});
+export const getScan=()=>req('/api/network/scan');

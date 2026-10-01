@@ -8,6 +8,7 @@
 - Turn the Docker, Home Assistant and Pi-hole entries in Services into real checks as each is installed.
 - Check that drive health (NVMe wear, temperature, hours) shows up on the Storage page.
 - Optional: share TTRC Files to the Mac as a network drive (Samba).
+- On the Network page, check that the router is found automatically and the Ethernet link speed shows.
 
 ## After the server is fully running
 ### Printer status LED bar

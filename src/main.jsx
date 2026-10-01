@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
-  ArrowDownToLine, ArrowUpFromLine, Clock, CloudUpload, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Box, Camera, Clock, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap
 } from "lucide-react";
 import "./index.css";
@@ -105,6 +105,8 @@ function buildAlerts({ apiError, usingDemo, printerError, printers, system }) {
     if (system.storage_percent >= 90) list.push({ tone: system.storage_percent >= 97 ? "bad" : "warn", text: `Main drive is ${Math.round(system.storage_percent)}% full` });
     if (system.memory_percent >= 92) list.push({ tone: "warn", text: `Memory is ${Math.round(system.memory_percent)}% used` });
     if (system.database && !system.database.ok) list.push({ tone: "bad", text: "Printer database error" });
+    if (system.network?.internet_up === false) list.push({ tone: "bad", text: "Internet is down" });
+    for (const name of system.network?.offline_devices ?? []) list.push({ tone: "warn", text: `${name} is not responding` });
   }
   return list.sort((a, b) => (a.tone === "bad" ? 0 : 1) - (b.tone === "bad" ? 0 : 1));
 }
@@ -346,11 +348,12 @@ function splitAddress(url) {
   return { host: scheme === "https" ? `https://${host}` : host, port: port ?? { https: "443", mqtts: "8883" }[scheme] ?? "80" };
 }
 
-function PrinterFormModal({ printer, onClose, onSaved }) {
+// `initial` pre-fills a new printer, e.g. one found by the Network page's scan
+function PrinterFormModal({ printer, initial, onClose, onSaved }) {
   const editing = !!printer;
   const [form, setForm] = useState(() => editing
     ? { name: printer.name, type: PRINTER_TYPES[printer.type] ? printer.type : "moonraker", ...splitAddress(printer.address), api_key: "", serial: printer.serial ?? "" }
-    : { name: "", type: "moonraker", host: "", port: "", api_key: "", serial: "" });
+    : { name: initial?.name ?? "", type: initial?.type ?? "moonraker", host: initial?.host ?? "", port: initial?.port ? String(initial.port) : "", api_key: "", serial: initial?.serial ?? "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = key => e => setForm(f => ({ ...f, [key]: e.target.value }));
@@ -602,7 +605,8 @@ function Row({ label, value }) {
 }
 
 // One measurement over the last hour. Hover (or touch) shows the value at that moment.
-function HistoryChart({ title, points, field, unit, max, empty }) {
+// bare: no card border/padding, for charts placed inside another card
+function HistoryChart({ title, points, field, unit, max, empty, bare = false }) {
   const wrap = React.useRef(null);
   const [width, setWidth] = useState(300);
   const [hover, setHover] = useState(null);
@@ -643,7 +647,7 @@ function HistoryChart({ title, points, field, unit, max, empty }) {
   };
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className={bare ? "" : "rounded-2xl border border-white/8 bg-[#11151f] p-5"}>
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-semibold text-white">{title}</h3>
         <div className="text-right">
@@ -1100,6 +1104,318 @@ function StoragePage() {
   );
 }
 
+const DEVICE_KINDS = {
+  router: ["Router", Router], printer: ["Printer", Printer], computer: ["Computer", Monitor], server: ["Server", Server],
+  nas: ["NAS / storage", HardDrive], camera: ["Camera", Camera], phone: ["Phone / tablet", Smartphone], other: ["Other", Box],
+};
+
+// 24 one-hour blocks, oldest on the left. Each block shows how many checks succeeded.
+function UptimeBar({ hours, label }) {
+  const now = new Date();
+  return (
+    <div className="flex h-5 gap-[2px]" role="img" aria-label={label}>
+      {hours.map((v, i) => {
+        const at = new Date(now.getTime() - (hours.length - 1 - i) * 3600e3);
+        const cls = v == null ? "bg-white/8" : v >= 0.99 ? "bg-emerald-400/80" : v >= 0.9 ? "bg-amber-400/80" : "bg-red-400/80";
+        return <div key={i} className={`flex-1 rounded-[2px] ${cls}`} title={`${at.toLocaleTimeString([], { hour: "numeric" })}: ${v == null ? "no data" : `${Math.round(v * 100)}% up`}`} />;
+      })}
+    </div>
+  );
+}
+
+function DeviceForm({ device, onSave, onCancel }) {
+  const [f, setF] = useState({ name: device?.name ?? "", host: device?.host ?? "", kind: device?.kind ?? "other", port: device?.port ? String(device.port) : "" });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
+  const submit = async e => {
+    e.preventDefault();
+    if (!f.name.trim() || !f.host.trim()) return setError("Give it a name and an IP address or hostname.");
+    setSaving(true); setError("");
+    try { await onSave({ name: f.name.trim(), host: f.host.trim(), kind: f.kind, port: f.port ? Number(f.port) : null }); }
+    catch (err) { setError(err.message); setSaving(false); }
+  };
+  return (
+    <form onSubmit={submit} className="space-y-3 border-b border-white/6 bg-white/[.02] p-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Name"><input autoFocus className={inputClass} placeholder="Shop camera" value={f.name} onChange={set("name")} /></Field>
+        <Field label="IP address or hostname"><input className={inputClass} placeholder="192.168.1.40" value={f.host} onChange={set("host")} /></Field>
+        <Field label="Type">
+          <select className={inputClass} value={f.kind} onChange={set("kind")}>{Object.entries(DEVICE_KINDS).map(([k, [label]]) => <option key={k} value={k}>{label}</option>)}</select>
+        </Field>
+        <Field label="Port (optional)" hint="Leave blank to use ping. Enter a port for devices that ignore ping.">
+          <input className={inputClass} inputMode="numeric" placeholder="Ping" value={f.port} onChange={set("port")} />
+        </Field>
+      </div>
+      {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
+        <button type="submit" disabled={saving} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{saving ? "Saving…" : device ? "Save" : "Add device"}</button>
+      </div>
+    </form>
+  );
+}
+
+function DeviceMonitor({ devices, checkEvery, onChanged }) {
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const up = devices.filter(d => d.up).length;
+  const iconBtn = "rounded-lg p-2 text-slate-500 hover:bg-white/6 hover:text-white";
+  return (
+    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div><h2 className="font-semibold text-white">Device monitor</h2><p className="mt-1 text-xs text-slate-600">{devices.length ? `${up} of ${devices.length} responding · checked every ${checkEvery / 60} min · last 24 hours` : "Add devices to watch"}</p></div>
+        {!adding && <button onClick={() => { setAdding(true); setEditing(null); }} className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><Plus size={16} /> Add device</button>}
+      </div>
+      <div className="mt-4 overflow-hidden rounded-xl border border-white/6">
+        {adding && <DeviceForm onCancel={() => setAdding(false)} onSave={async d => { await addNetDevice(d); setAdding(false); onChanged(); }} />}
+        {devices.length === 0 && !adding && <div className="py-10 text-center text-sm text-slate-500">No devices yet. Add one, or use Scan network below to find them.</div>}
+        {devices.map(d => {
+          const [kindLabel, KindIcon] = DEVICE_KINDS[d.kind] ?? DEVICE_KINDS.other;
+          if (editing === d.id) return <DeviceForm key={d.id} device={d} onCancel={() => setEditing(null)} onSave={async x => { await editNetDevice(d.id, x); setEditing(null); onChanged(); }} />;
+          return (
+            <div key={d.id} className="group grid items-center gap-x-4 gap-y-2 border-b border-white/6 px-3 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto]">
+              <div className="flex min-w-0 items-center gap-3">
+                <StatusDot tone={d.up == null ? "off" : d.up ? "good" : "bad"} />
+                <KindIcon size={17} className="shrink-0 text-slate-500" aria-label={kindLabel} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-white">{d.name}</div>
+                  <div className="truncate text-[11px] text-slate-600">{d.host}{d.port ? `:${d.port}` : ""} · {d.up == null ? "Checking…" : d.up ? `${d.ms} ms` : "Not responding"}</div>
+                </div>
+              </div>
+              <div className="min-w-0">
+                <UptimeBar hours={d.hours} label={`${d.name} uptime, last 24 hours`} />
+                <div className="mt-1 text-[11px] text-slate-600">{d.uptime_24h == null ? "No data yet" : `${d.uptime_24h}% up`}</div>
+              </div>
+              {confirm === d.id ? (
+                <div className="flex items-center gap-1">
+                  <button onClick={async () => { await deleteNetDevice(d.id); setConfirm(null); onChanged(); }} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-500">Remove</button>
+                  <button onClick={() => setConfirm(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-end sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+                  <button onClick={() => { setEditing(d.id); setAdding(false); }} className={iconBtn} aria-label={`Edit ${d.name}`}><Pencil size={16} /></button>
+                  <button onClick={() => setConfirm(d.id)} className={`${iconBtn} hover:text-red-300`} aria-label={`Remove ${d.name}`}><Trash2 size={16} /></button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InterfaceCard({ iface }) {
+  const mbps = (field) => iface.history.map(p => ({ t: p.t, v: +(p[field] * 8 / 1e6).toFixed(2) }));
+  return (
+    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 font-semibold text-white">{iface.type === "Wi-Fi" ? <Wifi size={16} className="text-violet-400" /> : <Network size={16} className="text-violet-400" />} {iface.type} <span className="text-xs font-normal text-slate-500">({iface.name})</span></h3>
+          <p className="mt-1 truncate text-xs text-slate-600">{iface.ipv4 ?? "No IPv4 address"}{iface.mac ? ` · ${iface.mac}` : ""}{iface.speed_mbps ? ` · ${iface.speed_mbps >= 1000 ? `${iface.speed_mbps / 1000} Gbps` : `${iface.speed_mbps} Mbps`} link` : ""}</p>
+        </div>
+        <div className="shrink-0 text-right text-xs text-slate-500">
+          <div>Today</div>
+          <div className="mt-0.5 tabular-nums text-slate-300"><ArrowDownToLine size={11} className="inline" /> {formatBytes(iface.today_rx)} · <ArrowUpFromLine size={11} className="inline" /> {formatBytes(iface.today_tx)}</div>
+        </div>
+      </div>
+      <div className="mt-5 grid gap-6 md:grid-cols-2">
+        <HistoryChart bare title="Download (Mbps)" points={mbps("rx")} field="v" unit=" Mbps" />
+        <HistoryChart bare title="Upload (Mbps)" points={mbps("tx")} field="v" unit=" Mbps" />
+      </div>
+    </div>
+  );
+}
+
+function Discovery({ printers, devices, onAddPrinter, onMonitored }) {
+  const [scan, setScan] = useState(null);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [printersOnly, setPrintersOnly] = useState(false);
+  const [added, setAdded] = useState({});
+
+  const poll = useCallback(async () => { try { setScan(await getScan()); } catch (e) { setError(e.message); } }, []);
+  useEffect(() => { poll(); }, [poll]);
+  useEffect(() => {
+    if (!scan?.running) return;
+    const t = setInterval(poll, 1000);
+    return () => clearInterval(t);
+  }, [scan?.running, poll]);
+
+  const run = async () => { setError(""); try { setScan(await startScan()); } catch (e) { setError(e.message); } };
+
+  // What's already on the dashboard, from live data, so adding something updates this list immediately
+  const onDashboard = useMemo(() => {
+    const m = {};
+    for (const p of printers) { const h = String(p.address ?? "").replace(/^[a-z]+:\/\//, "").split(/[:/]/)[0]; if (h) m[h] = `Printer: ${p.name}`; }
+    for (const d of devices) m[d.host] ??= `Monitored: ${d.name}`;
+    return m;
+  }, [printers, devices]);
+
+  const results = (scan?.results ?? []).filter(r =>
+    (!printersOnly || r.printer) &&
+    (!query || [r.ip, r.hostname, r.vendor, r.label].some(v => String(v ?? "").toLowerCase().includes(query.toLowerCase()))));
+  const printerCount = (scan?.results ?? []).filter(r => r.printer).length;
+
+  const monitor = async r => {
+    const name = r.label && !["This server"].includes(r.label) ? (r.hostname?.split(".")[0] || r.label) : (r.hostname?.split(".")[0] || r.vendor || r.ip);
+    await addNetDevice({ name, host: r.ip, kind: r.printer ? "printer" : r.label === "Router" ? "router" : "other", port: null });
+    setAdded(a => ({ ...a, [r.ip]: true })); onMonitored();
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div>
+          <h2 className="font-semibold text-white">Device discovery</h2>
+          <p className="mt-1 text-xs text-slate-600">
+            {scan?.running ? `Scanning ${scan.subnet ?? "the network"}…`
+              : scan?.finished ? `Found ${scan.results.length} devices on ${scan.subnet}${printerCount ? `, including ${printerCount} printer${printerCount === 1 ? "" : "s"}` : ""} · ${new Date(scan.finished).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+              : "Find everything on your network, including printers the dashboard can add."}
+          </p>
+        </div>
+        <button onClick={run} disabled={scan?.running} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-60">
+          {scan?.running ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />} {scan?.running ? `Scanning ${scan.progress}%` : scan?.finished ? "Scan again" : "Scan network"}
+        </button>
+      </div>
+      {scan?.running && <div className="mt-4"><Bar percent={scan.progress} warnAt={101} /></div>}
+      {(error || scan?.error) && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error || scan.error}</div>}
+
+      {scan?.results?.length > 0 && (
+        <>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+              <input className={`${inputClass} pl-9`} placeholder="Filter by IP, name or manufacturer" value={query} onChange={e => setQuery(e.target.value)} />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-400"><input type="checkbox" className="accent-violet-500" checked={printersOnly} onChange={e => setPrintersOnly(e.target.checked)} /> Printers only</label>
+          </div>
+          <div className="mt-3 overflow-hidden rounded-xl border border-white/6">
+            {results.length === 0 && <div className="py-8 text-center text-sm text-slate-500">Nothing matches that filter.</div>}
+            {results.map(r => {
+              const known = onDashboard[r.ip];
+              return (
+                <div key={r.ip} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-white/6 px-3 py-2.5 last:border-0">
+                  <span className="w-28 shrink-0 font-mono text-xs tabular-nums text-slate-300">{r.ip}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm text-white">{r.hostname?.replace(/\.(home\.)?local$/, "") || r.vendor || "Unknown device"}</span>
+                      {r.label && <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${r.printer ? "border-violet-400/30 bg-violet-500/10 text-violet-200" : "border-white/10 text-slate-400"}`}>{r.label}</span>}
+                    </div>
+                    <div className="truncate text-[11px] text-slate-600">{[r.hostname && r.vendor, r.mac, r.ms != null ? `${r.ms} ms` : "Ignores ping"].filter(Boolean).join(" · ")}</div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {known ? <span className="flex items-center gap-1.5 text-xs text-emerald-300"><StatusDot tone="good" /> {known}</span> : (
+                      <>
+                        {r.printer && <button onClick={() => onAddPrinter({ ...r.printer, name: r.hostname?.split(".")[0] ?? "" })} className="rounded-lg bg-violet-500 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-violet-400">Add printer</button>}
+                        {added[r.ip] ? <span className="text-xs text-emerald-300">Monitoring</span> : <button onClick={() => monitor(r)} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/5">Monitor</button>}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function NetworkPage({ printers, onAddPrinter }) {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try { setInfo(await getNetwork()); setError(""); }
+    catch (e) { setError(e.message || "network error"); }
+  }, []);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  if (!info) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-500">
+        {error ? <span className="flex items-center gap-2 text-red-300"><AlertTriangle size={16} /> Couldn't reach the network API ({error}).</span> : <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Checking the network…</span>}
+      </div>
+    );
+  }
+
+  const { internet, devices, interfaces } = info;
+  const devUp = devices.filter(d => d.up).length;
+  const todayRx = interfaces.reduce((n, i) => n + i.today_rx, 0), todayTx = interfaces.reduce((n, i) => n + i.today_tx, 0);
+  const inetTone = internet.up == null ? "off" : internet.up ? "good" : "bad";
+
+  return (
+    <>
+      <div className="mb-7">
+        <h1 className="text-3xl font-bold tracking-tight text-white">Network</h1>
+        <p className="mt-2 text-sm text-slate-500">Internet, devices, connections and discovery{info.gateway ? ` · Router ${info.gateway}` : ""}</p>
+      </div>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Globe size={15} /> Internet</div>
+          <div className="mt-3 flex items-center gap-2 text-2xl font-semibold tracking-tight text-white"><StatusDot tone={inetTone} /> {internet.up == null ? "Checking" : internet.up ? "Online" : "Offline"}</div>
+          <div className="mt-1 text-xs text-slate-500">{internet.up ? `${internet.ms} ms response` : "No response from 1.1.1.1 or 8.8.8.8"}</div>
+        </div>
+        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Search size={15} /> DNS &amp; public IP</div>
+          <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{internet.dns_ok == null ? "—" : internet.dns_ok ? `${internet.dns_ms} ms` : "Failing"}</div>
+          <div className="mt-1 truncate text-xs text-slate-500">Public IP {internet.public_ip ?? "unknown"}</div>
+        </div>
+        <Metric icon={Router} label="Devices" value={devices.length ? `${devUp} / ${devices.length}` : "—"} sub={devices.length ? (devUp === devices.length ? "All responding" : `${devices.length - devUp} not responding`) : "None monitored yet"} />
+        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Network size={15} /> Data today</div>
+          <div className="mt-3 flex flex-wrap gap-x-4 text-lg font-semibold tabular-nums text-white">
+            <span className="flex items-center gap-1.5"><ArrowDownToLine size={16} className="text-slate-500" aria-label="Downloaded" />{formatBytes(todayRx)}</span>
+            <span className="flex items-center gap-1.5"><ArrowUpFromLine size={16} className="text-slate-500" aria-label="Uploaded" />{formatBytes(todayTx)}</span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500">This server, since midnight</div>
+        </div>
+      </section>
+
+      <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div><h2 className="font-semibold text-white">Internet health</h2><p className="mt-1 text-xs text-slate-600">{internet.uptime_24h == null ? "Collecting data" : `${internet.uptime_24h}% up in the last 24 hours · ${internet.uptime_7d}% over 7 days`}</p></div>
+            <Globe className="shrink-0 text-violet-400" size={18} />
+          </div>
+          <div className="mt-4"><UptimeBar hours={internet.hours} label="Internet uptime, last 24 hours" /></div>
+          <div className="mt-1 flex justify-between text-[10px] text-slate-600"><span>24 hours ago</span><span>now</span></div>
+          <div className="mt-4"><HistoryChart bare title="Response time (ms)" points={internet.history} field="ms" unit=" ms" empty="Checked every minute. The chart fills in over the next few minutes." /></div>
+          <div className="mt-4">
+            <div className="text-xs font-medium uppercase tracking-wider text-slate-600">Outages (last 7 days)</div>
+            {internet.outages.length ? (
+              <ul className="mt-2 space-y-1.5">
+                {internet.outages.map(o => (
+                  <li key={o.start} className="flex justify-between gap-3 rounded-lg border border-red-500/15 bg-red-500/5 px-3 py-2 text-xs">
+                    <span className="text-red-200">{new Date(o.start * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                    <span className="text-slate-400">{o.end ? `${o.minutes} min` : `ongoing, ${o.minutes} min so far`}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <div className="mt-2 flex items-center gap-2 text-sm text-emerald-300"><ShieldCheck size={15} /> No outages recorded.</div>}
+          </div>
+        </div>
+        <DeviceMonitor devices={devices} checkEvery={info.check_every} onChanged={load} />
+      </section>
+
+      <section className="mt-4 space-y-4">
+        {interfaces.map(i => <InterfaceCard key={i.name} iface={i} />)}
+      </section>
+
+      <section className="mt-4">
+        <Discovery printers={printers} devices={devices} onAddPrinter={onAddPrinter} onMonitored={load} />
+      </section>
+    </>
+  );
+}
+
 function Dashboard() {
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState("dashboard");
@@ -1180,7 +1496,7 @@ function Dashboard() {
     { name: "Pi-hole", tone: "off", status: "Not set up" },
   ];
 
-  const placeholder = !['dashboard', 'printers', 'server', 'storage'].includes(page);
+  const placeholder = !['dashboard', 'printers', 'server', 'storage', 'network'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
 
   return (
@@ -1207,6 +1523,8 @@ function Dashboard() {
               <ServerPage />
             ) : page === "storage" ? (
               <StoragePage />
+            ) : page === "network" ? (
+              <NetworkPage printers={livePrinters ?? []} onAddPrinter={p => setAdding(p)} />
             ) : page === "printers" ? (
               <PrintFarmPage printers={printers} usingDemo={usingDemo} printerError={printerError} onSelect={setSelected} onAdd={() => setAdding(true)} onSaveOrder={saveOrder} />
             ) : placeholder ? (
@@ -1298,7 +1616,7 @@ function Dashboard() {
 
                 <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
                   <div className="flex items-center justify-between">
-                    <div><h2 className="font-semibold text-white">Alerts</h2><p className="mt-1 text-xs text-slate-600">Printers offline, server temperature, storage and memory</p></div>
+                    <div><h2 className="font-semibold text-white">Alerts</h2><p className="mt-1 text-xs text-slate-600">Printers, internet, monitored devices, server temperature, storage and memory</p></div>
                     <AlertTriangle className={alerts.length ? "text-amber-300" : "text-slate-600"} size={18} />
                   </div>
                   {alerts.length ? (
@@ -1319,7 +1637,7 @@ function Dashboard() {
         </main>
       </div>
       {selectedLive && <DetailPanel printer={selectedLive} isDemo={usingDemo} close={closeDetail} onRemoved={refreshPrinters} onEdit={startEdit} />}
-      {adding && <PrinterFormModal onClose={closeAdd} onSaved={refreshPrinters} />}
+      {adding && <PrinterFormModal initial={typeof adding === "object" ? adding : undefined} onClose={closeAdd} onSaved={refreshPrinters} />}
       {editing && <PrinterFormModal printer={editing} onClose={closeEdit} onSaved={refreshPrinters} />}
     </div>
   );

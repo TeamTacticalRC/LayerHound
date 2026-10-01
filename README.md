@@ -47,6 +47,8 @@ The script builds the frontend, copies the project to `~/ttrc-dashboard` on the 
 
 The Storage page's **TTRC Files** folder is `~/TTRC Files` for the user the service runs as (set `TTRC_FILES` to use another location). It lives outside the app folder, so deploys never touch it. Drive health uses `smartctl`, which `setup.sh` installs along with a sudo rule limited to the read-only health command.
 
+The Network page checks the internet and your monitored devices every minute and keeps 7 days of history. Network scans only cover the local network (at most 254 addresses) and only run when you press **Scan network**. `setup.sh` downloads the public IEEE manufacturer list (`backend/data/oui.csv`) so scans can name device makers.
+
 Useful commands on the board:
 ```bash
 systemctl status ttrc-dashboard

@@ -18,7 +18,7 @@ npm run build --silent
 echo "==> Copying files to $TARGET:~/$REMOTE_DIR"
 rsync -az --delete \
   --exclude .git --exclude node_modules --exclude .DS_Store \
-  --exclude 'backend/.venv' --exclude '__pycache__' --exclude 'backend/*.db*' \
+  --exclude 'backend/.venv' --exclude '__pycache__' --exclude 'backend/*.db*' --exclude 'backend/data' \
   ./ "$TARGET:$REMOTE_DIR/"
 
 if [ "$WITH_DB" = "--with-db" ]; then

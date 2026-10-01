@@ -13,8 +13,8 @@ const APP_VERSION = "v0.4";
 // Display preferences from the Settings page. A plain object so helpers outside components can
 // read it; the Dashboard re-renders the whole app whenever settings change.
 const prefs = {
-  brand_name: "Team Tactical RC", brand_short: "TTRC", brand_tagline: "Home Lab / Print Farm",
-  brand_description: "One place to see what's happening across the shop.", accent: "violet",
+  brand_name: "LayerHound", brand_short: "LayerHound", brand_tagline: "Print Farm & Home Lab",
+  brand_description: "One place to see what's happening across your print farm.", accent: "violet",
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
   network_history_days: 7, storage_history_days: 90, data_usage_days: 90,
@@ -51,7 +51,7 @@ const fmtDate = (d, opts) => new Date(d).toLocaleString([], { ...opts, hour12: p
 
 // Shown only when the backend's /api/printers can't be reached.
 const DEMO_PRINTERS = [
-  { id: "demo-1", name: "Printer 01", model: "Klipper", state: "printing", job: "TTRC_RaceWing_v4.gcode", progress: 72, eta: "1h 24m", nozzle: 214, bed: 58, layer: "118 / 164" },
+  { id: "demo-1", name: "Printer 01", model: "Klipper", state: "printing", job: "Benchy_PLA_0.2mm.gcode", progress: 72, eta: "1h 24m", nozzle: 214, bed: 58, layer: "118 / 164" },
   { id: "demo-2", name: "Printer 02", model: "OctoPrint", state: "idle", job: null, progress: 0, eta: "—", nozzle: 31, bed: 29, layer: "—" },
   { id: "demo-3", name: "Printer 03", model: "Klipper", state: "complete", job: "NASCAR_Display_Base.gcode", progress: 100, eta: "Complete", nozzle: 29, bed: 27, layer: "142 / 142" },
   { id: "demo-4", name: "Printer 04", model: "Klipper", state: "offline", job: null, progress: 0, eta: "—", nozzle: 0, bed: 0, layer: "—" },
@@ -225,11 +225,14 @@ function PrinterCard({ printer, onSelect }) {
   );
 }
 
-// The dashboard name, with its last word in the accent color (e.g. "TEAM TACTICAL RC")
+// The dashboard name with its last word in the accent color ("TEAM TACTICAL RC"), or for a
+// single CamelCase word, its last part ("LAYERHOUND" with "HOUND" accented)
 function BrandMark() {
   const words = prefs.brand_name.trim().split(/\s+/);
-  const last = words.length > 1 ? words.pop() : null;
-  return <div className="truncate text-lg font-black uppercase tracking-tight text-white" title={prefs.brand_name}>{words.join(" ")}{last && <> <span className="text-violet-400">{last}</span></>}</div>;
+  let last = words.length > 1 ? words.pop() : null;
+  const camel = !last && words[0].match(/^(.+?)([A-Z][a-z0-9]+)$/);
+  if (camel) { words[0] = camel[1]; last = camel[2]; }
+  return <div className="truncate text-lg font-black uppercase tracking-tight text-white" title={prefs.brand_name}>{words.join(" ")}{last && <>{camel ? "" : " "}<span className="text-violet-400">{last}</span></>}</div>;
 }
 
 function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
@@ -1747,7 +1750,7 @@ function BrandingSection({ onSaved }) {
       footer={<>{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Dashboard name" hint="The last word is shown in the accent color."><input className={inputClass} maxLength={40} value={f.brand_name} onChange={set("brand_name")} /></Field>
-        <Field label="Short name" hint={`Used in labels like "${f.brand_short || "TTRC"} Files".`}><input className={inputClass} maxLength={12} value={f.brand_short} onChange={set("brand_short")} /></Field>
+        <Field label="Short name" hint={`Used in labels like "${f.brand_short || "LayerHound"} Files".`}><input className={inputClass} maxLength={12} value={f.brand_short} onChange={set("brand_short")} /></Field>
         <Field label="Tagline" hint="Under the name in the sidebar, and the main heading."><input className={inputClass} maxLength={60} value={f.brand_tagline} onChange={set("brand_tagline")} /></Field>
         <Field label="Description" hint="Shown under the main heading. Leave blank to hide."><input className={inputClass} maxLength={120} value={f.brand_description} onChange={set("brand_description")} /></Field>
       </div>
@@ -1819,7 +1822,7 @@ function DataSection({ onSaved, onRestored }) {
     setRestoreMsg(null);
     try {
       const data = JSON.parse(await file.text());
-      if (data.app !== "ttrc-dashboard") throw Error("This file isn't a dashboard backup.");
+      if (!["layerhound", "ttrc-dashboard"].includes(data.app)) throw Error("This file isn't a LayerHound backup.");
       setRestore({ name: file.name, data });
     } catch (err) { setRestoreMsg({ error: err.message.startsWith("This file") ? err.message : "Couldn't read that file. Choose a backup .json from this dashboard." }); }
   };

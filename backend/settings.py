@@ -14,10 +14,10 @@ after_restore=[]
 
 # Every setting with its default and allowed values. Anything not listed here is rejected.
 SCHEMA={
- 'brand_name':('Team Tactical RC',str,(1,40)),
- 'brand_short':('TTRC',str,(1,12)),
- 'brand_tagline':('Home Lab / Print Farm',str,(0,60)),
- 'brand_description':("One place to see what's happening across the shop.",str,(0,120)),
+ 'brand_name':('LayerHound',str,(1,40)),
+ 'brand_short':('LayerHound',str,(1,12)),
+ 'brand_tagline':('Print Farm & Home Lab',str,(0,60)),
+ 'brand_description':("One place to see what's happening across your print farm.",str,(0,120)),
  'accent':('violet',str,('violet','indigo','blue','fuchsia','pink')),
  'temp_unit':('C',str,('C','F')),
  'time_format':('12',str,('12','24')),
@@ -106,7 +106,7 @@ SECRET_COLUMNS={'printers':('api_key',),'services':('token',)}
 
 @router.get('/backup')
 def backup(secrets:bool=True):
- c=_db(); data={'app':'ttrc-dashboard','version':APP_VERSION,'created':datetime.now(timezone.utc).isoformat(),'includes_secrets':secrets,'settings':all_settings()}
+ c=_db(); data={'app':'layerhound','version':APP_VERSION,'created':datetime.now(timezone.utc).isoformat(),'includes_secrets':secrets,'settings':all_settings()}
  for t,cols in BACKUP_TABLES.items():
   rows=[dict(zip(cols,r)) for r in c.execute(f'SELECT {",".join(cols)} FROM {t} ORDER BY sort_order,id')]
   if not secrets:
@@ -114,7 +114,7 @@ def backup(secrets:bool=True):
     for col in SECRET_COLUMNS.get(t,()): r[col]=None
   data[t]=rows
  c.close()
- name=f"ttrc-dashboard-backup-{datetime.now().strftime('%Y-%m-%d')}.json"
+ name=f"layerhound-backup-{datetime.now().strftime('%Y-%m-%d')}.json"
  return Response(json.dumps(data,indent=2),media_type='application/json',headers={'Content-Disposition':f'attachment; filename="{name}"'})
 
 def fill(col,v,i):
@@ -130,7 +130,8 @@ def fill(col,v,i):
 @router.post('/restore')
 def restore(data:dict):
  # Replaces printers, devices, services and settings with the backup's contents, all or nothing
- if data.get('app')!='ttrc-dashboard': raise HTTPException(400,"This file isn't a dashboard backup")
+ # 'ttrc-dashboard' is the app id used by backups made before the rename
+ if data.get('app') not in ('layerhound','ttrc-dashboard'): raise HTTPException(400,"This file isn't a LayerHound backup")
  for t in BACKUP_TABLES:
   if not isinstance(data.get(t),list): raise HTTPException(400,f'Backup is missing its {t} list')
  settings_in={k:v for k,v in (data.get('settings') or {}).items() if k in SCHEMA}

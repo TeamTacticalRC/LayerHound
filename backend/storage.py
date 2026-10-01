@@ -1,4 +1,4 @@
-# Storage page: drive health, usage history, and the shared "TTRC Files" folder.
+# Storage page: drive health, usage history, and the shared files folder.
 from datetime import datetime, timezone
 from pathlib import Path
 import json, os, re, shutil, subprocess, sys, time
@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # Shared files live outside the app folder so a redeploy (rsync --delete) never touches them.
-FILES_ROOT=Path(os.environ.get('TTRC_FILES') or Path.home()/'TTRC Files').expanduser()
+FILES_ROOT=Path(os.environ.get('LAYERHOUND_FILES') or os.environ.get('TTRC_FILES') or Path.home()/'LayerHound Files').expanduser()
 TRASH_NAME='.trash'; RECORD_EVERY=15*60
 router=APIRouter(prefix='/api')
 _db=None; _disks=None
@@ -67,7 +67,7 @@ def _read_health(dev):
    written_tb=round(n.get('data_units_written',0)*512000/1e12,2),critical_warning=n.get('critical_warning'))
  return h
 
-# ---- TTRC Files ---------------------------------------------------------------------
+# ---- Shared files -------------------------------------------------------------------
 def root(): return FILES_ROOT.resolve()
 def trash(): return root()/TRASH_NAME
 

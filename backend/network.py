@@ -32,8 +32,8 @@ def configure(db):
   if gw: c.execute('INSERT INTO net_devices(name,host,kind,sort_order,created_at) VALUES(?,?,?,?,?)',('Router',gw,'router',1,now()))
   c.execute('CREATE TABLE net_seeded(x)')
  c.commit(); c.close()
- threading.Thread(target=checker,daemon=True,name='ttrc-net-checker').start()
- threading.Thread(target=iface_sampler,daemon=True,name='ttrc-net-ifaces').start()
+ threading.Thread(target=checker,daemon=True,name='layerhound-net-checker').start()
+ threading.Thread(target=iface_sampler,daemon=True,name='layerhound-net-ifaces').start()
 
 def now(): return datetime.now(timezone.utc).isoformat()
 
@@ -345,7 +345,7 @@ def start_scan():
  if scan['running']: return scan
  known=known_hosts()
  scan.update(running=True,progress=0,started=now(),finished=None,results=[],error=None)
- threading.Thread(target=run_scan,args=(known,),daemon=True,name='ttrc-net-scan').start(); return scan
+ threading.Thread(target=run_scan,args=(known,),daemon=True,name='layerhound-net-scan').start(); return scan
 
 @router.get('/scan')
 def scan_status(): return scan

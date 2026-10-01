@@ -6,8 +6,8 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_USER="$(id -un)"
-PORT="${TTRC_PORT:-80}"
-SERVICE=ttrc-dashboard
+PORT="${LAYERHOUND_PORT:-${TTRC_PORT:-80}}"
+SERVICE=layerhound
 
 echo "==> Installing system packages"
 sudo apt-get update -qq
@@ -17,7 +17,7 @@ sudo apt-get update -qq
 sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools iputils-ping iproute2 curl >/dev/null
 
 # Drive health needs root, so allow exactly the read-only health command and nothing else
-SUDOERS=/etc/sudoers.d/ttrc-dashboard
+SUDOERS=/etc/sudoers.d/layerhound
 echo "$APP_USER ALL=(root) NOPASSWD: /usr/sbin/smartctl --json -a /dev/*" | sudo tee "$SUDOERS.tmp" >/dev/null
 sudo visudo -cf "$SUDOERS.tmp" >/dev/null && sudo install -m 440 "$SUDOERS.tmp" "$SUDOERS"; sudo rm -f "$SUDOERS.tmp"
 
@@ -41,7 +41,7 @@ fi
 echo "==> systemd service ($SERVICE, port $PORT)"
 sudo tee /etc/systemd/system/$SERVICE.service >/dev/null <<EOF
 [Unit]
-Description=TTRC Home Lab Dashboard
+Description=LayerHound print farm and home lab dashboard
 After=network-online.target
 Wants=network-online.target
 

@@ -9,7 +9,7 @@ set -euo pipefail
 
 TARGET="${1:-}"; WITH_DB="${2:-}"
 if [ -z "$TARGET" ]; then echo "Usage: deploy/deploy.sh user@host [--with-db]" >&2; exit 1; fi
-REMOTE_DIR="ttrc-dashboard"   # relative to the board user's home folder
+REMOTE_DIR="layerhound"   # relative to the board user's home folder
 cd "$(dirname "$0")/.."
 
 echo "==> Building frontend"
@@ -23,7 +23,8 @@ rsync -az --delete \
 
 if [ "$WITH_DB" = "--with-db" ]; then
   echo "==> Copying printer database"
-  rsync -az backend/ttrc.db "$TARGET:$REMOTE_DIR/backend/ttrc.db"
+  DB=backend/layerhound.db; [ -f "$DB" ] || DB=backend/ttrc.db   # installs from before the rename
+  rsync -az "$DB" "$TARGET:$REMOTE_DIR/backend/layerhound.db"
 fi
 
 echo "==> Running setup on the board (it may ask for the board's password for sudo)"

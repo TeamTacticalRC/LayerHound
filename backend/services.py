@@ -18,7 +18,7 @@ def configure(db):
  global _db; _db=db
  c=_db(); c.execute("CREATE TABLE IF NOT EXISTS services(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,url TEXT NOT NULL,integration TEXT NOT NULL DEFAULT 'none',token TEXT,sort_order INTEGER,created_at TEXT NOT NULL)")
  c.commit(); c.close()
- threading.Thread(target=checker,daemon=True,name='ttrc-services').start()
+ threading.Thread(target=checker,daemon=True,name='layerhound-services').start()
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def rows():
@@ -40,7 +40,7 @@ def check(s):
  if kind=='tcp': ms=network.tcp(*target,timeout=3); return ms,None if ms is not None else 'Port not answering'
  t=time.perf_counter()
  try:
-  req=urllib.request.Request(target,headers={'User-Agent':'TTRC-Dashboard/health-check'})
+  req=urllib.request.Request(target,headers={'User-Agent':'LayerHound/health-check'})
   with urllib.request.urlopen(req,timeout=5,context=INSECURE) as r: code=r.status
  except urllib.error.HTTPError as e: code=e.code
  except Exception as e: return None,short_error(e)
@@ -131,7 +131,7 @@ def refresh_stats():
   if s['integration']!='none': stats[s['id']]=integration_stats(s)
 
 # ---- Docker -----------------------------------------------------------------------------
-DOCKER_SOCKS=[os.environ.get('TTRC_DOCKER_SOCK'),'/var/run/docker.sock',str(Path.home()/'.docker/run/docker.sock')]
+DOCKER_SOCKS=[os.environ.get('LAYERHOUND_DOCKER_SOCK') or os.environ.get('TTRC_DOCKER_SOCK'),'/var/run/docker.sock',str(Path.home()/'.docker/run/docker.sock')]
 class UnixHTTP(http.client.HTTPConnection):
  def __init__(s,path): super().__init__('localhost',timeout=10); s.path=path
  def connect(s): s.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.sock.settimeout(10); s.sock.connect(s.path)

@@ -1,4 +1,8 @@
-# TTRC Home Lab Dashboard — v0.3
+# LayerHound — v0.4
+
+A home hub for monitoring your 3D print farm, managing storage and backups, and monitoring network traffic. By Team Tactical RC.
+
+LayerHound is not affiliated with or endorsed by Bambu Lab, Klipper, Moonraker, OctoPrint, Creality, Elegoo, Snapmaker or any other printer maker or project it works with.
 
 v0.3 adds a real printer registry and live, read-only printer monitoring.
 
@@ -43,9 +47,9 @@ deploy/deploy.sh user@BOARD-HOSTNAME.local --with-db
 ```
 `--with-db` copies this Mac's printer list to the board. Leave it off for later updates so the board keeps its own list.
 
-The script builds the frontend, copies the project to `~/ttrc-dashboard` on the board, and runs `deploy/setup.sh` there, which installs Python packages and a `ttrc-dashboard` systemd service (starts on boot, restarts on crashes). Then open `http://BOARD-HOSTNAME.local`.
+The script builds the frontend, copies the project to `~/layerhound` on the board, and runs `deploy/setup.sh` there, which installs Python packages and a `layerhound` systemd service (starts on boot, restarts on crashes). Then open `http://BOARD-HOSTNAME.local`.
 
-The Storage page's **TTRC Files** folder is `~/TTRC Files` for the user the service runs as (set `TTRC_FILES` to use another location). It lives outside the app folder, so deploys never touch it. Drive health uses `smartctl`, which `setup.sh` installs along with a sudo rule limited to the read-only health command.
+The Storage page's shared files folder is `~/LayerHound Files` for the user the service runs as (set `LAYERHOUND_FILES` to use another location). It lives outside the app folder, so deploys never touch it. Drive health uses `smartctl`, which `setup.sh` installs along with a sudo rule limited to the read-only health command.
 
 The Network page checks the internet and your monitored devices every minute and keeps 7 days of history. Network scans only cover the local network (at most 254 addresses) and only run when you press **Scan network**. `setup.sh` downloads the public IEEE manufacturer list (`backend/data/oui.csv`) so scans can name device makers.
 
@@ -53,8 +57,8 @@ The Services page checks each added service every minute (any HTTP answer below 
 
 Useful commands on the board:
 ```bash
-systemctl status ttrc-dashboard
-journalctl -u ttrc-dashboard -f
+systemctl status layerhound
+journalctl -u layerhound -f
 ```
 
 **Only run one copy at a time.** Bambu P1-series printers accept only one local connection, so once the board is live, stop the dashboard on the Mac or the P1S will show offline on one of them.

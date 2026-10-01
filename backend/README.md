@@ -1,4 +1,4 @@
-# TTRC API
+# LayerHound API
 
 Reserved for the FastAPI backend.
 

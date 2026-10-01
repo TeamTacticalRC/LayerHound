@@ -11,11 +11,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import network, services, settings, storage
 
-DB_PATH=Path(os.environ.get('TTRC_DB') or Path(__file__).with_name('ttrc.db')); TIMEOUT=4
+# LAYERHOUND_* settings; the older TTRC_* names still work
+def env(name): return os.environ.get(f'LAYERHOUND_{name}') or os.environ.get(f'TTRC_{name}')
+DB_PATH=Path(env('DB') or Path(__file__).with_name('layerhound.db')); TIMEOUT=4
+# Installs from before the rename used ttrc.db; carry it over once
+if not env('DB') and not DB_PATH.exists() and DB_PATH.with_name('ttrc.db').exists(): DB_PATH.with_name('ttrc.db').rename(DB_PATH)
 # Built frontend (npm run build). When present, this server hosts the whole dashboard.
 DIST=Path(__file__).resolve().parent.parent/'dist'
 TYPES=('moonraker','octoprint','bambu'); MODELS={'moonraker':'Klipper / Moonraker','octoprint':'OctoPrint','bambu':'Bambu Lab'}
-app=FastAPI(title='TTRC Home Lab API',version=settings.APP_VERSION)
+app=FastAPI(title='LayerHound API',version=settings.APP_VERSION)
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -69,7 +73,7 @@ def octoprint(base,key):
 class BambuWatcher:
  def __init__(s,host,port,serial,code):
   s.key=(host,port,serial,code); s.serial=serial; s.data={}; s.firmware=None; s.error=None; s.ready=threading.Event()
-  c=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=f'ttrc-{serial}-{os.getpid()}'); c.username_pw_set('bblp',code)
+  c=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=f'layerhound-{serial}-{os.getpid()}'); c.username_pw_set('bblp',code)
   # The printer uses a self-signed certificate, so it can't be verified
   ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE; c.tls_set_context(ctx)
   c.on_connect=s._connected; c.on_connect_fail=s._failed; c.on_disconnect=s._disconnected; c.on_message=s._message
@@ -119,7 +123,7 @@ def snapshot(r):
  return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),**x,'updated_at':now()}
 
 @app.get('/api/health')
-def health(): return {'status':'ok','service':'ttrc-api','timestamp':now()}
+def health(): return {'status':'ok','service':'layerhound-api','timestamp':now()}
 # ---- Server monitoring ----------------------------------------------------------
 # Temperature sensors differ per board. Linux thermal zones (e.g. the ROCK 4D's
 # "soc_thermal", "bigcore_thermal") often have blank labels, so match on the group
@@ -184,7 +188,7 @@ settings.configure(db); app.include_router(settings.router); settings.after_rest
 storage.configure(db,disks); app.include_router(storage.router)
 network.configure(db); app.include_router(network.router)
 services.configure(db); app.include_router(services.router)
-threading.Thread(target=sampler,daemon=True,name='ttrc-sampler').start()
+threading.Thread(target=sampler,daemon=True,name='layerhound-sampler').start()
 
 def primary_ip():
  # First IPv4 on an interface that's up, skipping loopback and virtual/VPN adapters

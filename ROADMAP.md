@@ -57,7 +57,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 ### Work needed
 - [ ] **Pre-built releases:** GitHub Actions builds the frontend on each version tag, so buyers don't need Node.js.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
-- [ ] **Remove hardcoded personal details:** branding is now editable on the Settings page (name, short name, tagline, accent) and the planned services were replaced with real ones. Still to do: change the default name for new installs, ask for it on a first-run setup screen, and rename the `TTRC Files` folder and `TTRC_*` settings to neutral names.
+- [x] **Remove hardcoded personal details:** new installs default to LayerHound branding, which is editable in Settings. A first-run setup screen is still to come (see Login plan).
 - [ ] **Security:** add login (see the Login plan below), and encrypt the stored access codes and API keys. Right now anyone on the network can edit or delete printers and upload, rename or delete files in TTRC Files.
 - [ ] **Update checks:** tell the user when a new version is available (show it on Settings → About, next to the current version).
 - [ ] **Licensing:** choose a license for this code. Review paho-mqtt's license terms if it will be sold closed-source.
@@ -80,7 +80,7 @@ About one focused session of work. Do it together with encrypting the stored pri
 Plan: free **open-source software**, plus a **pre-built plug-and-play board** sold by Team Tactical RC. This is the Home Assistant model (open software, with Home Assistant Green hardware for people who want it ready to go).
 
 ### Decisions
-- [ ] **Product name:** separate from TTRC, which stays the maker ("[Product] by Team Tactical RC"). Pick it before going public, because renaming later touches the repository, docs, settings names, install commands, domain and bookmarks.
+- [x] **Product name: LayerHound** (chosen 2026-10-01). Team Tactical RC stays the maker: "LayerHound by Team Tactical RC".
 - [ ] **License:** recommended **AGPL-3.0**. Anyone who modifies it and offers it to others, even as a hosted service, must share their changes. All current dependencies (FastAPI, React, paho-mqtt, psutil, lucide) are compatible.
 - [ ] **Trademark:** register the product name and logo. This is what protects the hardware business: anyone may sell boards running the code, but not under your name. Publish a short trademark policy (e.g. "compatible with X" is fine; "X" or "Official X" on someone else's product is not).
 - [ ] **Legal check:** a one-hour consult with a trademark attorney before launch.
@@ -100,9 +100,11 @@ Every name below had an unregistered .com (per whois), a free GitHub name, and n
 
 Taken or in use when checked: FarmDeck, LayerWatch, Spoolhouse, PrintHQ, PrintHound, SpoolHound, FarmSight, PrintRadar, LayerLens, Farmlight and others.
 
-### Once the name is chosen
-- [ ] Register the .com (and ideally .io), GitHub organization and social handles.
-- [ ] Rename in the code in one pass: product name as the default branding (TTRC stays as your own setting), neutral `TTRC Files` folder name, settings and environment names (`TTRC_*`), service name, backup file name, page title.
+### LayerHound launch checklist
+- [ ] **Register `layerhound.com`** (and ideally `.io`), the **`layerhound` GitHub organization** and social handles. All were unclaimed on 2026-10-01; do this first.
+- [ ] **USPTO trademark search** for LayerHound, then file (or have the attorney file) the trademark.
+- [x] Rename in the code (done 2026-10-01): LayerHound is the default branding, the files folder is `~/LayerHound Files`, settings use `LAYERHOUND_*` (old `TTRC_*` names still work), the service and install folder are `layerhound`, and backups are `layerhound-backup-*.json` (old backups still restore). This install keeps Team Tactical RC branding in Settings.
+- [ ] Optional: rename this project folder from `ttrc-dashboard3` to `layerhound` (rebuild `backend/.venv` afterwards; see README).
 - [ ] Add `LICENSE` (AGPL-3.0), a trademark policy and a contributing guide.
 - [ ] Logo and simple brand guide (name usage, colors; the accent color system already exists).
 

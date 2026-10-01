@@ -101,10 +101,11 @@ Every name below had an unregistered .com (per whois), a free GitHub name, and n
 Taken or in use when checked: FarmDeck, LayerWatch, Spoolhouse, PrintHQ, PrintHound, SpoolHound, FarmSight, PrintRadar, LayerLens, Farmlight and others.
 
 ### LayerHound launch checklist
-- [ ] **Register `layerhound.com`** (and ideally `.io`), the **`layerhound` GitHub organization** and social handles. All were unclaimed on 2026-10-01; do this first.
+- [ ] **Register `layerhound.com`** (and ideally `.io`) and social handles. They were unclaimed on 2026-10-01; do this first.
 - [ ] **USPTO trademark search** for LayerHound, then file (or have the attorney file) the trademark.
 - [x] Rename in the code (done 2026-10-01): LayerHound is the default branding, the files folder is `~/LayerHound Files`, settings use `LAYERHOUND_*` (old `TTRC_*` names still work), the service and install folder are `layerhound`, and backups are `layerhound-backup-*.json` (old backups still restore). This install keeps Team Tactical RC branding in Settings.
-- [ ] Optional: rename this project folder from `ttrc-dashboard3` to `layerhound` (rebuild `backend/.venv` afterwards; see README).
+- [x] Project folder renamed to `~/Downloads/layerhound` (2026-10-01).
+- [ ] GitHub: the repository is at [TeamTacticalRC/LayerHound](https://github.com/TeamTacticalRC/LayerHound) (private). Optionally also claim a `layerhound` organization name to protect it.
 - [ ] Add `LICENSE` (AGPL-3.0), a trademark policy and a contributing guide.
 - [ ] Logo and simple brand guide (name usage, colors; the accent color system already exists).
 

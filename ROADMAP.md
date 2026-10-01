@@ -39,7 +39,20 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - [ ] **Pre-built releases:** GitHub Actions builds the frontend on each version tag, so buyers don't need Node.js.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
 - [ ] **Remove hardcoded personal details:** the Team Tactical RC branding, ROCK 4D wording and the planned Docker, Home Assistant and Pi-hole services become settings or a first-run setup screen.
-- [ ] **Security:** optional login (anyone on the network can currently edit or delete printers and upload, rename or delete files in TTRC Files), and encrypt the stored access codes and API keys.
+- [ ] **Security:** add login (see the Login plan below), and encrypt the stored access codes and API keys. Right now anyone on the network can edit or delete printers and upload, rename or delete files in TTRC Files.
 - [ ] **Update checks:** tell the user when a new version is available.
 - [ ] **Licensing:** choose a license for this code. Review paho-mqtt's license terms if it will be sold closed-source.
 - [ ] **Bambu risk:** Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.
+
+### Login plan
+About one focused session of work. Do it together with encrypting the stored printer secrets.
+
+- **First-run setup:** a fresh install opens a "Create your admin account" screen. There are no default passwords.
+- **Passwords:** store only a one-way hash (scrypt, built into Python; no new dependency).
+- **Sessions:** a long random session ID in a cookie that page scripts can't read (HttpOnly, SameSite). "Keep me signed in" lasts 30 days; otherwise the session ends when the browser closes. Logout ends it immediately. Every API endpoint requires a session except login, setup and `/api/health`.
+- **Roles:** Admin (everything) and Viewer (read-only, for employees or a shop display).
+- **Access keys:** read-only keys for devices that can't type a password (the LED status bar, a wall display). Admins create and revoke them in Settings.
+- **Brute-force protection:** after 5 wrong passwords, pause logins from that device for a few minutes.
+- **Password reset:** a command on the board, e.g. `ttrc reset-password`. Being able to log into the board proves ownership.
+- **Undecided:** should viewing require a login? Suggested default: required, with a setting to let anyone on the local network view without logging in. Changing anything always requires an admin login.
+- **HTTPS:** plain `http://` on the local network is acceptable. Document clearly that the dashboard's port must never be exposed to the internet, and recommend Tailscale for remote access. Optional built-in HTTPS can come later.

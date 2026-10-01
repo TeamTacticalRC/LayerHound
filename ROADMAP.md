@@ -75,3 +75,40 @@ About one focused session of work. Do it together with encrypting the stored pri
 - **Password reset:** a command on the board, e.g. `ttrc reset-password`. Being able to log into the board proves ownership.
 - **Undecided:** should viewing require a login? Suggested default: required, with a setting to let anyone on the local network view without logging in. Changing anything always requires an admin login.
 - **HTTPS:** plain `http://` on the local network is acceptable. Document clearly that the dashboard's port must never be exposed to the internet, and recommend Tailscale for remote access. Optional built-in HTTPS can come later.
+
+## Branding & business
+Plan: free **open-source software**, plus a **pre-built plug-and-play board** sold by Team Tactical RC. This is the Home Assistant model (open software, with Home Assistant Green hardware for people who want it ready to go).
+
+### Decisions
+- [ ] **Product name:** separate from TTRC, which stays the maker ("[Product] by Team Tactical RC"). Pick it before going public, because renaming later touches the repository, docs, settings names, install commands, domain and bookmarks.
+- [ ] **License:** recommended **AGPL-3.0**. Anyone who modifies it and offers it to others, even as a hosted service, must share their changes. All current dependencies (FastAPI, React, paho-mqtt, psutil, lucide) are compatible.
+- [ ] **Trademark:** register the product name and logo. This is what protects the hardware business: anyone may sell boards running the code, but not under your name. Publish a short trademark policy (e.g. "compatible with X" is fine; "X" or "Official X" on someone else's product is not).
+- [ ] **Legal check:** a one-hour consult with a trademark attorney before launch.
+- [ ] **Disclaimers:** "not affiliated with" Bambu Lab, Klipper, OctoPrint and others. Don't use their logos.
+
+### Name shortlist (first-pass check on 2026-10-01)
+Every name below had an unregistered .com (per whois), a free GitHub name, and no matching product found in a web search. This is **not** a trademark search: check the USPTO database (and with the attorney) before committing, and register the domain as soon as you decide.
+
+| Name | Notes |
+|---|---|
+| **LayerHound** | Recommended. Distinctive, so it's a stronger trademark. A "hound that watches your printers" mascot works well for a logo and the 3D-printed enclosure. |
+| **Fleetbed** | Coined ("fleet of printers" + "print bed"). Distinctive, but needs a moment to explain. |
+| **FarmGlance** | Clear meaning (glance at your print farm), but "farm" can read as agriculture. |
+| HotbedHQ | "Hotbed" is a common 3D-printing term, which makes a weaker trademark. |
+| NozzleWatch | Descriptive and printer-only; the product also monitors servers, network and services. |
+| SpoolSight | Too close to an existing 3D printing app, SpoolSense. |
+
+Taken or in use when checked: FarmDeck, LayerWatch, Spoolhouse, PrintHQ, PrintHound, SpoolHound, FarmSight, PrintRadar, LayerLens, Farmlight and others.
+
+### Once the name is chosen
+- [ ] Register the .com (and ideally .io), GitHub organization and social handles.
+- [ ] Rename in the code in one pass: product name as the default branding (TTRC stays as your own setting), neutral `TTRC Files` folder name, settings and environment names (`TTRC_*`), service name, backup file name, page title.
+- [ ] Add `LICENSE` (AGPL-3.0), a trademark policy and a contributing guide.
+- [ ] Logo and simple brand guide (name usage, colors; the accent color system already exists).
+
+### Plug-and-play board
+- [ ] **Hardware:** the board (currently ROCK 4D; confirm long-term availability), a 3D-printed enclosure from the farm, a power supply, and the LED status bar as an optional add-on.
+- [ ] **First boot:** plug in Ethernet and power, open `http://[product].local`, and a setup screen asks for a name, admin password (see Login plan) and printers. The network scan makes adding printers nearly automatic.
+- [ ] **Updates** that work for devices in the field (ties into Update checks above).
+- [ ] **Compliance:** check FCC requirements for the finished product (using a pre-certified board helps).
+- [ ] **Business:** price (Home Assistant Green is roughly $100–130 for reference), warranty, returns and support.

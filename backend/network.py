@@ -278,7 +278,7 @@ def bambu_cert(host,port=8883):
   return found or ''
  except Exception: return None
 
-def http_json(url,timeout=1.5):
+def http_json(url,timeout=3):
  try:
   with urllib.request.urlopen(url,timeout=timeout) as r: return json.loads(r.read().decode())
  except Exception: return None
@@ -286,8 +286,9 @@ def http_json(url,timeout=1.5):
 def identify(ip):
  # Recognise the printer types the dashboard supports, and fill in what the Add printer form needs.
  # Klipper first: some Klipper printers (e.g. Snapmaker U1) also listen on Bambu's port 8883.
+ # Generous timeouts: some printer boards (e.g. Elegoo Neptune 4) answer slowly while busy
  for port in (7125,80):
-  if tcp(ip,port,0.8) is None: continue
+  if tcp(ip,port,1.5) is None: continue
   info=http_json(f'http://{ip}:{port}/printer/info')
   if info and 'result' in info: return {'kind':'printer','label':'Klipper printer','hostname':info['result'].get('hostname'),'printer':{'type':'moonraker','host':ip,'port':port}}
  if tcp(ip,8883,0.8) is not None:

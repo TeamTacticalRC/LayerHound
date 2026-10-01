@@ -116,10 +116,18 @@ def bambu(pid,base,serial,code):
  eta=int(p.get('mc_remaining_time') or 0)*60 if state in ('printing','paused') else 0
  return dict(connected=True,state=state,raw_state=raw,job=p.get('subtask_name') or p.get('gcode_file') or None,progress=round(float(p.get('mc_percent') or 0),1),eta_seconds=eta,nozzle=round(float(p.get('nozzle_temper') or 0),1),nozzle_target=round(float(p.get('nozzle_target_temper') or 0),1),bed=round(float(p.get('bed_temper') or 0),1),bed_target=round(float(p.get('bed_target_temper') or 0),1),firmware=w.firmware,error=None)
 
-def snapshot(r):
- t=r['printer_type']; base=clean_url(r['base_url'])
- try: x=moonraker(base) if t=='moonraker' else bambu(r['id'],base,r['serial'],r['api_key']) if t=='bambu' else octoprint(base,r['api_key'])
- except Exception as e: x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=f'{type(e).__name__}: {e}')
+# Some printers (e.g. the Elegoo Neptune 4's Moonraker) occasionally answer slowly under load.
+# Ride out a brief hiccup by showing the last good reading; report offline only after this long.
+OFFLINE_GRACE=45; last_good={}
+def snapshot(r,grace=True):
+ t=r['printer_type']; base=clean_url(r['base_url']); key=(r['id'],base)
+ try:
+  x=moonraker(base) if t=='moonraker' else bambu(r['id'],base,r['serial'],r['api_key']) if t=='bambu' else octoprint(base,r['api_key'])
+  last_good[key]=(time.time(),x)
+ except Exception as e:
+  prev=last_good.get(key)
+  if grace and prev and time.time()-prev[0]<OFFLINE_GRACE: x=prev[1]
+  else: x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=f'{type(e).__name__}: {e}')
  return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),**x,'updated_at':now()}
 
 @app.get('/api/health')
@@ -235,10 +243,10 @@ def printers():
  live=[r for r in rows if r['enabled']]
  with ThreadPoolExecutor(max_workers=max(1,len(live))) as ex: return {'printers':list(ex.map(snapshot,live))}
 @app.get('/api/printers/{pid}')
-def printer(pid:int):
+def printer(pid:int,grace:bool=True):
  c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
  if not r: raise HTTPException(404,'Printer not found')
- return snapshot(r)
+ return snapshot(r,grace)
 @app.post('/api/printers')
 def add(p:PrinterIn):
  if p.printer_type not in TYPES: raise HTTPException(400,'Invalid printer type')
@@ -267,7 +275,7 @@ def remove(pid:int):
  return {'status':'deleted','id':pid}
 @app.post('/api/printers/{pid}/test')
 def test(pid:int):
- x=printer(pid); return {'ok':x['connected'],'printer':x,'message':'Connection successful' if x['connected'] else (x['error'] or 'Connection failed')}
+ x=printer(pid,grace=False); return {'ok':x['connected'],'printer':x,'message':'Connection successful' if x['connected'] else (x['error'] or 'Connection failed')}
 
 # Must stay last: a mount at / would otherwise shadow the /api routes above
 if DIST.is_dir(): app.mount('/',StaticFiles(directory=DIST,html=True),name='web')

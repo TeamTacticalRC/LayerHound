@@ -14,3 +14,25 @@ button { font: inherit; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #0d1018; }
 ::-webkit-scrollbar-thumb { background: #2b3040; border-radius: 8px; }
+/* Printer cards: columns follow the printer count (max 5 per row), cards grow
+   when there are fewer printers up to --card-max, and every row is centered,
+   including a partial last row. --cols-* are set inline by <PrinterGrid>. */
+.printer-grid {
+  --gap: 0.75rem;
+  --card-max: 20rem;
+  --cols: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--gap);
+}
+.printer-grid > * {
+  flex: 0 0 calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols));
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .printer-grid { --cols: var(--cols-sm); }
+  .printer-grid > * { max-width: var(--card-max); }
+}
+@media (min-width: 1024px) { .printer-grid { --cols: var(--cols-lg); } }
+@media (min-width: 1280px) { .printer-grid { --cols: var(--cols-xl); } }

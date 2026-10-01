@@ -326,8 +326,13 @@ function Field({ label, hint, children }) {
   );
 }
 
-// Five across on wide screens (both the Dashboard and Print Farm pages)
-const PRINTER_GRID = "grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5";
+// Printer cards on the Dashboard and Print Farm pages. Never more columns than
+// printers (max 5 on wide screens), so a small farm gets larger, centered cards.
+// Layout rules live in .printer-grid in index.css.
+function PrinterGrid({ count, children }) {
+  const cols = max => Math.max(1, Math.min(count, max));
+  return <div className="printer-grid" style={{ "--cols-sm": cols(2), "--cols-lg": cols(3), "--cols-xl": cols(5) }}>{children}</div>;
+}
 
 const inputClass = "w-full rounded-lg border border-white/10 bg-[#0b0e15] px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-violet-400 focus:outline-none";
 
@@ -531,9 +536,9 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
           <button onClick={onAdd} className="mt-5 flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400"><Plus size={16} /> Add printer</button>
         </div>
       ) : (
-        <div className={PRINTER_GRID}>
+        <PrinterGrid count={printers.length}>
           {printers.map(p => <PrinterCard key={p.id} printer={p} onSelect={onSelect} />)}
-        </div>
+        </PrinterGrid>
       )}
     </>
   );
@@ -946,9 +951,9 @@ function Dashboard() {
                       <Plus size={16} /> Add your first printer
                     </button>
                   ) : (
-                    <div className={PRINTER_GRID}>
+                    <PrinterGrid count={printers.length}>
                       {printers.map(p => <PrinterCard key={p.id} printer={p} onSelect={setSelected} />)}
-                    </div>
+                    </PrinterGrid>
                   )}
                 </section>
 

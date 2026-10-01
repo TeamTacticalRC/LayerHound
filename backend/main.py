@@ -9,13 +9,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import network, services, storage
+import network, services, settings, storage
 
 DB_PATH=Path(os.environ.get('TTRC_DB') or Path(__file__).with_name('ttrc.db')); TIMEOUT=4
 # Built frontend (npm run build). When present, this server hosts the whole dashboard.
 DIST=Path(__file__).resolve().parent.parent/'dist'
 TYPES=('moonraker','octoprint','bambu'); MODELS={'moonraker':'Klipper / Moonraker','octoprint':'OctoPrint','bambu':'Bambu Lab'}
-app=FastAPI(title='TTRC Home Lab API',version='0.3.0')
+app=FastAPI(title='TTRC Home Lab API',version=settings.APP_VERSION)
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -93,6 +93,8 @@ bambu_watchers={}; bambu_lock=threading.Lock()
 def bambu_stop(pid):
  with bambu_lock: w=bambu_watchers.pop(pid,None)
  if w: w.stop()
+def bambu_stop_all():
+ for pid in list(bambu_watchers): bambu_stop(pid)
 
 def bambu(pid,base,serial,code):
  if not serial or not code: raise ValueError('Bambu printers need a serial number and access code')
@@ -178,6 +180,7 @@ def sampler():
    rx0,tx0,t0=rx,tx,t
    HISTORY.append({'t':round(t),'cpu':latest['cpu'],'memory':psutil.virtual_memory().percent,'temp':main_temp(temps),'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps'])})
   except Exception as e: print('sampler error:',e,flush=True)
+settings.configure(db); app.include_router(settings.router); settings.after_restore.append(bambu_stop_all); settings.set_paths(DB_PATH,storage.FILES_ROOT)
 storage.configure(db,disks); app.include_router(storage.router)
 network.configure(db); app.include_router(network.router)
 services.configure(db); app.include_router(services.router)

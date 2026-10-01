@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -8,7 +8,46 @@ import {
 } from "lucide-react";
 import "./index.css";
 
-const APP_VERSION = "v0.3";
+const APP_VERSION = "v0.4";
+
+// Display preferences from the Settings page. A plain object so helpers outside components can
+// read it; the Dashboard re-renders the whole app whenever settings change.
+const prefs = {
+  brand_name: "Team Tactical RC", brand_short: "TTRC", brand_tagline: "Home Lab / Print Farm",
+  brand_description: "One place to see what's happening across the shop.", accent: "violet",
+  temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
+  alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
+  network_history_days: 7, storage_history_days: 90, data_usage_days: 90,
+};
+
+// Accent colors. The app's styles use Tailwind's violet shades, so switching accent swaps
+// those CSS variables. Green, amber and red are left out: they mean good/warning/error here.
+const ACCENTS = {
+  violet: { label: "Violet", 200: "oklch(89.4% 0.057 293.283)", 300: "oklch(81.1% 0.111 293.571)", 400: "oklch(70.2% 0.183 293.541)", 500: "oklch(60.6% 0.25 292.717)" },
+  indigo: { label: "Indigo", 200: "oklch(87% 0.065 274.039)", 300: "oklch(78.5% 0.115 274.713)", 400: "oklch(67.3% 0.182 276.935)", 500: "oklch(58.5% 0.233 277.117)" },
+  blue: { label: "Blue", 200: "oklch(88.2% 0.059 254.128)", 300: "oklch(80.9% 0.105 251.813)", 400: "oklch(70.7% 0.165 254.624)", 500: "oklch(62.3% 0.214 259.815)" },
+  fuchsia: { label: "Fuchsia", 200: "oklch(90.3% 0.076 319.62)", 300: "oklch(83.3% 0.145 321.434)", 400: "oklch(74% 0.238 322.16)", 500: "oklch(66.7% 0.295 322.15)" },
+  pink: { label: "Pink", 200: "oklch(89.9% 0.061 343.231)", 300: "oklch(82.3% 0.12 346.018)", 400: "oklch(71.8% 0.202 349.761)", 500: "oklch(65.6% 0.241 354.308)" },
+};
+
+function applyPrefs(next) {
+  Object.assign(prefs, next);
+  const root = document.documentElement.style;
+  for (const shade of [200, 300, 400, 500]) {
+    if (prefs.accent === "violet" || !ACCENTS[prefs.accent]) root.removeProperty(`--color-violet-${shade}`);
+    else root.setProperty(`--color-violet-${shade}`, ACCENTS[prefs.accent][shade]);
+  }
+  document.title = prefs.brand_name;
+}
+
+const toUnit = c => c == null ? null : prefs.temp_unit === "F" ? Math.round((c * 9 / 5 + 32) * 10) / 10 : c;
+const fromUnit = v => prefs.temp_unit === "F" ? Math.round((v - 32) * 5 / 9) : Math.round(v);
+function fmtTemp(c, digits = 1) {
+  if (c == null) return "—";
+  const v = toUnit(c);
+  return `${digits === 0 ? Math.round(v) : Math.round(v * 10) / 10}°${prefs.temp_unit}`;
+}
+const fmtDate = (d, opts) => new Date(d).toLocaleString([], { ...opts, hour12: prefs.time_format === "12" });
 
 // Shown only when the backend's /api/printers can't be reached.
 const DEMO_PRINTERS = [
@@ -97,17 +136,17 @@ function buildAlerts({ apiError, usingDemo, printerError, printers, system }) {
   const list = [];
   if (apiError) list.push({ tone: "bad", text: "Can't reach the dashboard backend" });
   if (usingDemo) list.push({ tone: "bad", text: `Printer status unavailable (${printerError})` });
-  if (!usingDemo) for (const p of printers) if (p.state === "offline") list.push({ tone: "warn", text: `${p.name} is offline` });
+  if (!usingDemo && prefs.alert_printers) for (const p of printers) if (p.state === "offline") list.push({ tone: "warn", text: `${p.name} is offline` });
   if (system && !apiError) {
     const t = system.temperature_c;
-    if (t != null && t >= 85) list.push({ tone: "bad", text: `Server is overheating (${t}°C)` });
-    else if (t != null && t >= 75) list.push({ tone: "warn", text: `Server is running hot (${t}°C)` });
-    if (system.storage_percent >= 90) list.push({ tone: system.storage_percent >= 97 ? "bad" : "warn", text: `Main drive is ${Math.round(system.storage_percent)}% full` });
-    if (system.memory_percent >= 92) list.push({ tone: "warn", text: `Memory is ${Math.round(system.memory_percent)}% used` });
+    if (t != null && t >= prefs.temp_hot) list.push({ tone: "bad", text: `Server is overheating (${fmtTemp(t)})` });
+    else if (t != null && t >= prefs.temp_warn) list.push({ tone: "warn", text: `Server is running hot (${fmtTemp(t)})` });
+    if (system.storage_percent >= prefs.storage_warn) list.push({ tone: system.storage_percent >= prefs.storage_critical ? "bad" : "warn", text: `Main drive is ${Math.round(system.storage_percent)}% full` });
+    if (system.memory_percent >= prefs.memory_warn) list.push({ tone: "warn", text: `Memory is ${Math.round(system.memory_percent)}% used` });
     if (system.database && !system.database.ok) list.push({ tone: "bad", text: "Printer database error" });
-    if (system.network?.internet_up === false) list.push({ tone: "bad", text: "Internet is down" });
-    for (const name of system.network?.offline_devices ?? []) list.push({ tone: "warn", text: `${name} is not responding` });
-    for (const sv of system.services?.services ?? []) if (sv.up === false) list.push({ tone: "warn", text: `${sv.name} is down` });
+    if (prefs.alert_internet && system.network?.internet_up === false) list.push({ tone: "bad", text: "Internet is down" });
+    if (prefs.alert_devices) for (const name of system.network?.offline_devices ?? []) list.push({ tone: "warn", text: `${name} is not responding` });
+    if (prefs.alert_services) for (const sv of system.services?.services ?? []) if (sv.up === false) list.push({ tone: "warn", text: `${sv.name} is down` });
   }
   return list.sort((a, b) => (a.tone === "bad" ? 0 : 1) - (b.tone === "bad" ? 0 : 1));
 }
@@ -175,8 +214,8 @@ function PrinterCard({ printer, onSelect }) {
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-1.5 whitespace-nowrap border-t border-white/6 pt-3 text-xs">
-        <div><div className="text-slate-600">Nozzle</div><div className="mt-1 font-medium text-slate-300">{printer.nozzle ? `${Math.round(printer.nozzle)}°C` : "—"}</div></div>
-        <div><div className="text-slate-600">Bed</div><div className="mt-1 font-medium text-slate-300">{printer.bed ? `${Math.round(printer.bed)}°C` : "—"}</div></div>
+        <div><div className="text-slate-600">Nozzle</div><div className="mt-1 font-medium text-slate-300">{printer.nozzle ? fmtTemp(printer.nozzle, 0) : "—"}</div></div>
+        <div><div className="text-slate-600">Bed</div><div className="mt-1 font-medium text-slate-300">{printer.bed ? fmtTemp(printer.bed, 0) : "—"}</div></div>
         <div><div className="text-slate-600">ETA</div><div className="mt-1 font-medium text-slate-300">{printer.eta}</div></div>
       </div>
       <div className="mt-3 flex items-center justify-end gap-1 text-xs text-slate-600 group-hover:text-slate-300">
@@ -184,6 +223,13 @@ function PrinterCard({ printer, onSelect }) {
       </div>
     </button>
   );
+}
+
+// The dashboard name, with its last word in the accent color (e.g. "TEAM TACTICAL RC")
+function BrandMark() {
+  const words = prefs.brand_name.trim().split(/\s+/);
+  const last = words.length > 1 ? words.pop() : null;
+  return <div className="truncate text-lg font-black uppercase tracking-tight text-white" title={prefs.brand_name}>{words.join(" ")}{last && <> <span className="text-violet-400">{last}</span></>}</div>;
 }
 
 function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
@@ -202,8 +248,8 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
       <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-white/7 bg-[#0b0e15] transition-transform lg:static lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex h-20 items-center justify-between px-5">
           <div>
-            <div className="text-lg font-black tracking-tight text-white">TEAM TACTICAL <span className="text-violet-400">RC</span></div>
-            <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[.28em] text-slate-600">Home Lab / Print Farm</div>
+            <BrandMark />
+            {prefs.brand_tagline && <div className="mt-0.5 truncate text-[9px] font-bold uppercase tracking-[.28em] text-slate-600">{prefs.brand_tagline}</div>}
           </div>
           <button className="lg:hidden text-slate-500" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
         </div>
@@ -274,8 +320,8 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
         <div className="mt-5 text-4xl font-bold text-white">{printer.progress}%</div>
         <div className="mt-2 h-2 rounded-full bg-white/6"><div className="h-full rounded-full bg-violet-500" style={{ width: `${printer.progress}%` }} /></div>
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <Metric icon={Thermometer} label="Nozzle" value={printer.nozzle ? `${printer.nozzle}°C` : "—"} sub={printer.nozzleTarget ? `Target ${printer.nozzleTarget}°C` : undefined} />
-          <Metric icon={Thermometer} label="Bed" value={printer.bed ? `${printer.bed}°C` : "—"} sub={printer.bedTarget ? `Target ${printer.bedTarget}°C` : undefined} />
+          <Metric icon={Thermometer} label="Nozzle" value={printer.nozzle ? fmtTemp(printer.nozzle) : "—"} sub={printer.nozzleTarget ? `Target ${fmtTemp(printer.nozzleTarget, 0)}` : undefined} />
+          <Metric icon={Thermometer} label="Bed" value={printer.bed ? fmtTemp(printer.bed) : "—"} sub={printer.bedTarget ? `Target ${fmtTemp(printer.bedTarget, 0)}` : undefined} />
         </div>
       </div>
       <div className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
@@ -564,11 +610,11 @@ function formatRate(bps) {
   return `${Math.round(b)} B/s`;
 }
 
-// Temperature bands for small ARM boards; most throttle around 85°C.
+// Uses the thresholds from Settings (defaults suit small ARM boards, which throttle around 85°C)
 function tempStatus(c) {
   if (c == null) return null;
-  if (c >= 75) return { label: "Hot", cls: "text-red-300", Icon: AlertTriangle };
-  if (c >= 60) return { label: "Warm", cls: "text-amber-300", Icon: AlertTriangle };
+  if (c >= prefs.temp_hot) return { label: "Overheating", cls: "text-red-300", Icon: AlertTriangle };
+  if (c >= prefs.temp_warn) return { label: "Running hot", cls: "text-amber-300", Icon: AlertTriangle };
   return { label: "Normal", cls: "text-emerald-300", Icon: ShieldCheck };
 }
 
@@ -635,7 +681,7 @@ function HistoryChart({ title, points, field, unit, max, empty, bare = false }) 
   const minutes = Math.round(span / 60);
   // Charts cover anything from an hour (Server) to 90 days (Storage)
   const ago = span >= 2 * 86400 ? `${Math.round(span / 86400)} days ago` : span >= 2 * 3600 ? `${Math.round(span / 3600)} hours ago` : minutes ? `${minutes} min ago` : "just now";
-  const timeLabel = t => new Date(t * 1000).toLocaleString([], span >= 86400 ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } : { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  const timeLabel = t => fmtDate(t * 1000, span >= 86400 ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } : { hour: "numeric", minute: "2-digit", second: "2-digit" });
 
   const onMove = e => {
     if (data.length < 2) return;
@@ -667,14 +713,14 @@ function HistoryChart({ title, points, field, unit, max, empty, bare = false }) 
                 <text x={L - 6} y={y(v) + 3.5} textAnchor="end" className="fill-slate-600 text-[10px] tabular-nums">{Math.round(v)}</text>
               </g>
             ))}
-            <path d={area} fill="rgba(139,92,246,.12)" />
-            <path d={line} fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            <path d={area} style={{ fill: "color-mix(in oklab, var(--color-violet-500) 12%, transparent)" }} />
+            <path d={line} fill="none" style={{ stroke: "var(--color-violet-400)" }} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
             <text x={L} y={H - 4} className="fill-slate-600 text-[10px]">{ago}</text>
             <text x={width - R} y={H - 4} textAnchor="end" className="fill-slate-600 text-[10px]">now</text>
             {hover && (
               <g>
                 <line x1={x(hover.t)} x2={x(hover.t)} y1={T} y2={H - B} stroke="rgba(255,255,255,.25)" />
-                <circle cx={x(hover.t)} cy={y(hover[field])} r="4.5" fill="#a78bfa" stroke="#11151f" strokeWidth="2" />
+                <circle cx={x(hover.t)} cy={y(hover[field])} r="4.5" style={{ fill: "var(--color-violet-400)" }} stroke="#11151f" strokeWidth="2" />
               </g>
             )}
           </svg>
@@ -733,7 +779,7 @@ function ServerPage() {
         <Metric icon={Database} label="Memory" value={`${Math.round(memory.percent)}%`} sub={`${memory.used_gb} GB / ${memory.total_gb} GB`} progress={memory.percent} />
         <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Thermometer size={15} /> Temperature</div>
-          <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{info.temperature_c != null ? `${info.temperature_c}°C` : "—"}</div>
+          <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{info.temperature_c != null ? fmtTemp(info.temperature_c) : "—"}</div>
           {status
             ? <div className={`mt-1 flex items-center gap-1 text-xs ${status.cls}`}><status.Icon size={12} /> {status.label}</div>
             : <div className="mt-1 text-xs text-slate-500">No sensor on this machine</div>}
@@ -751,7 +797,7 @@ function ServerPage() {
       <section className="mt-4 grid gap-4 md:grid-cols-3">
         <HistoryChart title="CPU usage" points={history} field="cpu" unit="%" max={100} />
         <HistoryChart title="Memory usage" points={history} field="memory" unit="%" max={100} />
-        <HistoryChart title="Temperature" points={history} field="temp" unit="°C" empty={info.temperature_c == null ? "This machine doesn't report temperature. It will show up on the board." : undefined} />
+        <HistoryChart title="Temperature" points={history.map(p => ({ ...p, temp: toUnit(p.temp) }))} field="temp" unit={`°${prefs.temp_unit}`} empty={info.temperature_c == null ? "This machine doesn't report temperature. It will show up on the board." : undefined} />
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-2">
@@ -789,13 +835,13 @@ function ServerPage() {
           <Row label="Operating system" value={info.os} />
           <Row label="Kernel" value={info.kernel} />
           <Row label="Architecture" value={info.arch} />
-          <Row label="Last boot" value={new Date(info.boot_time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} />
+          <Row label="Last boot" value={fmtDate(info.boot_time, { dateStyle: "medium", timeStyle: "short" })} />
         </Card>
         <Card title="Network addresses" icon={Wifi} sub="Use these to reach the dashboard from other devices.">
           {network.addresses.length ? network.addresses.map(a => <Row key={a.interface + a.address} label={a.interface} value={a.address} />) : <div className="text-sm text-slate-500">No network address</div>}
         </Card>
         <Card title="Temperature sensors" icon={Thermometer} className="md:col-span-2 xl:col-span-1">
-          {info.sensors.length ? info.sensors.map(t => <Row key={t.name} label={t.name} value={`${t.celsius}°C`} />) : <div className="text-sm text-slate-500">This machine doesn't report temperatures. On the board, each sensor (CPU cores, GPU, NVMe) will be listed here.</div>}
+          {info.sensors.length ? info.sensors.map(t => <Row key={t.name} label={t.name} value={fmtTemp(t.celsius)} />) : <div className="text-sm text-slate-500">This machine doesn't report temperatures. On the board, each sensor (CPU cores, GPU, NVMe) will be listed here.</div>}
         </Card>
       </section>
 
@@ -804,7 +850,7 @@ function ServerPage() {
           <div className="grid gap-x-8 md:grid-cols-3">
             <Row label="Memory used" value={`${info.app.memory_mb} MB`} />
             <Row label="Python" value={info.python} />
-            <Row label="Running since" value={new Date(info.app.started).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} />
+            <Row label="Running since" value={fmtDate(info.app.started, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} />
           </div>
         </Card>
       </section>
@@ -847,12 +893,12 @@ function DriveCard({ drive, holdsFiles }) {
         <span className="text-xs tabular-nums text-slate-400">{drive.used_gb} of {drive.total_gb} GB used</span>
       </div>
       <div className="mt-2"><Bar percent={drive.percent} warnAt={85} /></div>
-      {holdsFiles && <div className="mt-3 flex items-center gap-1.5 text-xs text-violet-300"><Folder size={13} /> TTRC Files is stored here</div>}
+      {holdsFiles && <div className="mt-3 flex items-center gap-1.5 text-xs text-violet-300"><Folder size={13} /> {prefs.brand_short} Files is stored here</div>}
       <div className="mt-4 border-t border-white/6 pt-3">
         {h.available ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
             {h.wear_percent != null && <div><div className="text-slate-600">Wear</div><div className="mt-0.5 text-slate-200">{h.wear_percent}% of rated life</div></div>}
-            {h.temperature_c != null && <div><div className="text-slate-600">Temperature</div><div className="mt-0.5 text-slate-200">{h.temperature_c}°C</div></div>}
+            {h.temperature_c != null && <div><div className="text-slate-600">Temperature</div><div className="mt-0.5 text-slate-200">{fmtTemp(h.temperature_c, 0)}</div></div>}
             {h.power_on_hours != null && <div><div className="text-slate-600">Powered on</div><div className="mt-0.5 text-slate-200">{h.power_on_hours >= 48 ? `${Math.round(h.power_on_hours / 24)} days` : `${h.power_on_hours} hours`}</div></div>}
             {h.written_tb != null && <div><div className="text-slate-600">Data written</div><div className="mt-0.5 text-slate-200">{h.written_tb} TB</div></div>}
             {h.media_errors > 0 && <div className="col-span-2 text-red-300">{h.media_errors} media errors reported. Back up this drive.</div>}
@@ -922,7 +968,7 @@ function FileBrowser({ filesInfo, onChanged }) {
     >
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0">
-          <h2 className="font-semibold text-white">TTRC Files</h2>
+          <h2 className="font-semibold text-white">{prefs.brand_short} Files</h2>
           <nav className="mt-1 flex flex-wrap items-center gap-1 text-xs" aria-label="Folder path">
             <button onClick={() => setPath("")} className={listing?.crumbs.length ? "text-violet-400 hover:text-violet-300" : "text-slate-400"}>All files</button>
             {listing?.crumbs.map((c, i) => (
@@ -993,7 +1039,7 @@ function FileBrowser({ filesInfo, onChanged }) {
                     <a href={downloadUrl(it.path)} className="block truncate text-sm text-slate-200 hover:text-violet-300" title={`Download ${it.name}`}>{it.name}</a>
                   )}
                   <div className="mt-0.5 text-[11px] text-slate-600">
-                    {it.type === "folder" ? `${it.items} file${it.items === 1 ? "" : "s"} · ` : ""}{new Date(it.modified).toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                    {it.type === "folder" ? `${it.items} file${it.items === 1 ? "" : "s"} · ` : ""}{fmtDate(it.modified, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
                   </div>
                 </div>
                 <div className="hidden w-28 shrink-0 sm:block">
@@ -1073,7 +1119,7 @@ function StoragePage() {
     <>
       <div className="mb-7">
         <h1 className="text-3xl font-bold tracking-tight text-white">Storage</h1>
-        <p className="mt-2 text-sm text-slate-500">Drive health and the shared TTRC Files folder.</p>
+        <p className="mt-2 text-sm text-slate-500">Drive health and the shared {prefs.brand_short} Files folder.</p>
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1118,7 +1164,7 @@ function UptimeBar({ hours, label }) {
       {hours.map((v, i) => {
         const at = new Date(now.getTime() - (hours.length - 1 - i) * 3600e3);
         const cls = v == null ? "bg-white/8" : v >= 0.99 ? "bg-emerald-400/80" : v >= 0.9 ? "bg-amber-400/80" : "bg-red-400/80";
-        return <div key={i} className={`flex-1 rounded-[2px] ${cls}`} title={`${at.toLocaleTimeString([], { hour: "numeric" })}: ${v == null ? "no data" : `${Math.round(v * 100)}% up`}`} />;
+        return <div key={i} className={`flex-1 rounded-[2px] ${cls}`} title={`${fmtDate(at, { hour: "numeric" })}: ${v == null ? "no data" : `${Math.round(v * 100)}% up`}`} />;
       })}
     </div>
   );
@@ -1273,7 +1319,7 @@ function Discovery({ printers, devices, onAddPrinter, onMonitored }) {
           <h2 className="font-semibold text-white">Device discovery</h2>
           <p className="mt-1 text-xs text-slate-600">
             {scan?.running ? `Scanning ${scan.subnet ?? "the network"}…`
-              : scan?.finished ? `Found ${scan.results.length} devices on ${scan.subnet}${printerCount ? `, including ${printerCount} printer${printerCount === 1 ? "" : "s"}` : ""} · ${new Date(scan.finished).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+              : scan?.finished ? `Found ${scan.results.length} devices on ${scan.subnet}${printerCount ? `, including ${printerCount} printer${printerCount === 1 ? "" : "s"}` : ""} · ${fmtDate(scan.finished, { hour: "numeric", minute: "2-digit" })}`
               : "Find everything on your network, including printers the dashboard can add."}
           </p>
         </div>
@@ -1395,7 +1441,7 @@ function NetworkPage({ printers, onAddPrinter }) {
               <ul className="mt-2 space-y-1.5">
                 {internet.outages.map(o => (
                   <li key={o.start} className="flex justify-between gap-3 rounded-lg border border-red-500/15 bg-red-500/5 px-3 py-2 text-xs">
-                    <span className="text-red-200">{new Date(o.start * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                    <span className="text-red-200">{fmtDate(o.start * 1000, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                     <span className="text-slate-400">{o.end ? `${o.minutes} min` : `ongoing, ${o.minutes} min so far`}</span>
                   </li>
                 ))}
@@ -1646,6 +1692,262 @@ function ServicesPage({ printers }) {
   );
 }
 
+function Section({ title, sub, children, footer }) {
+  return (
+    <section className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <h2 className="font-semibold text-white">{title}</h2>
+      {sub && <p className="mt-1 text-xs text-slate-600">{sub}</p>}
+      <div className="mt-5">{children}</div>
+      {footer && <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-white/6 pt-4">{footer}</div>}
+    </section>
+  );
+}
+
+function Segmented({ value, options, onChange, label }) {
+  return (
+    <div className="inline-flex rounded-lg border border-white/10 p-0.5" role="radiogroup" aria-label={label}>
+      {options.map(([v, text]) => (
+        <button key={v} type="button" role="radio" aria-checked={value === v} onClick={() => onChange(v)} className={`rounded-md px-3 py-1.5 text-sm ${value === v ? "bg-violet-500/20 text-white" : "text-slate-400 hover:text-white"}`}>{text}</button>
+      ))}
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label, hint }) {
+  return (
+    <label className="flex cursor-pointer items-start justify-between gap-4 py-2">
+      <span><span className="block text-sm text-slate-200">{label}</span>{hint && <span className="block text-xs text-slate-600">{hint}</span>}</span>
+      <span className="relative mt-0.5 inline-flex shrink-0">
+        <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
+        <span className="h-5 w-9 rounded-full bg-white/10 transition peer-checked:bg-violet-500 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-300" />
+        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+      </span>
+    </label>
+  );
+}
+
+// Save a group of settings; shows "Saved" or the server's error next to the button
+function useSaver(onSaved) {
+  const [status, setStatus] = useState(null);
+  const save = async changes => {
+    setStatus({ busy: true });
+    try { onSaved(await saveSettings(changes)); setStatus({ ok: "Saved" }); setTimeout(() => setStatus(null), 2500); }
+    catch (e) { setStatus({ error: e.message }); }
+  };
+  const note = status?.error ? <span className="text-xs text-red-300">{status.error}</span> : status?.ok ? <span className="text-xs text-emerald-300">{status.ok}</span> : null;
+  return [save, status?.busy, note];
+}
+
+function BrandingSection({ onSaved }) {
+  const [f, setF] = useState(() => ({ brand_name: prefs.brand_name, brand_short: prefs.brand_short, brand_tagline: prefs.brand_tagline, brand_description: prefs.brand_description, accent: prefs.accent, temp_unit: prefs.temp_unit, time_format: prefs.time_format }));
+  const [save, busy, note] = useSaver(onSaved);
+  const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
+  return (
+    <Section title="Branding & display" sub="Name and colors used across the dashboard and in the browser tab."
+      footer={<>{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Dashboard name" hint="The last word is shown in the accent color."><input className={inputClass} maxLength={40} value={f.brand_name} onChange={set("brand_name")} /></Field>
+        <Field label="Short name" hint={`Used in labels like "${f.brand_short || "TTRC"} Files".`}><input className={inputClass} maxLength={12} value={f.brand_short} onChange={set("brand_short")} /></Field>
+        <Field label="Tagline" hint="Under the name in the sidebar, and the main heading."><input className={inputClass} maxLength={60} value={f.brand_tagline} onChange={set("brand_tagline")} /></Field>
+        <Field label="Description" hint="Shown under the main heading. Leave blank to hide."><input className={inputClass} maxLength={120} value={f.brand_description} onChange={set("brand_description")} /></Field>
+      </div>
+      <div className="mt-5 grid gap-5 sm:grid-cols-3">
+        <div>
+          <div className="text-xs font-medium text-slate-400">Accent color</div>
+          <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Accent color">
+            {Object.entries(ACCENTS).map(([k, a]) => (
+              <button key={k} type="button" role="radio" aria-checked={f.accent === k} aria-label={a.label} title={a.label} onClick={() => setF(x => ({ ...x, accent: k }))}
+                className={`h-8 w-8 rounded-full ring-offset-2 ring-offset-[#11151f] ${f.accent === k ? "ring-2 ring-white" : "hover:ring-2 hover:ring-white/30"}`} style={{ background: a[500] }} />
+            ))}
+          </div>
+        </div>
+        <div><div className="text-xs font-medium text-slate-400">Temperature</div><div className="mt-2"><Segmented label="Temperature unit" value={f.temp_unit} onChange={v => setF(x => ({ ...x, temp_unit: v }))} options={[["C", "°C"], ["F", "°F"]]} /></div></div>
+        <div><div className="text-xs font-medium text-slate-400">Time</div><div className="mt-2"><Segmented label="Time format" value={f.time_format} onChange={v => setF(x => ({ ...x, time_format: v }))} options={[["12", "3:45 PM"], ["24", "15:45"]]} /></div></div>
+      </div>
+    </Section>
+  );
+}
+
+function AlertsSection({ onSaved }) {
+  const [f, setF] = useState(() => ({ temp_warn: toUnit(prefs.temp_warn), temp_hot: toUnit(prefs.temp_hot), storage_warn: prefs.storage_warn, storage_critical: prefs.storage_critical, memory_warn: prefs.memory_warn, alert_printers: prefs.alert_printers, alert_devices: prefs.alert_devices, alert_services: prefs.alert_services, alert_internet: prefs.alert_internet }));
+  const [save, busy, note] = useSaver(onSaved);
+  const num = k => e => setF(x => ({ ...x, [k]: e.target.value === "" ? "" : Number(e.target.value) }));
+  const unit = `°${prefs.temp_unit}`;
+  const submit = () => save({ ...f, temp_warn: fromUnit(f.temp_warn), temp_hot: fromUnit(f.temp_hot) });
+  const NumberField = ({ k, label, suffix }) => (
+    <Field label={label}><div className="flex items-center gap-2"><input type="number" className={`${inputClass} w-24`} value={f[k]} onChange={num(k)} /><span className="text-sm text-slate-500">{suffix}</span></div></Field>
+  );
+  return (
+    <Section title="Alerts" sub="When alerts appear in the header, sidebar and Alerts list."
+      footer={<>{note}<button onClick={submit} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {NumberField({ k: "temp_warn", label: "Server running hot at", suffix: unit })}
+        {NumberField({ k: "temp_hot", label: "Server overheating at", suffix: unit })}
+        {NumberField({ k: "memory_warn", label: "Memory warning at", suffix: "% used" })}
+        {NumberField({ k: "storage_warn", label: "Main drive warning at", suffix: "% full" })}
+        {NumberField({ k: "storage_critical", label: "Main drive critical at", suffix: "% full" })}
+      </div>
+      <div className="mt-4 divide-y divide-white/6 border-t border-white/6 pt-2">
+        <Toggle label="Printers offline" checked={f.alert_printers} onChange={v => setF(x => ({ ...x, alert_printers: v }))} />
+        <Toggle label="Monitored devices not responding" hint="From the Network page's device monitor." checked={f.alert_devices} onChange={v => setF(x => ({ ...x, alert_devices: v }))} />
+        <Toggle label="Services down" hint="From the Services page." checked={f.alert_services} onChange={v => setF(x => ({ ...x, alert_services: v }))} />
+        <Toggle label="Internet down" checked={f.alert_internet} onChange={v => setF(x => ({ ...x, alert_internet: v }))} />
+      </div>
+    </Section>
+  );
+}
+
+function DataSection({ onSaved, onRestored }) {
+  const [f, setF] = useState(() => ({ network_history_days: prefs.network_history_days ?? 7, storage_history_days: prefs.storage_history_days ?? 90, data_usage_days: prefs.data_usage_days ?? 90 }));
+  const [save, busy, note] = useSaver(onSaved);
+  const [confirmClear, setConfirmClear] = useState(null);
+  const [cleared, setCleared] = useState("");
+  const [secrets, setSecrets] = useState(true);
+  const [restore, setRestore] = useState(null);
+  const [restoreMsg, setRestoreMsg] = useState(null);
+  const picker = React.useRef(null);
+  const days = (k, opts) => (
+    <select className={inputClass} value={f[k]} onChange={e => setF(x => ({ ...x, [k]: Number(e.target.value) }))}>
+      {opts.map(d => <option key={d} value={d}>{d === 1 ? "1 day" : d >= 365 ? "1 year" : `${d} days`}</option>)}
+    </select>
+  );
+  const histories = [["network", "Uptime history", "Internet, devices and services"], ["storage", "Storage trend", "Drive usage over time"], ["usage", "Data usage", "Daily download/upload totals"]];
+
+  const pickFile = async e => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    setRestoreMsg(null);
+    try {
+      const data = JSON.parse(await file.text());
+      if (data.app !== "ttrc-dashboard") throw Error("This file isn't a dashboard backup.");
+      setRestore({ name: file.name, data });
+    } catch (err) { setRestoreMsg({ error: err.message.startsWith("This file") ? err.message : "Couldn't read that file. Choose a backup .json from this dashboard." }); }
+  };
+  const doRestore = async () => {
+    try {
+      const r = await restoreBackup(restore.data);
+      setRestore(null); onRestored();
+      setRestoreMsg({ ok: `Restored ${r.printers} printers, ${r.devices} devices and ${r.services} services.${r.secrets_missing ? " This backup had no access codes or tokens; re-enter them by editing each printer or service." : ""}` });
+    } catch (err) { setRestoreMsg({ error: err.message }); }
+  };
+
+  return (
+    <Section title="Data & backups" sub="How long history is kept, and backups of your setup.">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Uptime history">{days("network_history_days", [1, 3, 7, 14, 30, 90])}</Field>
+        <Field label="Storage trend">{days("storage_history_days", [7, 30, 90, 180, 365])}</Field>
+        <Field label="Data usage">{days("data_usage_days", [7, 30, 90, 180, 365])}</Field>
+      </div>
+      <div className="mt-3 flex items-center justify-end gap-3">{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></div>
+
+      <div className="mt-5 border-t border-white/6 pt-4">
+        <div className="text-sm font-medium text-white">Clear history</div>
+        <div className="mt-2 divide-y divide-white/6">
+          {histories.map(([k, label, hint]) => (
+            <div key={k} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+              <span><span className="block text-sm text-slate-200">{label}</span><span className="block text-xs text-slate-600">{hint}</span></span>
+              {confirmClear === k ? (
+                <span className="flex items-center gap-2">
+                  <button onClick={async () => { await clearHistory(k); setConfirmClear(null); setCleared(k); setTimeout(() => setCleared(""), 2500); }} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500">Clear {label.toLowerCase()}</button>
+                  <button onClick={() => setConfirmClear(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
+                </span>
+              ) : cleared === k ? <span className="text-xs text-emerald-300">Cleared</span> : (
+                <button onClick={() => setConfirmClear(k)} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:border-red-500/30 hover:text-red-300">Clear</button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 border-t border-white/6 pt-4">
+        <div className="text-sm font-medium text-white">Backup</div>
+        <p className="mt-1 text-xs text-slate-600">Printers, monitored devices, services and settings. History and {prefs.brand_short} Files aren't included.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <a href={`/api/settings/backup?secrets=${secrets}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><Download size={15} /> Download backup</a>
+          <label className="flex items-center gap-2 text-sm text-slate-400"><input type="checkbox" className="accent-violet-500" checked={secrets} onChange={e => setSecrets(e.target.checked)} /> Include access codes and tokens</label>
+        </div>
+        {secrets && <p className="mt-2 text-xs text-amber-200/80">Keep this file private: it contains your printer access codes and service tokens.</p>}
+
+        <div className="mt-4 text-sm font-medium text-white">Restore</div>
+        {restore ? (
+          <div className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/6 p-4 text-sm">
+            <div className="text-amber-100">Restore <span className="font-medium">{restore.name}</span>?</div>
+            <div className="mt-1 text-xs text-slate-400">From {restore.data.created ? fmtDate(restore.data.created, { dateStyle: "medium", timeStyle: "short" }) : "an unknown date"} · {restore.data.printers?.length ?? 0} printers · {restore.data.net_devices?.length ?? 0} devices · {restore.data.services?.length ?? 0} services{restore.data.includes_secrets === false ? " · no access codes or tokens" : ""}</div>
+            <div className="mt-2 text-xs text-amber-200/80">This replaces your current printers, devices, services and settings.</div>
+            <div className="mt-3 flex gap-2">
+              <button onClick={doRestore} className="rounded-lg bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500">Replace and restore</button>
+              <button onClick={() => setRestore(null)} className="rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-2"><button onClick={() => picker.current?.click()} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><CloudUpload size={15} /> Choose backup file</button></div>
+        )}
+        <input ref={picker} type="file" accept="application/json,.json" className="hidden" onChange={pickFile} />
+        {restoreMsg && <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${restoreMsg.error ? "border-red-500/20 bg-red-500/6 text-red-300" : "border-emerald-500/20 bg-emerald-500/6 text-emerald-200"}`}>{restoreMsg.error ?? restoreMsg.ok}</div>}
+      </div>
+    </Section>
+  );
+}
+
+function AboutSection() {
+  const [about, setAbout] = useState(null);
+  const [confirm, setConfirm] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => { getAbout().then(setAbout).catch(() => {}); }, []);
+  const restart = async () => {
+    try { await restartDashboard(); setMsg("Restarting. The page reconnects in a few seconds."); setConfirm(false); }
+    catch (e) { setMsg(e.message); }
+  };
+  return (
+    <Section title="About & maintenance">
+      {!about ? <div className="text-sm text-slate-500">Loading…</div> : (
+        <>
+          <Row label="Version" value={`${about.version}`} />
+          <Row label="Running since" value={fmtDate(about.started, { dateStyle: "medium", timeStyle: "short" })} />
+          <Row label="Memory used" value={`${about.memory_mb} MB`} />
+          <Row label="Database" value={`${about.database}${about.database_bytes != null ? ` (${formatBytes(about.database_bytes)})` : ""}`} />
+          <Row label={`${prefs.brand_short} Files folder`} value={about.files_folder} />
+          <Row label="Python" value={about.python} />
+          <Row label="System" value={about.platform} />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            {confirm ? (
+              <>
+                <button onClick={restart} className="rounded-lg bg-amber-500/80 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500">Restart now</button>
+                <button onClick={() => setConfirm(false)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
+              </>
+            ) : (
+              <button onClick={() => setConfirm(true)} disabled={!about.can_restart} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:cursor-not-allowed disabled:opacity-40"><RotateCw size={15} /> Restart dashboard</button>
+            )}
+            {!about.can_restart && <span className="text-xs text-slate-600">{about.restart_note}</span>}
+            {msg && <span className="text-xs text-slate-400">{msg}</span>}
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
+function SettingsPage({ onSaved, onRestored }) {
+  return (
+    <>
+      <div className="mb-7">
+        <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
+        <p className="mt-2 text-sm text-slate-500">Branding, alerts, data and maintenance.</p>
+      </div>
+      <div className="space-y-4">
+        <BrandingSection onSaved={onSaved} />
+        <AlertsSection onSaved={onSaved} />
+        <DataSection onSaved={onSaved} onRestored={onRestored} />
+        <AboutSection />
+        <section className="rounded-2xl border border-dashed border-white/10 p-5">
+          <h2 className="flex items-center gap-2 font-semibold text-slate-400"><ShieldCheck size={16} /> Login & users</h2>
+          <p className="mt-1 text-xs text-slate-600">Coming in a future version: an admin account, viewer accounts and access keys for devices like the LED status bar.</p>
+        </section>
+      </div>
+    </>
+  );
+}
+
 function Dashboard() {
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState("dashboard");
@@ -1657,6 +1959,11 @@ function Dashboard() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
+  // Bumped whenever settings change, so the whole app re-renders with the new preferences
+  const [, setPrefsVersion] = useState(0);
+  const applySettings = useCallback(s => { applyPrefs(s); setPrefsVersion(v => v + 1); }, []);
+  const reloadSettings = useCallback(async () => { try { applySettings(await getSettings()); } catch { /* keep defaults */ } }, [applySettings]);
+  useEffect(() => { reloadSettings(); }, [reloadSettings]);
 
   const printersInFlight = React.useRef(false);
   const printersGen = React.useRef(0);
@@ -1726,7 +2033,7 @@ function Dashboard() {
   ];
   const extraServices = Math.max(0, (system?.services?.services?.length ?? 0) - 5);
 
-  const placeholder = !['dashboard', 'printers', 'server', 'storage', 'network', 'services'].includes(page);
+  const placeholder = !['dashboard', 'printers', 'server', 'storage', 'network', 'services', 'settings'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
 
   return (
@@ -1739,7 +2046,7 @@ function Dashboard() {
               <button className="rounded-lg p-2 text-slate-500 hover:bg-white/5 lg:hidden" onClick={() => setMenu(true)} aria-label="Open menu"><Menu size={21} /></button>
               <div>
                 <div className="text-sm font-semibold text-white">{title}</div>
-                <div className="mt-0.5 text-xs text-slate-600">TTRC Home Lab</div>
+                <div className="mt-0.5 text-xs text-slate-600">{prefs.brand_name}</div>
               </div>
             </div>
             <div className="flex items-center gap-3 text-xs">
@@ -1753,6 +2060,8 @@ function Dashboard() {
               <ServerPage />
             ) : page === "storage" ? (
               <StoragePage />
+            ) : page === "settings" ? (
+              <SettingsPage onSaved={applySettings} onRestored={() => { reloadSettings(); refreshPrinters(); }} />
             ) : page === "services" ? (
               <ServicesPage printers={livePrinters ?? []} />
             ) : page === "network" ? (
@@ -1772,9 +2081,9 @@ function Dashboard() {
                 <div className="mb-7">
                   <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                     <div>
-                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.22em] text-violet-400"><Zap size={13} /> TTRC Operations</div>
-                      <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">Home Lab / Print Farm</h1>
-                      <p className="mt-2 text-sm text-slate-500">One place to see what's happening across the shop.</p>
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.22em] text-violet-400"><Zap size={13} /> {prefs.brand_short} Operations</div>
+                      <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">{prefs.brand_tagline || prefs.brand_name}</h1>
+                      {prefs.brand_description && <p className="mt-2 text-sm text-slate-500">{prefs.brand_description}</p>}
                     </div>
                   </div>
                 </div>
@@ -1814,7 +2123,7 @@ function Dashboard() {
                     <div className="mt-5 grid gap-3 sm:grid-cols-3">
                       <div className="rounded-xl bg-white/[.025] p-4">
                         <div className="text-xs text-slate-600">Temperature</div>
-                        <div className="mt-2 text-xl font-semibold text-white">{system?.temperature_c != null ? `${system.temperature_c}°C` : "N/A"}</div>
+                        <div className="mt-2 text-xl font-semibold text-white">{system?.temperature_c != null ? fmtTemp(system.temperature_c) : "N/A"}</div>
                         {tempState ? <div className={`mt-1 flex items-center gap-1 text-xs ${tempState.cls}`}><tempState.Icon size={12} /> {tempState.label}</div> : <div className="mt-1 text-xs text-slate-600">No sensor on this machine</div>}
                       </div>
                       <div className="rounded-xl bg-white/[.025] p-4">

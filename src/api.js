@@ -28,3 +28,9 @@ export const addService=s=>req('/api/services',{method:'POST',body:JSON.stringif
 export const editService=(id,s)=>req(`/api/services/${id}`,{method:'PUT',body:JSON.stringify(s)});
 export const deleteService=id=>req(`/api/services/${id}`,{method:'DELETE'});
 export const restartContainer=id=>req(`/api/services/docker/${id}/restart`,{method:'POST'});
+export const getSettings=()=>req('/api/settings');
+export const saveSettings=s=>req('/api/settings',{method:'PUT',body:JSON.stringify(s)});
+export const getAbout=()=>req('/api/settings/about');
+export const clearHistory=kind=>req(`/api/settings/clear-history/${kind}`,{method:'POST'});
+export const restoreBackup=data=>req('/api/settings/restore',{method:'POST',body:JSON.stringify(data)});
+export const restartDashboard=()=>req('/api/settings/restart',{method:'POST'});

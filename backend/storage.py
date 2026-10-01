@@ -3,13 +3,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json, os, re, shutil, subprocess, sys, time
 import psutil
+import settings
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # Shared files live outside the app folder so a redeploy (rsync --delete) never touches them.
 FILES_ROOT=Path(os.environ.get('TTRC_FILES') or Path.home()/'TTRC Files').expanduser()
-TRASH_NAME='.trash'; HISTORY_DAYS=90; RECORD_EVERY=15*60
+TRASH_NAME='.trash'; RECORD_EVERY=15*60
 router=APIRouter(prefix='/api')
 _db=None; _disks=None
 
@@ -24,7 +25,7 @@ def configure(db,disks):
 def record_usage():
  t=int(time.time()); c=_db()
  c.executemany('INSERT INTO storage_history(t,mount,used_gb,total_gb) VALUES(?,?,?,?)',[(t,d['mount'],d['used_gb'],d['total_gb']) for d in _disks()])
- c.execute('DELETE FROM storage_history WHERE t<?',(t-HISTORY_DAYS*86400,)); c.commit(); c.close()
+ c.execute('DELETE FROM storage_history WHERE t<?',(t-settings.get('storage_history_days')*86400,)); c.commit(); c.close()
 
 def usage_history():
  c=_db(); rows=c.execute('SELECT t,mount,used_gb,total_gb FROM storage_history ORDER BY t').fetchall(); c.close()

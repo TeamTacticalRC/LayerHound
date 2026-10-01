@@ -57,9 +57,9 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 ### Work needed
 - [ ] **Pre-built releases:** GitHub Actions builds the frontend on each version tag, so buyers don't need Node.js.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
-- [ ] **Remove hardcoded personal details:** the Team Tactical RC branding, ROCK 4D wording and the planned Docker, Home Assistant and Pi-hole services become settings or a first-run setup screen.
+- [ ] **Remove hardcoded personal details:** branding is now editable on the Settings page (name, short name, tagline, accent) and the planned services were replaced with real ones. Still to do: change the default name for new installs, ask for it on a first-run setup screen, and rename the `TTRC Files` folder and `TTRC_*` settings to neutral names.
 - [ ] **Security:** add login (see the Login plan below), and encrypt the stored access codes and API keys. Right now anyone on the network can edit or delete printers and upload, rename or delete files in TTRC Files.
-- [ ] **Update checks:** tell the user when a new version is available.
+- [ ] **Update checks:** tell the user when a new version is available (show it on Settings → About, next to the current version).
 - [ ] **Licensing:** choose a license for this code. Review paho-mqtt's license terms if it will be sold closed-source.
 - [ ] **Bambu risk:** Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.
 

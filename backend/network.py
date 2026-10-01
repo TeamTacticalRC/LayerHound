@@ -5,11 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 import ipaddress, json, os, re, socket, ssl, subprocess, sys, threading, time, urllib.request
 import psutil
+import settings
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 router=APIRouter(prefix='/api/network')
-CHECK_EVERY=60; KEEP_DAYS=7; IFACE_EVERY=5
+CHECK_EVERY=60; IFACE_EVERY=5
 INTERNET_TARGETS=('1.1.1.1','8.8.8.8'); DNS_NAME='one.one.one.one'
 # IEEE manufacturer list (setup.sh downloads it); optional, discovery works without it
 OUI_PATH=Path(__file__).with_name('data')/'oui.csv'
@@ -87,7 +88,7 @@ def devices():
 def record(rows):
  t=int(time.time()); c=_db()
  c.executemany('INSERT INTO net_checks(t,target,up,ms) VALUES(?,?,?,?)',[(t,target,int(ms is not None),ms) for target,ms in rows])
- c.execute('DELETE FROM net_checks WHERE t<?',(t-KEEP_DAYS*86400,)); c.commit(); c.close()
+ c.execute('DELETE FROM net_checks WHERE t<?',(t-settings.get('network_history_days')*86400,)); c.commit(); c.close()
 
 def check_all():
  devs=devices()
@@ -161,7 +162,7 @@ def iface_sampler():
    if t-flushed>=60 and pending:
     day=datetime.now().strftime('%Y-%m-%d'); c=_db()
     c.executemany('INSERT INTO net_daily(day,iface,rx,tx) VALUES(?,?,?,?) ON CONFLICT(day,iface) DO UPDATE SET rx=rx+excluded.rx,tx=tx+excluded.tx',[(day,n,v[0],v[1]) for n,v in pending.items() if v[0] or v[1]])
-    c.execute("DELETE FROM net_daily WHERE day<date('now','-90 day')"); c.commit(); c.close(); pending={}; flushed=t
+    c.execute("DELETE FROM net_daily WHERE day<date('now',?)",(f"-{settings.get('data_usage_days')} day",)); c.commit(); c.close(); pending={}; flushed=t
   except Exception as e: print('interface sampler error:',e,flush=True)
 
 # ---- Summaries --------------------------------------------------------------------------

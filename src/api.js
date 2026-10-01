@@ -23,3 +23,8 @@ export const editNetDevice=(id,d)=>req(`/api/network/devices/${id}`,{method:'PUT
 export const deleteNetDevice=id=>req(`/api/network/devices/${id}`,{method:'DELETE'});
 export const startScan=()=>req('/api/network/scan',{method:'POST'});
 export const getScan=()=>req('/api/network/scan');
+export const getServices=()=>req('/api/services');
+export const addService=s=>req('/api/services',{method:'POST',body:JSON.stringify(s)});
+export const editService=(id,s)=>req(`/api/services/${id}`,{method:'PUT',body:JSON.stringify(s)});
+export const deleteService=id=>req(`/api/services/${id}`,{method:'DELETE'});
+export const restartContainer=id=>req(`/api/services/docker/${id}/restart`,{method:'POST'});

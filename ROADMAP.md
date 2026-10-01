@@ -5,7 +5,8 @@
 - Run `deploy/deploy.sh user@BOARD-HOSTNAME.local --with-db` (see README).
 - Stop the dashboard on the Mac. The Bambu P1S accepts only one local connection.
 - Check that the board's temperature sensors show up on the Server tab.
-- Turn the Docker, Home Assistant and Pi-hole entries in Services into real checks as each is installed.
+- As Home Assistant, Pi-hole and other apps are installed, add them on the Services page (with tokens for the extra stats). One-click suggestions add each Klipper printer's web page.
+- Docker: after installing it, give the dashboard access with `sudo usermod -aG docker $USER` and restart the service. Note: Docker access is effectively admin access to the board, and it enables the container restart buttons. That's fine at home; for the product, keep it opt-in and behind login.
 - Check that drive health (NVMe wear, temperature, hours) shows up on the Storage page.
 - Optional: share TTRC Files to the Mac as a network drive (Samba).
 - On the Network page, check that the router is found automatically and the Ethernet link speed shows.
@@ -68,7 +69,7 @@ About one focused session of work. Do it together with encrypting the stored pri
 - **First-run setup:** a fresh install opens a "Create your admin account" screen. There are no default passwords.
 - **Passwords:** store only a one-way hash (scrypt, built into Python; no new dependency).
 - **Sessions:** a long random session ID in a cookie that page scripts can't read (HttpOnly, SameSite). "Keep me signed in" lasts 30 days; otherwise the session ends when the browser closes. Logout ends it immediately. Every API endpoint requires a session except login, setup and `/api/health`.
-- **Roles:** Admin (everything) and Viewer (read-only, for employees or a shop display).
+- **Roles:** Admin (everything, including restarting Docker containers and managing files) and Viewer (read-only, for employees or a shop display).
 - **Access keys:** read-only keys for devices that can't type a password (the LED status bar, a wall display). Admins create and revoke them in Settings.
 - **Brute-force protection:** after 5 wrong passwords, pause logins from that device for a few minutes.
 - **Password reset:** a command on the board, e.g. `ttrc reset-password`. Being able to log into the board proves ownership.

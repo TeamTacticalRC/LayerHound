@@ -49,6 +49,8 @@ The Storage page's **TTRC Files** folder is `~/TTRC Files` for the user the serv
 
 The Network page checks the internet and your monitored devices every minute and keeps 7 days of history. Network scans only cover the local network (at most 254 addresses) and only run when you press **Scan network**. `setup.sh` downloads the public IEEE manufacturer list (`backend/data/oui.csv`) so scans can name device makers.
 
+The Services page checks each added service every minute (any HTTP answer below 500 counts as up; self-signed certificates are accepted). Home Assistant stats use a long-lived access token; Pi-hole stats support v6 (password/app password) and v5 (API token). Tokens are stored in the local database and never sent to the browser. Docker containers appear automatically when the dashboard can reach `/var/run/docker.sock`.
+
 Useful commands on the board:
 ```bash
 systemctl status ttrc-dashboard

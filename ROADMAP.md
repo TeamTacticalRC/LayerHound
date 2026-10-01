@@ -6,6 +6,8 @@
 - Stop the dashboard on the Mac. The Bambu P1S accepts only one local connection.
 - Check that the board's temperature sensors show up on the Server tab.
 - Turn the Docker, Home Assistant and Pi-hole entries in Services into real checks as each is installed.
+- Check that drive health (NVMe wear, temperature, hours) shows up on the Storage page.
+- Optional: share TTRC Files to the Mac as a network drive (Samba).
 
 ## After the server is fully running
 ### Printer status LED bar
@@ -37,7 +39,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - [ ] **Pre-built releases:** GitHub Actions builds the frontend on each version tag, so buyers don't need Node.js.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
 - [ ] **Remove hardcoded personal details:** the Team Tactical RC branding, ROCK 4D wording and the planned Docker, Home Assistant and Pi-hole services become settings or a first-run setup screen.
-- [ ] **Security:** optional login (anyone on the network can currently edit or delete printers), and encrypt the stored access codes and API keys.
+- [ ] **Security:** optional login (anyone on the network can currently edit or delete printers and upload, rename or delete files in TTRC Files), and encrypt the stored access codes and API keys.
 - [ ] **Update checks:** tell the user when a new version is available.
 - [ ] **Licensing:** choose a license for this code. Review paho-mqtt's license terms if it will be sold closed-source.
 - [ ] **Bambu risk:** Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.

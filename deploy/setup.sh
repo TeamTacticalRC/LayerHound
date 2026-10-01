@@ -12,7 +12,13 @@ SERVICE=ttrc-dashboard
 echo "==> Installing system packages"
 sudo apt-get update -qq
 # avahi-daemon lets you reach the board as http://<hostname>.local
-sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon >/dev/null
+# smartmontools (smartctl) reads drive health for the Storage page
+sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools >/dev/null
+
+# Drive health needs root, so allow exactly the read-only health command and nothing else
+SUDOERS=/etc/sudoers.d/ttrc-dashboard
+echo "$APP_USER ALL=(root) NOPASSWD: /usr/sbin/smartctl --json -a /dev/*" | sudo tee "$SUDOERS.tmp" >/dev/null
+sudo visudo -cf "$SUDOERS.tmp" >/dev/null && sudo install -m 440 "$SUDOERS.tmp" "$SUDOERS"; sudo rm -f "$SUDOERS.tmp"
 
 python3 -c "import sys; sys.exit(sys.version_info < (3, 10))" || { echo "!! Python 3.10 or newer is required" >&2; exit 1; }
 

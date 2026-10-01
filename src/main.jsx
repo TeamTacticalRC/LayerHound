@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getSystem, getServer, getServerHistory, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
-  ArrowDownToLine, ArrowUpFromLine, Clock, Database, GripVertical, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Clock, CloudUpload, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap
 } from "lucide-react";
 import "./index.css";
@@ -628,6 +628,9 @@ function HistoryChart({ title, points, field, unit, max, empty }) {
   const latest = data[data.length - 1];
   const shown = hover ?? latest;
   const minutes = Math.round(span / 60);
+  // Charts cover anything from an hour (Server) to 90 days (Storage)
+  const ago = span >= 2 * 86400 ? `${Math.round(span / 86400)} days ago` : span >= 2 * 3600 ? `${Math.round(span / 3600)} hours ago` : minutes ? `${minutes} min ago` : "just now";
+  const timeLabel = t => new Date(t * 1000).toLocaleString([], span >= 86400 ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } : { hour: "numeric", minute: "2-digit", second: "2-digit" });
 
   const onMove = e => {
     if (data.length < 2) return;
@@ -645,14 +648,14 @@ function HistoryChart({ title, points, field, unit, max, empty }) {
         <h3 className="text-sm font-semibold text-white">{title}</h3>
         <div className="text-right">
           <span className="text-lg font-semibold tabular-nums text-white">{shown ? `${shown[field]}${unit}` : "—"}</span>
-          <div className="text-[11px] text-slate-600">{hover ? new Date(hover.t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "Now"}</div>
+          <div className="text-[11px] text-slate-600">{hover ? timeLabel(hover.t) : "Now"}</div>
         </div>
       </div>
       <div ref={wrap} className="relative mt-3">
         {data.length < 2 ? (
           <div className="flex h-[120px] items-center justify-center rounded-xl border border-dashed border-white/8 px-4 text-center text-xs text-slate-600">{empty ?? "Collecting data. The chart fills in over the next few minutes."}</div>
         ) : (
-          <svg width={width} height={H} className="block touch-none select-none" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onTouchMove={onMove} onTouchEnd={() => setHover(null)} role="img" aria-label={`${title}, last ${minutes} minutes, now ${latest[field]}${unit}`}>
+          <svg width={width} height={H} className="block touch-none select-none" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onTouchMove={onMove} onTouchEnd={() => setHover(null)} role="img" aria-label={`${title}, from ${ago} to now, latest ${latest[field]}${unit}`}>
             {ticks.map(v => (
               <g key={v}>
                 <line x1={L} x2={width - R} y1={y(v)} y2={y(v)} stroke="rgba(255,255,255,.06)" />
@@ -661,7 +664,7 @@ function HistoryChart({ title, points, field, unit, max, empty }) {
             ))}
             <path d={area} fill="rgba(139,92,246,.12)" />
             <path d={line} fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-            <text x={L} y={H - 4} className="fill-slate-600 text-[10px]">{minutes ? `${minutes} min ago` : "just now"}</text>
+            <text x={L} y={H - 4} className="fill-slate-600 text-[10px]">{ago}</text>
             <text x={width - R} y={H - 4} textAnchor="end" className="fill-slate-600 text-[10px]">now</text>
             {hover && (
               <g>
@@ -804,6 +807,299 @@ function ServerPage() {
   );
 }
 
+function formatBytes(b) {
+  const n = Number(b) || 0;
+  if (n >= 1e12) return `${(n / 1e12).toFixed(2)} TB`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)} KB`;
+  return `${n} B`;
+}
+
+function driveLabel(mount) {
+  return mount === "/" ? "Main drive" : mount.split("/").filter(Boolean).pop() || mount;
+}
+
+function DriveCard({ drive, holdsFiles }) {
+  const h = drive.health ?? {};
+  const failing = h.available && (h.passed === false || h.critical_warning > 0 || h.media_errors > 0);
+  const worn = h.available && h.wear_percent >= 80;
+  const badge = !h.available ? null
+    : failing ? { text: "Needs attention", cls: "border-red-500/20 bg-red-500/6 text-red-300", Icon: AlertTriangle }
+    : worn ? { text: "Wearing out", cls: "border-amber-500/20 bg-amber-500/6 text-amber-200", Icon: AlertTriangle }
+    : { text: "Healthy", cls: "border-emerald-500/20 bg-emerald-500/6 text-emerald-300", Icon: ShieldCheck };
+  return (
+    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate font-semibold text-white" title={drive.mount}>{driveLabel(drive.mount)}</h3>
+          <p className="mt-1 truncate text-xs text-slate-600">{drive.mount} · {drive.fstype}{h.model ? ` · ${h.model}` : ""}</p>
+        </div>
+        {badge && <span className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px] ${badge.cls}`}><badge.Icon size={12} /> {badge.text}</span>}
+      </div>
+      <div className="mt-4 flex items-baseline justify-between text-sm">
+        <span className="text-xl font-semibold tabular-nums text-white">{Math.round(drive.percent)}%</span>
+        <span className="text-xs tabular-nums text-slate-400">{drive.used_gb} of {drive.total_gb} GB used</span>
+      </div>
+      <div className="mt-2"><Bar percent={drive.percent} warnAt={85} /></div>
+      {holdsFiles && <div className="mt-3 flex items-center gap-1.5 text-xs text-violet-300"><Folder size={13} /> TTRC Files is stored here</div>}
+      <div className="mt-4 border-t border-white/6 pt-3">
+        {h.available ? (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            {h.wear_percent != null && <div><div className="text-slate-600">Wear</div><div className="mt-0.5 text-slate-200">{h.wear_percent}% of rated life</div></div>}
+            {h.temperature_c != null && <div><div className="text-slate-600">Temperature</div><div className="mt-0.5 text-slate-200">{h.temperature_c}°C</div></div>}
+            {h.power_on_hours != null && <div><div className="text-slate-600">Powered on</div><div className="mt-0.5 text-slate-200">{h.power_on_hours >= 48 ? `${Math.round(h.power_on_hours / 24)} days` : `${h.power_on_hours} hours`}</div></div>}
+            {h.written_tb != null && <div><div className="text-slate-600">Data written</div><div className="mt-0.5 text-slate-200">{h.written_tb} TB</div></div>}
+            {h.media_errors > 0 && <div className="col-span-2 text-red-300">{h.media_errors} media errors reported. Back up this drive.</div>}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs text-slate-600"><HeartPulse size={13} /> {h.reason || "Health data unavailable"}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FileBrowser({ filesInfo, onChanged }) {
+  const [path, setPath] = useState("");
+  const [listing, setListing] = useState(null);
+  const [error, setError] = useState("");
+  const [uploads, setUploads] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [renaming, setRenaming] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [confirmEmpty, setConfirmEmpty] = useState(false);
+  const picker = React.useRef(null);
+
+  const load = useCallback(async (p = path) => {
+    try { setListing(await listFiles(p)); setError(""); }
+    catch (e) { setError(e.message); }
+  }, [path]);
+  useEffect(() => { load(path); }, [path, load]);
+
+  const run = async action => {
+    setError("");
+    try { await action(); await load(); onChanged(); }
+    catch (e) { setError(e.message); }
+  };
+
+  const upload = async files => {
+    const list = [...files];
+    if (!list.length) return;
+    const target = path;
+    const ids = list.map((f, i) => `${Date.now()}-${i}-${f.name}`);
+    setUploads(u => [...u, ...list.map((f, i) => ({ id: ids[i], name: f.name, size: f.size, progress: 0 }))]);
+    for (let i = 0; i < list.length; i++) {
+      const id = ids[i];
+      try {
+        await uploadFile(target, list[i], progress => setUploads(u => u.map(x => x.id === id ? { ...x, progress } : x)));
+        setUploads(u => u.filter(x => x.id !== id));
+      } catch (e) {
+        setUploads(u => u.map(x => x.id === id ? { ...x, error: e.message } : x));
+      }
+    }
+    await load(target); onChanged();
+  };
+
+  const items = listing?.items ?? [];
+  const biggest = Math.max(1, ...items.map(i => i.size));
+  const totalHere = items.reduce((n, i) => n + i.size, 0);
+  const iconBtn = "rounded-lg p-2 text-slate-500 hover:bg-white/6 hover:text-white";
+
+  return (
+    <div
+      className={`relative rounded-2xl border bg-[#11151f] p-5 transition-colors ${dragOver ? "border-violet-400/60" : "border-white/8"}`}
+      onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+      onDrop={e => { e.preventDefault(); setDragOver(false); upload(e.dataTransfer.files); }}
+    >
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0">
+          <h2 className="font-semibold text-white">TTRC Files</h2>
+          <nav className="mt-1 flex flex-wrap items-center gap-1 text-xs" aria-label="Folder path">
+            <button onClick={() => setPath("")} className={listing?.crumbs.length ? "text-violet-400 hover:text-violet-300" : "text-slate-400"}>All files</button>
+            {listing?.crumbs.map((c, i) => (
+              <React.Fragment key={c.path}>
+                <ChevronRight size={12} className="text-slate-600" />
+                <button onClick={() => setPath(c.path)} className={i === listing.crumbs.length - 1 ? "text-slate-400" : "text-violet-400 hover:text-violet-300"}>{c.name}</button>
+              </React.Fragment>
+            ))}
+          </nav>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => { setCreating(true); setNewName(""); }} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><FolderPlus size={16} /> New folder</button>
+          <button onClick={() => picker.current?.click()} className="flex items-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400"><CloudUpload size={16} /> Upload</button>
+          <input ref={picker} type="file" multiple className="hidden" onChange={e => { upload(e.target.files); e.target.value = ""; }} />
+        </div>
+      </div>
+
+      {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error}</div>}
+
+      {uploads.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {uploads.map(u => (
+            <li key={u.id} className="rounded-xl border border-white/8 bg-white/[.02] px-3 py-2 text-xs">
+              <div className="flex justify-between gap-3"><span className="truncate text-slate-300">{u.name}</span><span className={u.error ? "text-red-300" : "tabular-nums text-slate-500"}>{u.error ?? `${Math.round(u.progress * 100)}% of ${formatBytes(u.size)}`}</span></div>
+              {!u.error && <div className="mt-1.5"><Bar percent={u.progress * 100} warnAt={101} /></div>}
+              {u.error && <button onClick={() => setUploads(x => x.filter(y => y.id !== u.id))} className="mt-1 text-slate-500 hover:text-white">Dismiss</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-4 overflow-hidden rounded-xl border border-white/6">
+        {creating && (
+          <form className="flex items-center gap-2 border-b border-white/6 bg-white/[.02] px-3 py-2" onSubmit={e => { e.preventDefault(); run(async () => { await newFolder(path, newName); setCreating(false); }); }}>
+            <Folder size={16} className="shrink-0 text-violet-400" />
+            <input autoFocus className={`${inputClass} py-1.5`} placeholder="Folder name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Escape" && setCreating(false)} />
+            <button type="submit" className="rounded-lg bg-violet-500 px-3 py-1.5 text-sm text-white hover:bg-violet-400">Create</button>
+            <button type="button" onClick={() => setCreating(false)} className="rounded-lg px-3 py-1.5 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
+          </form>
+        )}
+        {listing && path && (
+          <button onClick={() => setPath(listing.crumbs.length > 1 ? listing.crumbs[listing.crumbs.length - 2].path : "")} className="flex w-full items-center gap-3 border-b border-white/6 px-3 py-2.5 text-left text-sm text-slate-500 hover:bg-white/[.03]">
+            <ArrowUp size={16} /> Up one folder
+          </button>
+        )}
+        {!listing ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Loading…</div>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <CloudUpload className="text-violet-400" size={26} />
+            <div className="mt-3 text-sm font-medium text-white">{path ? "This folder is empty" : "No files yet"}</div>
+            <div className="mt-1 text-xs text-slate-500">Drag files here or use Upload.</div>
+          </div>
+        ) : (
+          <ul>
+            {items.map(it => (
+              <li key={it.path} className="group flex items-center gap-3 border-b border-white/6 px-3 py-2.5 last:border-0 hover:bg-white/[.02]">
+                {it.type === "folder" ? <Folder size={18} className="shrink-0 text-violet-400" /> : <FileIcon size={18} className="shrink-0 text-slate-500" />}
+                <div className="min-w-0 flex-1">
+                  {renaming?.path === it.path ? (
+                    <form className="flex gap-2" onSubmit={e => { e.preventDefault(); run(async () => { await renameFile(it.path, renaming.name); setRenaming(null); }); }}>
+                      <input autoFocus className={`${inputClass} py-1`} value={renaming.name} onChange={e => setRenaming(r => ({ ...r, name: e.target.value }))} onKeyDown={e => e.key === "Escape" && setRenaming(null)} />
+                      <button type="submit" className="rounded-lg bg-violet-500 px-3 text-sm text-white hover:bg-violet-400">Save</button>
+                    </form>
+                  ) : it.type === "folder" ? (
+                    <button onClick={() => setPath(it.path)} className="block max-w-full truncate text-left text-sm text-white hover:text-violet-300">{it.name}</button>
+                  ) : (
+                    <a href={downloadUrl(it.path)} className="block truncate text-sm text-slate-200 hover:text-violet-300" title={`Download ${it.name}`}>{it.name}</a>
+                  )}
+                  <div className="mt-0.5 text-[11px] text-slate-600">
+                    {it.type === "folder" ? `${it.items} file${it.items === 1 ? "" : "s"} · ` : ""}{new Date(it.modified).toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                  </div>
+                </div>
+                <div className="hidden w-28 shrink-0 sm:block">
+                  <div className="text-right text-xs tabular-nums text-slate-400">{formatBytes(it.size)}</div>
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/6" title="Share of this folder's space"><div className="h-full rounded-full bg-violet-500/70" style={{ width: `${(it.size / biggest) * 100}%` }} /></div>
+                </div>
+                {confirmDelete === it.path ? (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button onClick={() => run(async () => { await deleteFile(it.path); setConfirmDelete(null); })} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-500">Move to trash</button>
+                    <button onClick={() => setConfirmDelete(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
+                  </div>
+                ) : (
+                  <div className="flex shrink-0 items-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+                    {it.type === "file" && <a href={downloadUrl(it.path)} className={iconBtn} aria-label={`Download ${it.name}`}><Download size={16} /></a>}
+                    <button onClick={() => setRenaming({ path: it.path, name: it.name })} className={iconBtn} aria-label={`Rename ${it.name}`}><Pencil size={16} /></button>
+                    <button onClick={() => setConfirmDelete(it.path)} className={`${iconBtn} hover:text-red-300`} aria-label={`Delete ${it.name}`}><Trash2 size={16} /></button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-col justify-between gap-2 text-xs text-slate-600 sm:flex-row sm:items-center">
+        <span>{items.length} item{items.length === 1 ? "" : "s"} · {formatBytes(totalHere)}{filesInfo ? ` · ${formatBytes(filesInfo.free)} free on the drive` : ""}</span>
+        {filesInfo && (filesInfo.trash_count > 0 ? (
+          confirmEmpty ? (
+            <span className="flex items-center gap-2">
+              <span className="text-red-300">Permanently delete {filesInfo.trash_count} item{filesInfo.trash_count === 1 ? "" : "s"}?</span>
+              <button onClick={() => run(async () => { await emptyTrash(); setConfirmEmpty(false); })} className="rounded-lg bg-red-500/80 px-2.5 py-1 font-medium text-white hover:bg-red-500">Empty trash</button>
+              <button onClick={() => setConfirmEmpty(false)} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-white/5">Cancel</button>
+            </span>
+          ) : (
+            <button onClick={() => setConfirmEmpty(true)} className="flex items-center gap-1.5 text-slate-500 hover:text-red-300"><Trash2 size={13} /> Trash: {filesInfo.trash_count} item{filesInfo.trash_count === 1 ? "" : "s"} ({formatBytes(filesInfo.trash_size)}) · Empty</button>
+          )
+        ) : <span className="flex items-center gap-1.5"><Trash2 size={13} /> Trash is empty</span>)}
+      </div>
+
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-violet-500/10 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 rounded-xl border border-violet-400/40 bg-[#11151f] px-4 py-3 text-sm text-violet-200"><CloudUpload size={18} /> Drop to upload to {listing?.crumbs.at(-1)?.name ?? "All files"}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StoragePage() {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const [trendMount, setTrendMount] = useState("/");
+
+  const load = useCallback(async () => {
+    try { setInfo(await getStorage()); setError(""); }
+    catch (e) { setError(e.message || "network error"); }
+  }, []);
+  useEffect(() => {
+    load();
+    // Folder sizes are worked out on each call, so refresh this page less often than the Server tab
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  if (!info) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-500">
+        {error ? <span className="flex items-center gap-2 text-red-300"><AlertTriangle size={16} /> Couldn't reach the storage API ({error}).</span> : <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading storage…</span>}
+      </div>
+    );
+  }
+
+  const trend = (info.history[trendMount] ?? []).map(p => ({ t: p.t, used: p.used }));
+  const mounts = info.drives.map(d => d.mount);
+
+  return (
+    <>
+      <div className="mb-7">
+        <h1 className="text-3xl font-bold tracking-tight text-white">Storage</h1>
+        <p className="mt-2 text-sm text-slate-500">Drive health and the shared TTRC Files folder.</p>
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {info.drives.map(d => <DriveCard key={d.mount} drive={d} holdsFiles={d.mount === info.files.drive} />)}
+      </section>
+
+      <section className="mt-4">
+        <HistoryChart
+          title={`${driveLabel(trendMount)} usage (GB)`}
+          points={trend}
+          field="used"
+          unit=" GB"
+          empty={`Usage is recorded every ${info.history_every_minutes} minutes and kept for 90 days. The trend fills in over the next few hours.`}
+        />
+        {mounts.length > 1 && (
+          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Choose drive">
+            {mounts.map(m => (
+              <button key={m} onClick={() => setTrendMount(m)} className={`rounded-lg border px-3 py-1.5 text-xs ${trendMount === m ? "border-violet-400 bg-violet-500/12 text-white" : "border-white/10 text-slate-400 hover:border-white/20"}`}>{driveLabel(m)}</button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-4">
+        <FileBrowser filesInfo={info.files} onChanged={load} />
+        <p className="mt-2 text-xs text-slate-600">Stored in <span className="text-slate-500">{info.files.root}</span>. Deleted items go to the trash until you empty it.</p>
+      </section>
+    </>
+  );
+}
+
 function Dashboard() {
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState("dashboard");
@@ -884,7 +1180,7 @@ function Dashboard() {
     { name: "Pi-hole", tone: "off", status: "Not set up" },
   ];
 
-  const placeholder = !['dashboard', 'printers', 'server'].includes(page);
+  const placeholder = !['dashboard', 'printers', 'server', 'storage'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
 
   return (
@@ -909,6 +1205,8 @@ function Dashboard() {
           <div className="p-4 sm:p-6 lg:p-8">
             {page === "server" ? (
               <ServerPage />
+            ) : page === "storage" ? (
+              <StoragePage />
             ) : page === "printers" ? (
               <PrintFarmPage printers={printers} usingDemo={usingDemo} printerError={printerError} onSelect={setSelected} onAdd={() => setAdding(true)} onSaveOrder={saveOrder} />
             ) : placeholder ? (

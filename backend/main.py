@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+import storage
 
 DB_PATH=Path(os.environ.get('TTRC_DB') or Path(__file__).with_name('ttrc.db')); TIMEOUT=4
 # Built frontend (npm run build). When present, this server hosts the whole dashboard.
@@ -148,7 +149,7 @@ def disks():
   if mac and m=='/': continue
   try: u=psutil.disk_usage(m)
   except OSError: continue
-  out.append({'mount':'/' if m=='/System/Volumes/Data' else m,'device':p.device,'fstype':p.fstype,'total_gb':round(u.total/2**30,1),'used_gb':round(u.used/2**30,1),'percent':u.percent})
+  out.append({'mount':'/' if m=='/System/Volumes/Data' else m,'mountpoint':m,'device':p.device,'fstype':p.fstype,'total_gb':round(u.total/2**30,1),'used_gb':round(u.used/2**30,1),'percent':u.percent})
  return sorted(out,key=lambda d:(d['mount']!='/',d['mount']))
 
 def os_name():
@@ -166,16 +167,18 @@ def net_totals():
  n=psutil.net_io_counters(pernic=True); real=[v for k,v in n.items() if not k.startswith('lo')]
  return sum(v.bytes_recv for v in real),sum(v.bytes_sent for v in real)
 def sampler():
- psutil.cpu_percent(percpu=True); rx0,tx0=net_totals(); t0=time.time()
+ psutil.cpu_percent(percpu=True); rx0,tx0=net_totals(); t0=time.time(); next_storage=0
  while True:
   time.sleep(SAMPLE_EVERY)
   try:
+   if time.time()>=next_storage: storage.record_usage(); next_storage=time.time()+storage.RECORD_EVERY
    cores=psutil.cpu_percent(percpu=True); rx,tx=net_totals(); t=time.time(); dt=max(t-t0,1e-6)
    temps=temperatures()
    latest.update(cpu=round(sum(cores)/len(cores),1),per_core=cores,rx_bps=max(0,(rx-rx0)/dt),tx_bps=max(0,(tx-tx0)/dt),temps=temps)
    rx0,tx0,t0=rx,tx,t
    HISTORY.append({'t':round(t),'cpu':latest['cpu'],'memory':psutil.virtual_memory().percent,'temp':main_temp(temps),'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps'])})
   except Exception as e: print('sampler error:',e,flush=True)
+storage.configure(db,disks); app.include_router(storage.router)
 threading.Thread(target=sampler,daemon=True,name='ttrc-sampler').start()
 
 def primary_ip():

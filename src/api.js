@@ -8,3 +8,12 @@ export const updatePrinter=(id,p)=>req(`/api/printers/${id}`,{method:'PUT',body:
 export const reorderPrinters=ids=>req('/api/printers/order',{method:'PUT',body:JSON.stringify({ids})});
 export const getServer=()=>req('/api/server');
 export const getServerHistory=()=>req('/api/server/history');
+export const getStorage=()=>req('/api/storage');
+export const listFiles=path=>req(`/api/files?path=${encodeURIComponent(path)}`);
+export const newFolder=(path,name)=>req('/api/files/folder',{method:'POST',body:JSON.stringify({path,name})});
+export const renameFile=(path,name)=>req('/api/files/rename',{method:'POST',body:JSON.stringify({path,name})});
+export const deleteFile=path=>req('/api/files/delete',{method:'POST',body:JSON.stringify({path})});
+export const emptyTrash=()=>req('/api/files/trash/empty',{method:'POST'});
+export const downloadUrl=path=>`/api/files/download?path=${encodeURIComponent(path)}`;
+// XHR instead of fetch: fetch can't report upload progress
+export function uploadFile(path,file,onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('PUT',`/api/files/upload?path=${encodeURIComponent(path)}&name=${encodeURIComponent(file.name)}`);x.upload.onprogress=e=>e.lengthComputable&&onProgress(e.loaded/e.total);x.onload=()=>{if(x.status<300)resolve(JSON.parse(x.responseText));else{let m=`Upload failed (${x.status})`;try{m=JSON.parse(x.responseText).detail||m}catch{}reject(Error(m))}};x.onerror=()=>reject(Error('Network error during upload'));x.send(file)})}

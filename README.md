@@ -45,6 +45,8 @@ deploy/deploy.sh user@BOARD-HOSTNAME.local --with-db
 
 The script builds the frontend, copies the project to `~/ttrc-dashboard` on the board, and runs `deploy/setup.sh` there, which installs Python packages and a `ttrc-dashboard` systemd service (starts on boot, restarts on crashes). Then open `http://BOARD-HOSTNAME.local`.
 
+The Storage page's **TTRC Files** folder is `~/TTRC Files` for the user the service runs as (set `TTRC_FILES` to use another location). It lives outside the app folder, so deploys never touch it. Drive health uses `smartctl`, which `setup.sh` installs along with a sudo rule limited to the read-only health command.
+
 Useful commands on the board:
 ```bash
 systemctl status ttrc-dashboard

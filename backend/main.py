@@ -9,7 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import history, network, services, settings, storage
+import history, media, network, services, settings, storage
+from fastapi.responses import Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
 def env(name): return os.environ.get(f'LAYERHOUND_{name}') or os.environ.get(f'TTRC_{name}')
@@ -32,12 +33,14 @@ def init():
   c.execute('ALTER TABLE printers ADD COLUMN sort_order INTEGER'); c.execute('UPDATE printers SET sort_order=id')
  # v0.3.2: Bambu Lab printers are addressed by serial number (access code lives in api_key)
  if 'serial' not in [r['name'] for r in c.execute('PRAGMA table_info(printers)')]: c.execute('ALTER TABLE printers ADD COLUMN serial TEXT')
+ # v0.4.2: optional camera address for printers whose camera LayerHound can't find on its own
+ if 'camera_url' not in [r['name'] for r in c.execute('PRAGMA table_info(printers)')]: c.execute('ALTER TABLE printers ADD COLUMN camera_url TEXT')
  c.commit(); c.close()
 init()
 class PrinterIn(BaseModel):
- name:str=Field(min_length=1,max_length=80); printer_type:str; base_url:str; api_key:str|None=None; serial:str|None=None; enabled:bool=True
+ name:str=Field(min_length=1,max_length=80); printer_type:str; base_url:str; api_key:str|None=None; serial:str|None=None; camera_url:str|None=None; enabled:bool=True
 class PrinterUpdate(BaseModel):
- name:str|None=Field(default=None,min_length=1,max_length=80); printer_type:str|None=None; base_url:str|None=None; api_key:str|None=None; serial:str|None=None
+ name:str|None=Field(default=None,min_length=1,max_length=80); printer_type:str|None=None; base_url:str|None=None; api_key:str|None=None; serial:str|None=None; camera_url:str|None=None
 class PrinterOrder(BaseModel):
  ids:list[int]
 
@@ -49,7 +52,7 @@ def get_json(u,headers=None):
  with urllib.request.urlopen(r,timeout=TIMEOUT) as x: return json.loads(x.read().decode())
 
 def moonraker(base):
- info=get_json(base+'/printer/info'); s=get_json(base+'/printer/objects/query?print_stats=&virtual_sdcard=&toolhead=extruder&heater_bed=&extruder=&extruder1=&extruder2=&extruder3=')
+ info=get_json(base+'/printer/info'); s=get_json(base+'/printer/objects/query?print_stats=&virtual_sdcard=&toolhead=extruder&heater_bed=&extruder=&extruder1=&extruder2=&extruder3=&gcode_move=gcode_position')
  o=s.get('result',{}).get('status',{}); ps=o.get('print_stats') or {}; vsd=o.get('virtual_sdcard') or {}; bed=o.get('heater_bed') or {}
  # Multi-toolhead printers (e.g. Snapmaker U1) print from extruder1-3, so read whichever tool is active
  ex=o.get((o.get('toolhead') or {}).get('extruder') or 'extruder') or o.get('extruder') or {}
@@ -59,8 +62,11 @@ def moonraker(base):
  # Estimate remaining time from progress so far (same "file" method Mainsail/Fluidd use)
  eta=elapsed/frac-elapsed if frac>0 and state in ('printing','paused') else 0
  # Files in subfolders (e.g. a USB drive, "sda1/...") come back with their folder path; show just the file name
- job=str(ps.get('filename') or '').rsplit('/',1)[-1] or None
- return dict(connected=True,state=state,raw_state=raw,job=job,print_seconds=elapsed or None,elapsed_seconds=float(ps.get('total_duration') or 0) or None,filament_mm=float(ps.get('filament_used') or 0) or None,progress=round(frac*100,1),eta_seconds=round(eta),nozzle=round(float(ex.get('temperature') or 0),1),nozzle_target=round(float(ex.get('target') or 0),1),bed=round(float(bed.get('temperature') or 0),1),bed_target=round(float(bed.get('target') or 0),1),firmware=info.get('result',{}).get('software_version'),error=None)
+ path=str(ps.get('filename') or ''); job=path.rsplit('/',1)[-1] or None
+ meta=media.moonraker_meta(base,path) if path else None
+ z=((o.get('gcode_move') or {}).get('gcode_position') or [None]*3)[2]
+ layer,total_layers=media.moonraker_layers(meta,ps.get('info'),vsd,z,state in ('printing','paused'))
+ return dict(connected=True,state=state,raw_state=raw,job=job,job_path=path or None,layer=layer,total_layers=total_layers,has_thumbnail=bool(meta and meta.get('thumbnails')),print_seconds=elapsed or None,elapsed_seconds=float(ps.get('total_duration') or 0) or None,filament_mm=float(ps.get('filament_used') or 0) or None,progress=round(frac*100,1),eta_seconds=round(eta),nozzle=round(float(ex.get('temperature') or 0),1),nozzle_target=round(float(ex.get('target') or 0),1),bed=round(float(bed.get('temperature') or 0),1),bed_target=round(float(bed.get('target') or 0),1),firmware=info.get('result',{}).get('software_version'),error=None)
 
 def octoprint(base,key):
  h={'X-Api-Key':key} if key else {}; ver=get_json(base+'/api/version',h); job=get_json(base+'/api/job',h); pr=get_json(base+'/api/printer',h); raw=str(job.get('state') or 'Offline').lower()
@@ -116,7 +122,8 @@ def bambu(pid,base,serial,code):
  eta=int(p.get('mc_remaining_time') or 0)*60 if state in ('printing','paused') else 0
  # Bambu doesn't report elapsed time; estimate it from progress and time remaining
  pct=float(p.get('mc_percent') or 0); elapsed=eta*pct/(100-pct) if eta and 0<pct<100 else None
- return dict(connected=True,state=state,raw_state=raw,job=p.get('subtask_name') or p.get('gcode_file') or None,elapsed_seconds=elapsed,progress=round(float(p.get('mc_percent') or 0),1),eta_seconds=eta,nozzle=round(float(p.get('nozzle_temper') or 0),1),nozzle_target=round(float(p.get('nozzle_target_temper') or 0),1),bed=round(float(p.get('bed_temper') or 0),1),bed_target=round(float(p.get('bed_target_temper') or 0),1),firmware=w.firmware,error=None)
+ return dict(connected=True,state=state,raw_state=raw,job=p.get('subtask_name') or p.get('gcode_file') or None,elapsed_seconds=elapsed,
+  layer=p.get('layer_num') if state in ('printing','paused') and p.get('total_layer_num') else None,total_layers=p.get('total_layer_num') if state in ('printing','paused') else None,progress=round(float(p.get('mc_percent') or 0),1),eta_seconds=eta,nozzle=round(float(p.get('nozzle_temper') or 0),1),nozzle_target=round(float(p.get('nozzle_target_temper') or 0),1),bed=round(float(p.get('bed_temper') or 0),1),bed_target=round(float(p.get('bed_target_temper') or 0),1),firmware=w.firmware,error=None)
 
 # Some printers (e.g. the Elegoo Neptune 4's Moonraker) occasionally answer slowly under load.
 # Ride out a brief hiccup by showing the last good reading; report offline only after this long.
@@ -130,7 +137,8 @@ def snapshot(r,grace=True):
   prev=last_good.get(key)
   if grace and prev and time.time()-prev[0]<OFFLINE_GRACE: x=prev[1]
   else: x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=f'{type(e).__name__}: {e}')
- return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),**x,'updated_at':now()}
+ return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
+  'camera_url':r['camera_url'],'has_camera':media.has_camera(r),**x,'updated_at':now()}
 
 @app.get('/api/health')
 def health(): return {'status':'ok','service':'layerhound-api','timestamp':now()}
@@ -275,12 +283,19 @@ def printer(pid:int,grace:bool=True):
  c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
  if not r: raise HTTPException(404,'Printer not found')
  return snapshot(r,grace)
+def camera_url(v):
+ # Optional camera address: a snapshot or MJPEG stream URL. Blank means "find it automatically".
+ v=(v or '').strip()
+ if not v: return None
+ if not v.lower().startswith(('http://','https://')): raise HTTPException(400,'Camera URL must start with http:// or https://')
+ return v
+
 @app.post('/api/printers')
 def add(p:PrinterIn):
  if p.printer_type not in TYPES: raise HTTPException(400,'Invalid printer type')
  serial=(p.serial or '').strip().upper() or None
  if p.printer_type=='bambu' and not (serial and p.api_key): raise HTTPException(400,'Bambu printers need a serial number and access code')
- c=db(); t=now(); nxt=c.execute('SELECT COALESCE(MAX(sort_order),0)+1 FROM printers').fetchone()[0]; cur=c.execute('INSERT INTO printers(name,printer_type,base_url,api_key,serial,enabled,created_at,updated_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?)',(p.name.strip(),p.printer_type,clean_url(p.base_url).rstrip('/'),p.api_key or None,serial if p.printer_type=='bambu' else None,int(p.enabled),t,t,nxt)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(cur.lastrowid,)).fetchone(); c.close(); return snapshot(r)
+ c=db(); t=now(); nxt=c.execute('SELECT COALESCE(MAX(sort_order),0)+1 FROM printers').fetchone()[0]; cur=c.execute('INSERT INTO printers(name,printer_type,base_url,api_key,serial,camera_url,enabled,created_at,updated_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)',(p.name.strip(),p.printer_type,clean_url(p.base_url).rstrip('/'),p.api_key or None,serial if p.printer_type=='bambu' else None,camera_url(p.camera_url),int(p.enabled),t,t,nxt)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(cur.lastrowid,)).fetchone(); c.close(); return snapshot(r)
 # Declared before the /{pid} routes so "order" isn't parsed as a printer id
 @app.put('/api/printers/order')
 def reorder(o:PrinterOrder):
@@ -295,7 +310,31 @@ def edit(pid:int,p:PrinterUpdate):
  key=None if ptype=='moonraker' else (p.api_key.strip() if p.api_key and p.api_key.strip() else r['api_key'])
  serial=None if ptype!='bambu' else ((p.serial or '').strip().upper() or r['serial'])
  if ptype=='bambu' and not (serial and key): c.close(); raise HTTPException(400,'Bambu printers need a serial number and access code')
- c.execute('UPDATE printers SET name=?,printer_type=?,base_url=?,api_key=?,serial=?,updated_at=? WHERE id=?',(name,ptype,url,key,serial,now(),pid)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close(); return snapshot(r)
+ cam=r['camera_url'] if p.camera_url is None else camera_url(p.camera_url)
+ c.execute('UPDATE printers SET name=?,printer_type=?,base_url=?,api_key=?,serial=?,camera_url=?,updated_at=? WHERE id=?',(name,ptype,url,key,serial,cam,now(),pid)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close(); return snapshot(r)
+def printer_row(pid):
+ c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
+ if not r: raise HTTPException(404,'Printer not found')
+ return r
+
+@app.get('/api/printers/{pid}/thumbnail')
+def thumbnail(pid:int):
+ # The slicer's preview image of the part being printed (Klipper printers)
+ r=printer_row(pid); hit=printer_cache.get(pid); path=hit and hit[2].get('job_path')
+ if r['printer_type']!='moonraker' or not path: raise HTTPException(404,'No thumbnail')
+ got=media.moonraker_thumbnail(clean_url(r['base_url']).rstrip('/'),path)
+ if not got: raise HTTPException(404,'No thumbnail')
+ return Response(got[0],media_type=got[1] or 'image/png',headers={'Cache-Control':'max-age=300'})
+
+@app.get('/api/printers/{pid}/camera')
+def camera(pid:int):
+ # One current camera frame; the dashboard refreshes it every couple of seconds
+ r=printer_row(pid)
+ try: img=media.camera_frame(r)
+ except Exception as e: raise HTTPException(502,f'Camera unavailable: {e}')
+ if img is None: raise HTTPException(404,'No camera configured for this printer')
+ return Response(img,media_type='image/jpeg',headers={'Cache-Control':'no-store'})
+
 @app.delete('/api/printers/{pid}')
 def remove(pid:int):
  c=db(); cur=c.execute('DELETE FROM printers WHERE id=?',(pid,)); c.commit(); c.close(); bambu_stop(pid); printer_cache.pop(pid,None); history.forget_printer(pid)

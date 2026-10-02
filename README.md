@@ -31,7 +31,17 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
 | **OctoPrint** | HTTP, usually `http://PRINTER-IP:5000` | An API key (OctoPrint → Settings → Application Keys) |
 | **Bambu Lab** (P1, X1, A1 series) | Local MQTT on port 8883 | The printer's IP, serial number and 8-character access code (printer screen → network/WLAN settings). Some firmware versions also need **LAN Only** mode. |
 
-Printer monitoring is **read-only**: LayerHound shows what your printers are doing but doesn't control them.
+**What each printer shows:**
+
+| | Klipper | Bambu Lab (P1, A1) | OctoPrint |
+|---|---|---|---|
+| Progress, time left, temperatures | ✅ | ✅ | ✅ |
+| Layer count | ✅ (from the printer, or worked out from nozzle height) | ✅ | — |
+| Part thumbnail | ✅ when the slicer embeds one | — | — |
+| Camera | ✅ if Klipper lists one, or set a Camera URL | ✅ built-in camera, found automatically | Set a Camera URL |
+| Imported print history | ✅ | — (recorded from now on) | — (recorded from now on) |
+
+Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its edit form. Printer monitoring is **read-only**: LayerHound shows what your printers are doing but doesn't control them.
 
 ## Screenshots
 

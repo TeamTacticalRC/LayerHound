@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import "./index.css";
 
-const APP_VERSION = "v0.4.1";
+const APP_VERSION = "v0.4.2";
 
 // Display preferences from the Settings page. A plain object so helpers outside components can
 // read it; the Dashboard re-renders the whole app whenever settings change.
@@ -121,7 +121,58 @@ function normalizePrinter(p) {
     bedTarget: p.bed_target ?? 0,
     firmware: p.firmware ?? null,
     error: p.error ?? null,
+    layer: p.layer ?? null,
+    totalLayers: p.total_layers ?? null,
+    hasThumbnail: !!p.has_thumbnail,
+    hasCamera: !!p.has_camera,
+    cameraUrl: p.camera_url ?? "",
   };
+}
+
+// The slicer's preview of the part being printed. The file name in the URL makes the
+// browser fetch a fresh image when a new print starts.
+function PartThumb({ printer, size = 40, className = "" }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [printer.job]);
+  if (!printer.hasThumbnail || !printer.job || failed) return null;
+  return <img src={`/api/printers/${printer.id}/thumbnail?f=${encodeURIComponent(printer.job)}`} alt="" width={size} height={size} onError={() => setFailed(true)}
+    className={`shrink-0 rounded-lg bg-white/[.04] object-contain ${className}`} style={{ width: size, height: size }} />;
+}
+
+const layerText = p => p.totalLayers ? `Layer ${p.layer ?? "?"} / ${p.totalLayers}` : null;
+
+// Camera view for the details panel: a fresh frame every 2 seconds while the panel is open
+function CameraView({ printer }) {
+  const [tick, setTick] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [state, setState] = useState("loading");
+  useEffect(() => {
+    if (paused) return;
+    const t = setInterval(() => setTick(n => n + 1), 2000);
+    return () => clearInterval(t);
+  }, [paused]);
+  const src = `/api/printers/${printer.id}/camera?t=${tick}`;
+  return (
+    <div className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-600"><Camera size={14} /> Camera</div>
+        <div className="flex items-center gap-1">
+          {state === "ok" && <span className="mr-1 flex items-center gap-1.5 text-[11px] text-slate-500"><StatusDot tone={paused ? "off" : "good"} /> {paused ? "Paused" : "Live"}</span>}
+          <button onClick={() => setPaused(v => !v)} className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white/5 hover:text-white">{paused ? "Resume" : "Pause"}</button>
+          <a href={src} target="_blank" rel="noopener noreferrer" className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Open camera image in a new tab"><ExternalLink size={14} /></a>
+        </div>
+      </div>
+      <div className="relative mt-3 aspect-video overflow-hidden rounded-xl bg-black/40">
+        <img key={paused ? "p" : "l"} src={src} alt={`${printer.name} camera`} className={`h-full w-full object-contain ${state === "ok" ? "" : "opacity-0"}`}
+          onLoad={() => setState("ok")} onError={() => setState("error")} />
+        {state !== "ok" && (
+          <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-slate-500">
+            {state === "loading" ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Connecting to camera…</span> : "Camera unavailable right now. It will keep retrying."}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 const DOT_TONES = {
@@ -206,13 +257,17 @@ function PrinterCard({ printer, onSelect }) {
         </span>
       </div>
 
-      <div className="mt-4">
-        <div className="flex justify-between text-xs">
-          <span className="truncate pr-3 text-slate-400" title={printer.job || undefined}>{printer.job || "No active job"}</span>
-          <span className="font-semibold text-white">{printer.progress}%</span>
-        </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/6">
-          <div className={`h-full rounded-full ${printer.state === "printing" ? "bg-violet-500" : "bg-slate-600"}`} style={{ width: `${printer.progress}%` }} />
+      <div className="mt-4 flex items-center gap-3">
+        <PartThumb printer={printer} size={40} />
+        <div className="min-w-0 flex-1">
+          <div className="flex justify-between text-xs">
+            <span className="truncate pr-3 text-slate-400" title={printer.job || undefined}>{printer.job || "No active job"}</span>
+            <span className="font-semibold text-white">{printer.progress}%</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/6">
+            <div className={`h-full rounded-full ${printer.state === "printing" ? "bg-violet-500" : "bg-slate-600"}`} style={{ width: `${printer.progress}%` }} />
+          </div>
+          {layerText(printer) && <div className="mt-1.5 text-[11px] tabular-nums text-slate-500">{layerText(printer)}</div>}
         </div>
       </div>
 
@@ -320,8 +375,14 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
         <button onClick={close} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Close"><X size={20} /></button>
       </div>
       <div className="mt-8 rounded-2xl border border-white/8 bg-[#11151f] p-5">
-        <div className="text-sm text-slate-400">Current job</div>
-        <div className="mt-2 font-medium text-white">{printer.job || "No active print"}</div>
+        <div className="flex items-start gap-4">
+          <PartThumb printer={printer} size={96} className="p-1" />
+          <div className="min-w-0">
+            <div className="text-sm text-slate-400">Current job</div>
+            <div className="mt-2 break-words font-medium text-white">{printer.job || "No active print"}</div>
+            {layerText(printer) && <div className="mt-1 text-xs tabular-nums text-slate-500">{layerText(printer)}</div>}
+          </div>
+        </div>
         <div className="mt-5 text-4xl font-bold text-white">{printer.progress}%</div>
         <div className="mt-2 h-2 rounded-full bg-white/6"><div className="h-full rounded-full bg-violet-500" style={{ width: `${printer.progress}%` }} /></div>
         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -329,6 +390,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
           <Metric icon={Thermometer} label="Bed" value={printer.bed ? fmtTemp(printer.bed) : "—"} sub={printer.bedTarget ? `Target ${fmtTemp(printer.bedTarget, 0)}` : undefined} />
         </div>
       </div>
+      {printer.hasCamera && !isDemo && <CameraView printer={printer} />}
       <div className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
         <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
         <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : "Connected"}</div>
@@ -404,8 +466,8 @@ function splitAddress(url) {
 function PrinterFormModal({ printer, initial, onClose, onSaved }) {
   const editing = !!printer;
   const [form, setForm] = useState(() => editing
-    ? { name: printer.name, type: PRINTER_TYPES[printer.type] ? printer.type : "moonraker", ...splitAddress(printer.address), api_key: "", serial: printer.serial ?? "" }
-    : { name: initial?.name ?? "", type: initial?.type ?? "moonraker", host: initial?.host ?? "", port: initial?.port ? String(initial.port) : "", api_key: "", serial: initial?.serial ?? "" });
+    ? { name: printer.name, type: PRINTER_TYPES[printer.type] ? printer.type : "moonraker", ...splitAddress(printer.address), api_key: "", serial: printer.serial ?? "", camera_url: printer.cameraUrl ?? "" }
+    : { name: initial?.name ?? "", type: initial?.type ?? "moonraker", host: initial?.host ?? "", port: initial?.port ? String(initial.port) : "", api_key: "", serial: initial?.serial ?? "", camera_url: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = key => e => setForm(f => ({ ...f, [key]: e.target.value }));
@@ -436,6 +498,8 @@ function PrinterFormModal({ printer, initial, onClose, onSaved }) {
     };
     if (SECRET_LABEL[form.type] && form.api_key.trim()) payload.api_key = form.api_key.trim();
     if (bambu) payload.serial = form.serial.trim();
+    // Blank clears a custom camera address (LayerHound then looks for one automatically)
+    if (editing || form.camera_url.trim()) payload.camera_url = form.camera_url.trim();
     try { await (editing ? updatePrinter(printer.id, payload) : createPrinter(payload)); onSaved(); onClose(); }
     catch (e) {
       const msg = typeof e.message === "string" && e.message !== "[object Object]" ? e.message : "The server rejected this printer. Check the uvicorn terminal for details.";
@@ -480,6 +544,9 @@ function PrinterFormModal({ printer, initial, onClose, onSaved }) {
               <input className={inputClass} type={form.type === "bambu" ? "password" : "text"} autoComplete="off" spellCheck={false} value={form.api_key} onChange={set("api_key")} />
             </Field>
           )}
+          <Field label="Camera URL (optional)" hint={form.type === "bambu" ? "Leave blank: Bambu P1 and A1 cameras are found automatically." : "Leave blank to use the camera Klipper lists, if any. Or paste a snapshot or MJPEG stream address."}>
+            <input className={inputClass} autoComplete="off" spellCheck={false} placeholder="http://192.168.1.50/webcam/?action=snapshot" value={form.camera_url} onChange={set("camera_url")} />
+          </Field>
           {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error}</div>}
         </div>
         <div className="mt-6 flex justify-end gap-2">

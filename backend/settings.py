@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 router=APIRouter(prefix='/api/settings')
-APP_VERSION='0.4.1'
+APP_VERSION='0.4.2'
 _db=None; _cache={}; _lock=threading.Lock()
 # Functions to run after a restore (main.py uses this to drop Bambu connections tied to old printer ids)
 after_restore=[]
@@ -115,7 +115,7 @@ def clear_history(kind:str):
 # ---- Backup / restore -------------------------------------------------------------------
 # Configuration only (printers, devices, services, settings). History is not included.
 # ids are kept so a restore stays linked to existing uptime history
-BACKUP_TABLES={'printers':['id','name','printer_type','base_url','api_key','serial','enabled','sort_order','created_at','updated_at'],
+BACKUP_TABLES={'printers':['id','name','printer_type','base_url','api_key','serial','camera_url','enabled','sort_order','created_at','updated_at'],
  'net_devices':['id','name','host','kind','port','sort_order','created_at'],
  'services':['id','name','url','integration','token','sort_order','created_at']}
 SECRET_COLUMNS={'printers':('api_key',),'services':('token',)}

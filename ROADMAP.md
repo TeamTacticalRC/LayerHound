@@ -87,7 +87,8 @@ Open source means anyone can read and fork the code, but only people with write 
 - [x] **`SECURITY.md`**: how to report a vulnerability privately.
 
 ### To do
-- [ ] **Turn on 2FA** for the TeamTacticalRC GitHub account and its email account. This matters more than anything else here.
+- [x] **2FA and a passkey** on the TeamTacticalRC GitHub account (2026-10-02). Keep the recovery codes somewhere safe off the computer.
+- [ ] **2FA on the email account** connected to GitHub, since it can be used to reset access.
 - [ ] **Branch protection on `main`**: require a pull request with passing checks, and block force-pushes and deletion. Free once the repository is public; private repositories need a paid GitHub plan.
 - [ ] **Enable** Dependabot alerts, secret scanning and private vulnerability reporting under the repository's Settings → Code security, as each becomes available.
 - [ ] **Review rules for contributions:** read every pull request, with extra care for the installer, updates, network calls, file paths and anything that runs commands. Ask for small pull requests. Don't hand out write access quickly; for now, only the maintainer merges.

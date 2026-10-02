@@ -34,3 +34,7 @@ export const getAbout=()=>req('/api/settings/about');
 export const clearHistory=kind=>req(`/api/settings/clear-history/${kind}`,{method:'POST'});
 export const restoreBackup=data=>req('/api/settings/restore',{method:'POST',body:JSON.stringify(data)});
 export const restartDashboard=()=>req('/api/settings/restart',{method:'POST'});
+export const getHistory=params=>req(`/api/history?${new URLSearchParams(Object.entries(params).filter(([,v])=>v!==''&&v!=null))}`);
+export const getHistoryStats=days=>req(`/api/history/stats?days=${days}`);
+export const deleteHistoryJob=id=>req(`/api/history/${id}`,{method:'DELETE'});
+export const importHistory=()=>req('/api/history/import',{method:'POST'});

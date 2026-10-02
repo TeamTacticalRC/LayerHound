@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
-  ArrowDownToLine, ArrowUpFromLine, Box, Camera, Clock, ExternalLink, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap
 } from "lucide-react";
 import "./index.css";
@@ -62,6 +62,7 @@ const DEMO_PRINTERS = [
 const PAGE_TITLES = {
   dashboard: "Operations Dashboard",
   printers: "Print Farm",
+  history: "Print History",
   server: "Server",
   storage: "Storage",
   network: "Network",
@@ -236,6 +237,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
   const items = [
     ["Dashboard", LayoutDashboard, "dashboard"],
     ["Print Farm", Printer, "printers"],
+    ["History", HistoryIcon, "history"],
     ["Server", Server, "server"],
     ["Storage", HardDrive, "storage"],
     ["Network", Network, "network"],
@@ -1949,6 +1951,242 @@ function SettingsPage({ onSaved, onRestored }) {
   );
 }
 
+function formatDuration(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  if (h >= 48) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+const formatFilament = mm => mm == null ? "—" : mm >= 1e6 ? `${(mm / 1e6).toFixed(2)} km` : `${(mm / 1000).toFixed(1)} m`;
+
+const JOB_STATUS = {
+  completed: { label: "Completed", cls: "border-emerald-500/20 bg-emerald-500/6 text-emerald-300", Icon: CircleCheck },
+  failed: { label: "Failed", cls: "border-red-500/20 bg-red-500/6 text-red-300", Icon: CircleX },
+  cancelled: { label: "Cancelled", cls: "border-white/10 bg-white/[.03] text-slate-400", Icon: Ban },
+  interrupted: { label: "Interrupted", cls: "border-amber-500/20 bg-amber-500/6 text-amber-200", Icon: AlertTriangle },
+  printing: { label: "Printing", cls: "border-violet-400/30 bg-violet-500/10 text-violet-200", Icon: Loader2 },
+};
+
+// Hours printed per day. Hover (or touch) a bar to see the day's total.
+function DailyBars({ days }) {
+  const wrap = React.useRef(null);
+  const [width, setWidth] = useState(600);
+  const [hover, setHover] = useState(null);
+  useEffect(() => {
+    if (!wrap.current) return;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.max(200, e.contentRect.width)));
+    ro.observe(wrap.current);
+    return () => ro.disconnect();
+  }, []);
+  const H = 140, L = 30, B = 20, T = 8;
+  const max = Math.max(1, ...days.map(d => d.hours));
+  const top = Math.ceil(max / 4) * 4 || 4;
+  const step = (width - L) / days.length, bw = Math.max(1, step - (step > 6 ? 2 : 1));
+  const y = v => T + (1 - v / top) * (H - T - B);
+  const shown = hover ?? null;
+  const label = d => new Date(`${d}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+  const onMove = e => {
+    const box = e.currentTarget.getBoundingClientRect();
+    const i = Math.floor(((e.touches?.[0]?.clientX ?? e.clientX) - box.left - L) / step);
+    setHover(days[Math.max(0, Math.min(days.length - 1, i))]);
+  };
+  return (
+    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-sm font-semibold text-white">Hours printed per day</h3>
+        <div className="text-right">
+          <span className="text-lg font-semibold tabular-nums text-white">{shown ? `${shown.hours.toFixed(1)} h` : `${days.reduce((n, d) => n + d.hours, 0).toFixed(0)} h`}</span>
+          <div className="text-[11px] text-slate-600">{shown ? label(shown.day) : `Last ${days.length} days`}</div>
+        </div>
+      </div>
+      <div ref={wrap} className="mt-3">
+        <svg width={width} height={H} className="block touch-none select-none" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onTouchMove={onMove} onTouchEnd={() => setHover(null)} role="img" aria-label={`Hours printed per day over the last ${days.length} days`}>
+          {[0, top / 2, top].map(v => (
+            <g key={v}>
+              <line x1={L} x2={width} y1={y(v)} y2={y(v)} stroke="rgba(255,255,255,.06)" />
+              <text x={L - 6} y={y(v) + 3.5} textAnchor="end" className="fill-slate-600 text-[10px] tabular-nums">{v}</text>
+            </g>
+          ))}
+          {days.map((d, i) => d.hours > 0 && (
+            <rect key={d.day} x={L + i * step} y={y(d.hours)} width={bw} height={Math.max(1, y(0) - y(d.hours))} rx={Math.min(3, bw / 2)}
+              style={{ fill: hover?.day === d.day ? "var(--color-violet-300)" : "var(--color-violet-500)" }} />
+          ))}
+          <text x={L} y={H - 4} className="fill-slate-600 text-[10px]">{label(days[0].day)}</text>
+          <text x={width} y={H - 4} textAnchor="end" className="fill-slate-600 text-[10px]">Today</text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function HistoryPage({ printers }) {
+  const [days, setDays] = useState(30);
+  const [stats, setStats] = useState(null);
+  const [jobs, setJobs] = useState(null);
+  const [filter, setFilter] = useState({ printer_id: "", status: "", q: "" });
+  const [error, setError] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
+  const [confirm, setConfirm] = useState(null);
+  const PAGE = 50;
+
+  const loadStats = useCallback(async () => {
+    try { setStats(await getHistoryStats(days)); setError(""); } catch (e) { setError(e.message); }
+  }, [days]);
+  const loadJobs = useCallback(async (more = false) => {
+    try {
+      const offset = more ? (jobs?.jobs.length ?? 0) : 0;
+      const r = await getHistory({ days, ...filter, limit: PAGE, offset });
+      setJobs(prev => more && prev ? { total: r.total, jobs: [...prev.jobs, ...r.jobs] } : r);
+    } catch (e) { setError(e.message); }
+  }, [days, filter, jobs]);
+  useEffect(() => { loadStats(); }, [loadStats]);
+  // Reload the list when the range or filters change (not when the list itself changes)
+  useEffect(() => { loadJobs(); }, [days, filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const t = setInterval(() => { loadStats(); }, 30000); return () => clearInterval(t); }, [loadStats]);
+
+  const sync = async () => {
+    setSyncing(true); setSyncMsg("");
+    try {
+      const r = await importHistory();
+      const added = Object.values(r.printers).reduce((n, x) => n + (x.added || 0), 0);
+      const failed = Object.entries(r.printers).filter(([, x]) => x.error).map(([n]) => n);
+      setSyncMsg(`${added ? `Added ${added} print${added === 1 ? "" : "s"}` : "Already up to date"}${failed.length ? `. Couldn't reach ${failed.join(", ")}` : ""}.`);
+      loadStats(); loadJobs();
+    } catch (e) { setSyncMsg(e.message); } finally { setSyncing(false); }
+  };
+  const remove = async id => {
+    try { await deleteHistoryJob(id); setConfirm(null); loadStats(); loadJobs(); } catch (e) { setError(e.message); }
+  };
+
+  const t = stats?.totals;
+  const hasBambu = printers.some(p => p.type === "bambu");
+  // Printers with no prints in this range still get a row, so none look forgotten
+  const rows = stats ? [...stats.printers, ...printers.filter(p => !stats.printers.some(x => x.printer_id === p.id))
+    .map(p => ({ printer_id: p.id, printer: p.name, current: 1, jobs: 0, success_rate: null, seconds: 0, filament_mm: null, last_started: null, none: true }))] : [];
+  const compactInput = inputClass.replace("w-full ", "");
+  const set = k => e => setFilter(f => ({ ...f, [k]: e.target.value }));
+  const ranges = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [0, "All time"]];
+
+  return (
+    <>
+      <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white">Print History</h1>
+          <p className="mt-2 text-sm text-slate-500">Every print across your farm. Klipper printers' own history is imported automatically.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented label="Time range" value={days} onChange={setDays} options={ranges} />
+          <button onClick={sync} disabled={syncing} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
+            {syncing ? <Loader2 size={15} className="animate-spin" /> : <RotateCw size={15} />} Sync from printers
+          </button>
+        </div>
+      </div>
+      {syncMsg && <div className="mb-4 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-xs text-slate-300">{syncMsg}</div>}
+      {error && <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error}</div>}
+
+      {!stats ? (
+        <div className="flex min-h-[30vh] items-center justify-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Loading history…</div>
+      ) : (
+        <>
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric icon={Printer} label="Prints" value={t.jobs.toLocaleString()} sub={t.active ? `${t.active} printing now` : days ? `In the last ${days} days` : "All time"} />
+            <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><CircleCheck size={15} /> Success rate</div>
+              <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{t.success_rate == null ? "—" : `${t.success_rate}%`}</div>
+              <div className="mt-1 text-xs text-slate-500">{t.completed} completed · {t.failed} failed · {t.cancelled} cancelled</div>
+            </div>
+            <Metric icon={Clock} label="Hours printed" value={Math.round((t.seconds || 0) / 3600).toLocaleString()} sub={t.jobs ? `Average ${formatDuration((t.seconds || 0) / t.jobs)} per print` : "No prints yet"} />
+            <Metric icon={Package} label="Filament used" value={formatFilament(t.filament_mm || 0)} sub={hasBambu ? "Klipper printers only; Bambu doesn't report it" : "By length"} />
+          </section>
+
+          <section className="mt-4"><DailyBars days={stats.daily} /></section>
+
+          <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+            <h2 className="font-semibold text-white">By printer</h2>
+            <p className="mt-1 text-xs text-slate-600">Click a printer to see only its prints below.</p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead><tr className="border-b border-white/6 text-left text-xs text-slate-500">
+                  <th className="pb-2 font-medium">Printer</th><th className="pb-2 text-right font-medium">Prints</th><th className="pb-2 pl-6 font-medium">Success rate</th>
+                  <th className="pb-2 text-right font-medium">Hours</th><th className="pb-2 text-right font-medium">Filament</th><th className="pb-2 text-right font-medium">Last print</th>
+                </tr></thead>
+                <tbody>
+                  {rows.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-slate-500">No prints in this time range.</td></tr>}
+                  {rows.map(p => (
+                    <tr key={p.printer_id} onClick={() => setFilter(f => ({ ...f, printer_id: String(p.printer_id) }))} className={`cursor-pointer border-b border-white/6 last:border-0 hover:bg-white/[.02] ${String(p.printer_id) === filter.printer_id ? "bg-violet-500/8" : ""}`}>
+                      <td className="py-2.5 text-white">{p.printer}{!p.current && <span className="ml-2 text-xs text-slate-600">(removed)</span>}{p.none && <span className="ml-2 text-xs text-slate-600">No prints recorded yet</span>}</td>
+                      <td className="py-2.5 text-right tabular-nums text-slate-300">{p.jobs}</td>
+                      <td className="py-2.5 pl-6">
+                        {p.success_rate == null ? <span className="text-slate-600">—</span> : (
+                          <div className="flex items-center gap-2"><div className="w-24"><Bar percent={p.success_rate} warnAt={101} /></div><span className="tabular-nums text-slate-300">{p.success_rate}%</span></div>
+                        )}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-slate-300">{Math.round((p.seconds || 0) / 3600).toLocaleString()}</td>
+                      <td className="py-2.5 text-right tabular-nums text-slate-300">{p.filament_mm ? formatFilament(p.filament_mm) : "—"}</td>
+                      <td className="py-2.5 text-right text-slate-400">{p.last_started ? fmtDate(p.last_started * 1000, { month: "short", day: "numeric" }) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+
+      <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+          <div><h2 className="font-semibold text-white">Prints</h2><p className="mt-1 text-xs text-slate-600">{jobs ? `${jobs.total.toLocaleString()} matching` : "Loading…"}</p></div>
+          <div className="flex flex-wrap gap-2">
+            <div className="relative">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+              <input className={`${compactInput} w-56 pl-9`} placeholder="Search file names" value={filter.q} onChange={set("q")} />
+            </div>
+            <select className={`${compactInput} w-44`} value={filter.printer_id} onChange={set("printer_id")} aria-label="Printer">
+              <option value="">All printers</option>
+              {rows.map(p => <option key={p.printer_id} value={p.printer_id}>{p.printer}</option>)}
+            </select>
+            <select className={`${compactInput} w-36`} value={filter.status} onChange={set("status")} aria-label="Status">
+              <option value="">Any status</option>
+              {Object.entries(JOB_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-4 overflow-hidden rounded-xl border border-white/6">
+          {jobs?.jobs.length === 0 && <div className="py-10 text-center text-sm text-slate-500">No prints match these filters.</div>}
+          {jobs?.jobs.map(j => {
+            const st = JOB_STATUS[j.status] ?? JOB_STATUS.interrupted;
+            return (
+              <div key={j.id} className="group flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-white/6 px-3 py-2.5 last:border-0">
+                <span className={`flex w-28 shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${st.cls}`}><st.Icon size={12} className={j.status === "printing" ? "animate-spin" : ""} /> {st.label}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm text-white" title={j.file}>{j.file || "Unknown file"}</div>
+                  <div className="truncate text-[11px] text-slate-600">{j.printer} · {fmtDate(j.started_at * 1000, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}{j.source === "printer" ? " · from printer" : ""}</div>
+                </div>
+                <div className="w-20 text-right text-xs tabular-nums text-slate-300">{formatDuration(j.duration)}</div>
+                <div className="hidden w-20 text-right text-xs tabular-nums text-slate-500 sm:block">{j.filament_mm ? formatFilament(j.filament_mm) : ""}</div>
+                <div className="w-24 text-right">
+                  {j.status === "printing" ? null : confirm === j.id ? (
+                    <span className="flex items-center justify-end gap-1">
+                      <button onClick={() => remove(j.id)} className="rounded-lg bg-red-500/80 px-2 py-1 text-xs text-white hover:bg-red-500">Delete</button>
+                      <button onClick={() => setConfirm(null)} className="rounded-lg px-1.5 py-1 text-xs text-slate-400 hover:bg-white/5">Keep</button>
+                    </span>
+                  ) : (
+                    <button onClick={() => setConfirm(j.id)} className="rounded-lg p-1.5 text-slate-600 opacity-100 hover:bg-white/6 hover:text-red-300 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Delete ${j.file} from history`}><Trash2 size={15} /></button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {jobs && jobs.jobs.length < jobs.total && (
+          <div className="mt-3 flex justify-center"><button onClick={() => loadJobs(true)} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/5">Show more ({(jobs.total - jobs.jobs.length).toLocaleString()} left)</button></div>
+        )}
+      </section>
+    </>
+  );
+}
+
 function Dashboard() {
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState("dashboard");
@@ -2034,7 +2272,7 @@ function Dashboard() {
   ];
   const extraServices = Math.max(0, (system?.services?.services?.length ?? 0) - 5);
 
-  const placeholder = !['dashboard', 'printers', 'server', 'storage', 'network', 'services', 'settings'].includes(page);
+  const placeholder = !['dashboard', 'printers', 'history', 'server', 'storage', 'network', 'services', 'settings'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
 
   return (
@@ -2061,6 +2299,8 @@ function Dashboard() {
               <ServerPage />
             ) : page === "storage" ? (
               <StoragePage />
+            ) : page === "history" ? (
+              <HistoryPage printers={livePrinters ?? []} />
             ) : page === "settings" ? (
               <SettingsPage onSaved={applySettings} onRestored={() => { reloadSettings(); refreshPrinters(); }} />
             ) : page === "services" ? (

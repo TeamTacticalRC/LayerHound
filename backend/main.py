@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import network, services, settings, storage
+import history, network, services, settings, storage
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
 def env(name): return os.environ.get(f'LAYERHOUND_{name}') or os.environ.get(f'TTRC_{name}')
@@ -60,12 +60,12 @@ def moonraker(base):
  eta=elapsed/frac-elapsed if frac>0 and state in ('printing','paused') else 0
  # Files in subfolders (e.g. a USB drive, "sda1/...") come back with their folder path; show just the file name
  job=str(ps.get('filename') or '').rsplit('/',1)[-1] or None
- return dict(connected=True,state=state,raw_state=raw,job=job,progress=round(frac*100,1),eta_seconds=round(eta),nozzle=round(float(ex.get('temperature') or 0),1),nozzle_target=round(float(ex.get('target') or 0),1),bed=round(float(bed.get('temperature') or 0),1),bed_target=round(float(bed.get('target') or 0),1),firmware=info.get('result',{}).get('software_version'),error=None)
+ return dict(connected=True,state=state,raw_state=raw,job=job,print_seconds=elapsed or None,elapsed_seconds=float(ps.get('total_duration') or 0) or None,filament_mm=float(ps.get('filament_used') or 0) or None,progress=round(frac*100,1),eta_seconds=round(eta),nozzle=round(float(ex.get('temperature') or 0),1),nozzle_target=round(float(ex.get('target') or 0),1),bed=round(float(bed.get('temperature') or 0),1),bed_target=round(float(bed.get('target') or 0),1),firmware=info.get('result',{}).get('software_version'),error=None)
 
 def octoprint(base,key):
  h={'X-Api-Key':key} if key else {}; ver=get_json(base+'/api/version',h); job=get_json(base+'/api/job',h); pr=get_json(base+'/api/printer',h); raw=str(job.get('state') or 'Offline').lower()
  state={'printing':'printing','paused':'paused','pausing':'paused','complete':'complete','operational':'idle','ready':'idle','offline':'offline','error':'error'}.get(raw,'idle'); prog=job.get('progress') or {}; temps=pr.get('temperature') or {}; tool=temps.get('tool0') or {}; bed=temps.get('bed') or {}
- return dict(connected=True,state=state,raw_state=raw,job=(job.get('job') or {}).get('file',{}).get('name'),progress=round(float(prog.get('completion') or 0),1),eta_seconds=round(float(prog.get('printTimeLeft') or 0)),nozzle=round(float(tool.get('actual') or 0),1),nozzle_target=round(float(tool.get('target') or 0),1),bed=round(float(bed.get('actual') or 0),1),bed_target=round(float(bed.get('target') or 0),1),firmware=ver.get('server'),error=None)
+ return dict(connected=True,state=state,raw_state=raw,job=(job.get('job') or {}).get('file',{}).get('name'),progress=round(float(prog.get('completion') or 0),1),elapsed_seconds=prog.get('printTime'),eta_seconds=round(float(prog.get('printTimeLeft') or 0)),nozzle=round(float(tool.get('actual') or 0),1),nozzle_target=round(float(tool.get('target') or 0),1),bed=round(float(bed.get('actual') or 0),1),bed_target=round(float(bed.get('target') or 0),1),firmware=ver.get('server'),error=None)
 
 # Bambu Lab printers have no HTTP API. They publish status over MQTT (TLS, port 8883,
 # user "bblp", password = the printer's LAN access code). Reports after the first are
@@ -114,7 +114,9 @@ def bambu(pid,base,serial,code):
  state={'running':'printing','prepare':'printing','slicing':'printing','pause':'paused','finish':'complete','failed':'error','idle':'idle'}.get(raw,'idle')
  # mc_remaining_time is in minutes
  eta=int(p.get('mc_remaining_time') or 0)*60 if state in ('printing','paused') else 0
- return dict(connected=True,state=state,raw_state=raw,job=p.get('subtask_name') or p.get('gcode_file') or None,progress=round(float(p.get('mc_percent') or 0),1),eta_seconds=eta,nozzle=round(float(p.get('nozzle_temper') or 0),1),nozzle_target=round(float(p.get('nozzle_target_temper') or 0),1),bed=round(float(p.get('bed_temper') or 0),1),bed_target=round(float(p.get('bed_target_temper') or 0),1),firmware=w.firmware,error=None)
+ # Bambu doesn't report elapsed time; estimate it from progress and time remaining
+ pct=float(p.get('mc_percent') or 0); elapsed=eta*pct/(100-pct) if eta and 0<pct<100 else None
+ return dict(connected=True,state=state,raw_state=raw,job=p.get('subtask_name') or p.get('gcode_file') or None,elapsed_seconds=elapsed,progress=round(float(p.get('mc_percent') or 0),1),eta_seconds=eta,nozzle=round(float(p.get('nozzle_temper') or 0),1),nozzle_target=round(float(p.get('nozzle_target_temper') or 0),1),bed=round(float(p.get('bed_temper') or 0),1),bed_target=round(float(p.get('bed_target_temper') or 0),1),firmware=w.firmware,error=None)
 
 # Some printers (e.g. the Elegoo Neptune 4's Moonraker) occasionally answer slowly under load.
 # Ride out a brief hiccup by showing the last good reading; report offline only after this long.
@@ -236,12 +238,38 @@ def server():
 
 @app.get('/api/server/history')
 def server_history(): return {'sample_seconds':SAMPLE_EVERY,'points':list(HISTORY)}
+# ---- Background printer checks ------------------------------------------------------------
+# Every printer is checked every few seconds whether or not anyone has the dashboard open.
+# This feeds print history (and later notifications); the dashboard reads the latest results.
+POLL_EVERY=10; CACHE_MAX_AGE=30; printer_cache={}
+def printer_rows():
+ c=db(); rows=c.execute('SELECT * FROM printers ORDER BY sort_order,id').fetchall(); c.close(); return rows
+def check(r):
+ x=snapshot(r); printer_cache[r['id']]=(time.time(),r['base_url'],x)
+ try: history.observe(x)
+ except Exception as e: print('history error:',e,flush=True)
+ return x
+def check_all(rows):
+ # In parallel so one slow or offline printer doesn't hold up the rest
+ if not rows: return []
+ with ThreadPoolExecutor(max_workers=len(rows)) as ex: return list(ex.map(check,rows))
+def printer_poller():
+ while True:
+  t=time.time()
+  try: check_all([r for r in printer_rows() if r['enabled']])
+  except Exception as e: print('printer check error:',e,flush=True)
+  time.sleep(max(1,POLL_EVERY-(time.time()-t)))
+
 @app.get('/api/printers')
 def printers():
- c=db(); rows=c.execute('SELECT * FROM printers ORDER BY sort_order,id').fetchall(); c.close()
- # Check printers in parallel so one slow or offline printer doesn't hold up the rest
- live=[r for r in rows if r['enabled']]
- with ThreadPoolExecutor(max_workers=max(1,len(live))) as ex: return {'printers':list(ex.map(snapshot,live))}
+ rows=[r for r in printer_rows() if r['enabled']]; out=[]; stale=[]
+ for r in rows:
+  hit=printer_cache.get(r['id'])
+  if hit and hit[1]==r['base_url'] and time.time()-hit[0]<CACHE_MAX_AGE: out.append(hit[2])
+  else: out.append(None); stale.append(r)
+ fresh=iter(check_all(stale))
+ # Keep display order; names come from the database so renames show immediately
+ return {'printers':[{**(x or next(fresh)),'name':r['name']} for r,x in zip(rows,out)]}
 @app.get('/api/printers/{pid}')
 def printer(pid:int,grace:bool=True):
  c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
@@ -270,12 +298,16 @@ def edit(pid:int,p:PrinterUpdate):
  c.execute('UPDATE printers SET name=?,printer_type=?,base_url=?,api_key=?,serial=?,updated_at=? WHERE id=?',(name,ptype,url,key,serial,now(),pid)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close(); return snapshot(r)
 @app.delete('/api/printers/{pid}')
 def remove(pid:int):
- c=db(); cur=c.execute('DELETE FROM printers WHERE id=?',(pid,)); c.commit(); c.close(); bambu_stop(pid)
+ c=db(); cur=c.execute('DELETE FROM printers WHERE id=?',(pid,)); c.commit(); c.close(); bambu_stop(pid); printer_cache.pop(pid,None); history.forget_printer(pid)
  if not cur.rowcount: raise HTTPException(404,'Printer not found')
  return {'status':'deleted','id':pid}
 @app.post('/api/printers/{pid}/test')
 def test(pid:int):
  x=printer(pid,grace=False); return {'ok':x['connected'],'printer':x,'message':'Connection successful' if x['connected'] else (x['error'] or 'Connection failed')}
+
+# Print history and the background printer checks need the printer functions defined above
+history.configure(db,printer_rows); app.include_router(history.router)
+threading.Thread(target=printer_poller,daemon=True,name='layerhound-printers').start()
 
 # Must stay last: a mount at / would otherwise shadow the /api routes above
 if DIST.is_dir(): app.mount('/',StaticFiles(directory=DIST,html=True),name='web')

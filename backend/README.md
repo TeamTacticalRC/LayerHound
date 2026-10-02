@@ -7,6 +7,7 @@ When running, interactive API docs are at `http://localhost:8000/docs`.
 | Area | Endpoints | Module |
 |---|---|---|
 | Printers | `/api/printers`, `/api/printers/{id}`, `/api/printers/order` | `main.py` |
+| Print history | `/api/history`, `/api/history/stats`, `/api/history/import`, `/api/history/{id}` | `history.py` |
 | System and server | `/api/health`, `/api/system`, `/api/server`, `/api/server/history` | `main.py` |
 | Storage and files | `/api/storage`, `/api/files/*` | `storage.py` |
 | Network | `/api/network`, `/api/network/devices`, `/api/network/scan` | `network.py` |

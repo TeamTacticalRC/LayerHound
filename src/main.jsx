@@ -8,13 +8,12 @@ import {
 } from "lucide-react";
 import "./index.css";
 
-const APP_VERSION = "v0.4";
+const APP_VERSION = "v0.4.1";
 
 // Display preferences from the Settings page. A plain object so helpers outside components can
 // read it; the Dashboard re-renders the whole app whenever settings change.
 const prefs = {
-  brand_name: "LayerHound", brand_short: "LayerHound", brand_tagline: "Print Farm & Home Lab",
-  brand_description: "One place to see what's happening across your print farm.", accent: "electric",
+  farm_name: "My Print Farm", farm_description: "One place to see what's happening across your print farm.", accent: "electric",
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
   network_history_days: 7, storage_history_days: 90, data_usage_days: 90,
@@ -39,7 +38,8 @@ function applyPrefs(next) {
     if (prefs.accent === "violet" || !ACCENTS[prefs.accent]) root.removeProperty(`--color-violet-${shade}`);
     else root.setProperty(`--color-violet-${shade}`, ACCENTS[prefs.accent][shade]);
   }
-  document.title = prefs.brand_name;
+  // Product name first, then the customer's farm name
+  document.title = prefs.farm_name ? `LayerHound · ${prefs.farm_name}` : "LayerHound";
 }
 
 const toUnit = c => c == null ? null : prefs.temp_unit === "F" ? Math.round((c * 9 / 5 + 32) * 10) / 10 : c;
@@ -227,16 +227,9 @@ function PrinterCard({ printer, onSelect }) {
   );
 }
 
-// The dashboard name with its last word in the accent color ("TEAM TACTICAL RC"), or for a
-// single CamelCase word, its last part ("LAYERHOUND" with "HOUND" accented)
+// The LayerHound wordmark is fixed product branding; the farm name sits under it
 function BrandMark() {
-  const words = prefs.brand_name.trim().split(/\s+/);
-  let last = words.length > 1 ? words.pop() : null;
-  const camel = !last && words[0].match(/^(.+?)([A-Z][a-z0-9]+)$/);
-  if (camel) { words[0] = camel[1]; last = camel[2]; }
-  // Long names wrap onto a second line instead of being cut off next to the mascot
-  const size = prefs.brand_name.length > 12 ? "text-[15px]" : "text-lg";
-  return <div className={`line-clamp-2 ${size} font-black uppercase leading-tight tracking-tight text-white`} title={prefs.brand_name}>{words.join(" ")}{last && <>{camel ? "" : " "}<span className="text-violet-400">{last}</span></>}</div>;
+  return <div className="text-lg font-black uppercase leading-tight tracking-tight text-white">Layer<span className="text-violet-400">Hound</span></div>;
 }
 
 function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
@@ -258,7 +251,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
             <img src="/brand/layerhound-mascot.png" alt="" className="h-11 w-11 shrink-0 object-contain" />
             <div className="min-w-0">
             <BrandMark />
-            {prefs.brand_tagline && <div className="mt-0.5 truncate text-[9px] font-bold uppercase tracking-[.18em] text-slate-600" title={prefs.brand_tagline}>{prefs.brand_tagline}</div>}
+            <div className="mt-0.5 truncate text-[11px] font-semibold text-slate-400" title={prefs.farm_name}>{prefs.farm_name}</div>
             </div>
           </div>
           <button className="lg:hidden text-slate-500" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
@@ -273,7 +266,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
         </nav>
         <div className="m-3 rounded-xl border border-white/6 bg-white/[.025] p-3">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-300"><StatusDot tone={summary.tone} /> <span className="truncate">{summary.text}</span></div>
-          <div className="mt-2 text-[10px] text-slate-600">Dashboard {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
+          <div className="mt-2 text-[10px] text-slate-600">LayerHound {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
         </div>
       </aside>
     </>
@@ -903,7 +896,7 @@ function DriveCard({ drive, holdsFiles }) {
         <span className="text-xs tabular-nums text-slate-400">{drive.used_gb} of {drive.total_gb} GB used</span>
       </div>
       <div className="mt-2"><Bar percent={drive.percent} warnAt={85} /></div>
-      {holdsFiles && <div className="mt-3 flex items-center gap-1.5 text-xs text-violet-300"><Folder size={13} /> {prefs.brand_short} Files is stored here</div>}
+      {holdsFiles && <div className="mt-3 flex items-center gap-1.5 text-xs text-violet-300"><Folder size={13} /> LayerHound Files is stored here</div>}
       <div className="mt-4 border-t border-white/6 pt-3">
         {h.available ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
@@ -978,7 +971,7 @@ function FileBrowser({ filesInfo, onChanged }) {
     >
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0">
-          <h2 className="font-semibold text-white">{prefs.brand_short} Files</h2>
+          <h2 className="font-semibold text-white">LayerHound Files</h2>
           <nav className="mt-1 flex flex-wrap items-center gap-1 text-xs" aria-label="Folder path">
             <button onClick={() => setPath("")} className={listing?.crumbs.length ? "text-violet-400 hover:text-violet-300" : "text-slate-400"}>All files</button>
             {listing?.crumbs.map((c, i) => (
@@ -1129,7 +1122,7 @@ function StoragePage() {
     <>
       <div className="mb-7">
         <h1 className="text-3xl font-bold tracking-tight text-white">Storage</h1>
-        <p className="mt-2 text-sm text-slate-500">Drive health and the shared {prefs.brand_short} Files folder.</p>
+        <p className="mt-2 text-sm text-slate-500">Drive health and the shared LayerHound Files folder.</p>
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1749,17 +1742,15 @@ function useSaver(onSaved) {
 }
 
 function BrandingSection({ onSaved }) {
-  const [f, setF] = useState(() => ({ brand_name: prefs.brand_name, brand_short: prefs.brand_short, brand_tagline: prefs.brand_tagline, brand_description: prefs.brand_description, accent: prefs.accent, temp_unit: prefs.temp_unit, time_format: prefs.time_format }));
+  const [f, setF] = useState(() => ({ farm_name: prefs.farm_name, farm_description: prefs.farm_description, accent: prefs.accent, temp_unit: prefs.temp_unit, time_format: prefs.time_format }));
   const [save, busy, note] = useSaver(onSaved);
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   return (
-    <Section title="Branding & display" sub="Name and colors used across the dashboard and in the browser tab."
+    <Section title="Farm & display" sub="Your farm's name, plus colors and units used across the dashboard."
       footer={<>{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Dashboard name" hint="The last word is shown in the accent color."><input className={inputClass} maxLength={40} value={f.brand_name} onChange={set("brand_name")} /></Field>
-        <Field label="Short name" hint={`Used in labels like "${f.brand_short || "LayerHound"} Files".`}><input className={inputClass} maxLength={12} value={f.brand_short} onChange={set("brand_short")} /></Field>
-        <Field label="Tagline" hint="Under the name in the sidebar, and the main heading."><input className={inputClass} maxLength={60} value={f.brand_tagline} onChange={set("brand_tagline")} /></Field>
-        <Field label="Description" hint="Shown under the main heading. Leave blank to hide."><input className={inputClass} maxLength={120} value={f.brand_description} onChange={set("brand_description")} /></Field>
+        <Field label="Farm name" hint="Shown under the LayerHound logo, as the main heading, and in the browser tab."><input className={inputClass} maxLength={40} placeholder="My Print Farm" value={f.farm_name} onChange={set("farm_name")} /></Field>
+        <Field label="Description" hint="Shown under the main heading. Leave blank to hide."><input className={inputClass} maxLength={120} value={f.farm_description} onChange={set("farm_description")} /></Field>
       </div>
       <div className="mt-5 grid gap-5 sm:grid-cols-3">
         <div>
@@ -1871,7 +1862,7 @@ function DataSection({ onSaved, onRestored }) {
 
       <div className="mt-4 border-t border-white/6 pt-4">
         <div className="text-sm font-medium text-white">Backup</div>
-        <p className="mt-1 text-xs text-slate-600">Printers, monitored devices, services and settings. History and {prefs.brand_short} Files aren't included.</p>
+        <p className="mt-1 text-xs text-slate-600">Printers, monitored devices, services and settings. History and LayerHound Files aren't included.</p>
         <div className="mt-3 flex flex-wrap items-center gap-4">
           <a href={`/api/settings/backup?secrets=${secrets}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><Download size={15} /> Download backup</a>
           <label className="flex items-center gap-2 text-sm text-slate-400"><input type="checkbox" className="accent-violet-500" checked={secrets} onChange={e => setSecrets(e.target.checked)} /> Include access codes and tokens</label>
@@ -1916,7 +1907,7 @@ function AboutSection() {
           <Row label="Running since" value={fmtDate(about.started, { dateStyle: "medium", timeStyle: "short" })} />
           <Row label="Memory used" value={`${about.memory_mb} MB`} />
           <Row label="Database" value={`${about.database}${about.database_bytes != null ? ` (${formatBytes(about.database_bytes)})` : ""}`} />
-          <Row label={`${prefs.brand_short} Files folder`} value={about.files_folder} />
+          <Row label="Files folder" value={about.files_folder} />
           <Row label="Python" value={about.python} />
           <Row label="System" value={about.platform} />
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -2056,7 +2047,7 @@ function Dashboard() {
               <button className="rounded-lg p-2 text-slate-500 hover:bg-white/5 lg:hidden" onClick={() => setMenu(true)} aria-label="Open menu"><Menu size={21} /></button>
               <div>
                 <div className="text-sm font-semibold text-white">{title}</div>
-                <div className="mt-0.5 text-xs text-slate-600">{prefs.brand_name}</div>
+                <div className="mt-0.5 text-xs text-slate-600">{prefs.farm_name}</div>
               </div>
             </div>
             <div className="flex items-center gap-3 text-xs">
@@ -2091,9 +2082,9 @@ function Dashboard() {
                 <div className="mb-7">
                   <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                     <div>
-                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.22em] text-violet-400"><Zap size={13} /> {prefs.brand_short} Operations</div>
-                      <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">{prefs.brand_tagline || prefs.brand_name}</h1>
-                      {prefs.brand_description && <p className="mt-2 text-sm text-slate-500">{prefs.brand_description}</p>}
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.22em] text-violet-400"><Zap size={13} /> Print farm operations</div>
+                      <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">{prefs.farm_name}</h1>
+                      {prefs.farm_description && <p className="mt-2 text-sm text-slate-500">{prefs.farm_description}</p>}
                     </div>
                   </div>
                 </div>

@@ -20,7 +20,7 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
 | **Storage** | Drive usage and health (NVMe wear, temperature, hours), a 90-day usage trend, and a shared files folder with uploads, downloads and a trash. |
 | **Network** | Internet uptime and outages, monitored devices with uptime bars, per-connection traffic, and a network scan that finds printers and pre-fills the Add printer form. |
 | **Services** | Health checks and quick-launch tiles for your web apps, Home Assistant and Pi-hole stats, and Docker containers with restart buttons. |
-| **Settings** | Branding and accent color, °C/°F, 12/24-hour time, alert thresholds, history retention, backup and restore. |
+| **Settings** | Your farm's name, accent color, °C/°F, 12/24-hour time, alert thresholds, history retention, backup and restore. |
 
 ### Supported printers
 
@@ -46,7 +46,7 @@ Printer monitoring is **read-only**: LayerHound shows what your printers are doi
 **Server:** CPU, memory, temperature and storage for the machine running LayerHound.
 ![Server page](docs/screenshots/server.png)
 
-**Settings:** branding, accent color, units, alert thresholds and backups.
+**Settings:** farm name, accent color, units, alert thresholds and backups.
 ![Settings page](docs/screenshots/settings.png)
 
 <sub>Printer data in these screenshots is from a real five-printer farm. The services, containers and files are example entries, and network details such as addresses and serial numbers have been replaced.</sub>

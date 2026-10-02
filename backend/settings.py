@@ -7,17 +7,16 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 router=APIRouter(prefix='/api/settings')
-APP_VERSION='0.4.0'
+APP_VERSION='0.4.1'
 _db=None; _cache={}; _lock=threading.Lock()
 # Functions to run after a restore (main.py uses this to drop Bambu connections tied to old printer ids)
 after_restore=[]
 
 # Every setting with its default and allowed values. Anything not listed here is rejected.
 SCHEMA={
- 'brand_name':('LayerHound',str,(1,40)),
- 'brand_short':('LayerHound',str,(1,12)),
- 'brand_tagline':('Print Farm & Home Lab',str,(0,60)),
- 'brand_description':("One place to see what's happening across your print farm.",str,(0,120)),
+ # The LayerHound name and logo are fixed; the farm name is the customer's own
+ 'farm_name':('My Print Farm',str,(1,40)),
+ 'farm_description':("One place to see what's happening across your print farm.",str,(0,120)),
  'accent':('electric',str,('electric','violet','indigo','blue','fuchsia','pink')),
  'temp_unit':('C',str,('C','F')),
  'time_format':('12',str,('12','24')),
@@ -35,9 +34,26 @@ SCHEMA={
  'data_usage_days':(90,int,(7,365)),
 }
 
+# Names used in error messages, matching the labels on the Settings page
+LABELS={'farm_name':'Farm name','farm_description':'Description','accent':'Accent color','temp_unit':'Temperature unit','time_format':'Time format',
+ 'temp_warn':'Server running hot','temp_hot':'Server overheating','storage_warn':'Main drive warning','storage_critical':'Main drive critical','memory_warn':'Memory warning',
+ 'network_history_days':'Uptime history','storage_history_days':'Storage trend','data_usage_days':'Data usage'}
+
 def configure(db):
  global _db; _db=db
- c=_db(); c.execute('CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)'); c.commit(); c.close(); _load()
+ c=_db(); c.execute('CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
+ # v0.4.1: the editable dashboard name became the farm name (LayerHound branding is now fixed)
+ old={r['key']:json.loads(r['value']) for r in c.execute("SELECT key,value FROM settings WHERE key LIKE 'brand_%'")}
+ for k,v in upgrade_keys(old).items(): c.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',(k,json.dumps(v)))
+ c.execute("DELETE FROM settings WHERE key LIKE 'brand_%'"); c.commit(); c.close(); _load()
+
+def upgrade_keys(old):
+ # Map pre-0.4.1 branding settings (from the database or an older backup) to the farm settings
+ out={}
+ name=(old.get('brand_name') or '').strip()
+ if name and name!='LayerHound': out['farm_name']=name
+ if 'brand_description' in old: out['farm_description']=old['brand_description']
+ return out
 
 def _load():
  c=_db(); saved={r['key']:json.loads(r['value']) for r in c.execute('SELECT key,value FROM settings')}; c.close()
@@ -52,20 +68,20 @@ def all_settings():
 
 def validate(key,value):
  if key not in SCHEMA: raise HTTPException(400,f'Unknown setting: {key}')
- default,typ,rule=SCHEMA[key]
+ default,typ,rule=SCHEMA[key]; name=LABELS.get(key,key)
  if typ is bool:
-  if not isinstance(value,bool): raise HTTPException(400,f'{key} must be true or false')
+  if not isinstance(value,bool): raise HTTPException(400,f'{name} must be on or off')
   return value
  if typ is int:
-  if isinstance(value,bool) or not isinstance(value,(int,float)) or int(value)!=value: raise HTTPException(400,f'{key} must be a whole number')
+  if isinstance(value,bool) or not isinstance(value,(int,float)) or int(value)!=value: raise HTTPException(400,f'{name} must be a whole number')
   value=int(value)
-  if not rule[0]<=value<=rule[1]: raise HTTPException(400,f'{key} must be between {rule[0]} and {rule[1]}')
+  if not rule[0]<=value<=rule[1]: raise HTTPException(400,f'{name} must be between {rule[0]} and {rule[1]}')
   return value
- if not isinstance(value,str): raise HTTPException(400,f'{key} must be text')
+ if not isinstance(value,str): raise HTTPException(400,f'{name} must be text')
  value=value.strip()
  if isinstance(rule[0],str):
-  if value not in rule: raise HTTPException(400,f'{key} must be one of: {", ".join(rule)}')
- elif not rule[0]<=len(value)<=rule[1]: raise HTTPException(400,f'{key} must be {rule[0]}-{rule[1]} characters')
+  if value not in rule: raise HTTPException(400,f'{name} must be one of: {", ".join(rule)}')
+ elif not rule[0]<=len(value)<=rule[1]: raise HTTPException(400,f'{name} is required' if rule[0] and not value else f'{name} must be at most {rule[1]} characters')
  return value
 
 def save(changes):
@@ -134,7 +150,8 @@ def restore(data:dict):
  if data.get('app') not in ('layerhound','ttrc-dashboard'): raise HTTPException(400,"This file isn't a LayerHound backup")
  for t in BACKUP_TABLES:
   if not isinstance(data.get(t),list): raise HTTPException(400,f'Backup is missing its {t} list')
- settings_in={k:v for k,v in (data.get('settings') or {}).items() if k in SCHEMA}
+ raw=data.get('settings') or {}
+ settings_in={**upgrade_keys(raw),**{k:v for k,v in raw.items() if k in SCHEMA}}
  for k,v in settings_in.items(): validate(k,v)
  c=_db()
  try:

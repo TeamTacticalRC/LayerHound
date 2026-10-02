@@ -57,7 +57,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 ### Work needed
 - [ ] **Pre-built releases:** GitHub Actions builds the frontend on each version tag, so buyers don't need Node.js.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
-- [x] **Remove hardcoded personal details:** new installs default to LayerHound branding, which is editable in Settings. A first-run setup screen is still to come (see Login plan).
+- [x] **Remove hardcoded personal details:** the LayerHound name and logo are fixed product branding (2026-10-02); each install sets its own **farm name** in Settings, shown under the logo, as the main heading and in the browser tab. A first-run setup screen that asks for the farm name is still to come (see Login plan).
 - [ ] **Security:** add login (see the Login plan below), and encrypt the stored access codes and API keys. Right now anyone on the network can edit or delete printers and upload, rename or delete files in TTRC Files.
 - [ ] **Update checks:** tell the user when a new version is available (show it on Settings → About, next to the current version).
 - [ ] **Licensing:** choose a license for this code. Review paho-mqtt's license terms if it will be sold closed-source.

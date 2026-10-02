@@ -15,3 +15,6 @@ backend/*.db-journal
 
 # Downloaded by deploy/setup.sh (IEEE manufacturer list for network discovery)
 backend/data/
+
+# Test runs
+.pytest_cache/

@@ -76,14 +76,33 @@ About one focused session of work. Do it together with encrypting the stored pri
 - **Undecided:** should viewing require a login? Suggested default: required, with a setting to let anyone on the local network view without logging in. Changing anything always requires an admin login.
 - **HTTPS:** plain `http://` on the local network is acceptable. Document clearly that the dashboard's port must never be exposed to the internet, and recommend Tailscale for remote access. Optional built-in HTTPS can come later.
 
+## Release & security process
+Open source means anyone can read and fork the code, but only people with write access can change this repository. **The maintainer's review is the release gate.** Added 2026-10-02.
+
+### In place
+- [x] **Automated tests** (`backend/tests`): API, validation, file-folder escape protection, secrets never returned, backups and settings. Run with `cd backend && .venv/bin/python -m pytest -q tests`.
+- [x] **Checks workflow** (`.github/workflows/checks.yml`): every pull request and push to `main` runs the backend tests (Python 3.10 and 3.12), the frontend build and a deploy-script check.
+- [x] **CodeQL security scanning** (`.github/workflows/codeql.yml`): switches on automatically when the repository is public (free for public repos), and runs weekly.
+- [x] **Dependabot** (`.github/dependabot.yml`): weekly update pull requests for npm and Python packages, monthly for GitHub Actions. Each one still needs to pass checks and your review.
+- [x] **`SECURITY.md`**: how to report a vulnerability privately.
+
+### To do
+- [ ] **Turn on 2FA** for the TeamTacticalRC GitHub account and its email account. This matters more than anything else here.
+- [ ] **Branch protection on `main`**: require a pull request with passing checks, and block force-pushes and deletion. Free once the repository is public; private repositories need a paid GitHub plan.
+- [ ] **Enable** Dependabot alerts, secret scanning and private vulnerability reporting under the repository's Settings → Code security, as each becomes available.
+- [ ] **Review rules for contributions:** read every pull request, with extra care for the installer, updates, network calls, file paths and anything that runs commands. Ask for small pull requests. Don't hand out write access quickly; for now, only the maintainer merges.
+- [ ] **Official releases built by GitHub Actions** from tagged versions, with checksums (and later signatures) so anyone can verify a download came from this repository.
+- [ ] **Signed updates:** when automatic updates exist, boards only install updates signed with the project's key. Otherwise a compromised download server could take over every board.
+- [ ] **Frontend tests** for key screens, alongside the backend tests.
+
 ## Branding & business
 Plan: free **open-source software**, plus a **pre-built plug-and-play board** sold by Team Tactical RC. This is the Home Assistant model (open software, with Home Assistant Green hardware for people who want it ready to go).
 
 ### Decisions
 - [x] **Product name: LayerHound** (chosen 2026-10-01). Team Tactical RC stays the maker: "LayerHound by Team Tactical RC".
 - [ ] **License:** recommended **AGPL-3.0**. Anyone who modifies it and offers it to others, even as a hosted service, must share their changes. All current dependencies (FastAPI, React, paho-mqtt, psutil, lucide) are compatible.
-- [ ] **Trademark:** register the product name and logo. This is what protects the hardware business: anyone may sell boards running the code, but not under your name. Publish a short trademark policy (e.g. "compatible with X" is fine; "X" or "Official X" on someone else's product is not).
-- [ ] **Legal check:** a one-hour consult with a trademark attorney before launch.
+- [ ] **Trademark: deferred (decided 2026-10-02).** Registering costs about $1,000 in USPTO fees (two classes: 9 and 42, intent-to-use) plus $500–$2,000 for an attorney. Until it's worth it, rely on common-law rights from using the name: mark it **LayerHound™**, keep proof of first-use dates (GitHub history from 2026-10-01, domain registration, first posts and first sale), and revisit filing if sales take off. Risk accepted: someone else could register a similar name first.
+- [ ] **Legal check (optional for now):** if the budget allows before launch, a short attorney consult on the license, the AI-generated logo and trademark risk.
 - [ ] **Disclaimers:** "not affiliated with" Bambu Lab, Klipper, OctoPrint and others. Don't use their logos.
 
 ### Name shortlist (first-pass check on 2026-10-01)
@@ -102,7 +121,7 @@ Taken or in use when checked: FarmDeck, LayerWatch, Spoolhouse, PrintHQ, PrintHo
 
 ### LayerHound launch checklist
 - [ ] **Register `layerhound.com`** (and ideally `.io`) and social handles. They were unclaimed on 2026-10-01; do this first.
-- [ ] **USPTO trademark search** for LayerHound, then file (or have the attorney file) the trademark.
+- [ ] **USPTO trademark filing:** deferred (see Decisions). If revisited: search first, file the plain-text name LAYERHOUND, and use the USPTO's pre-approved wording to avoid surcharges.
 - [x] Rename in the code (done 2026-10-01): LayerHound is the default branding, the files folder is `~/LayerHound Files`, settings use `LAYERHOUND_*` (old `TTRC_*` names still work), the service and install folder are `layerhound`, and backups are `layerhound-backup-*.json` (old backups still restore). This install keeps Team Tactical RC branding in Settings.
 - [x] Project folder renamed to `~/Downloads/layerhound` (2026-10-01).
 - [ ] GitHub: the repository is at [TeamTacticalRC/LayerHound](https://github.com/TeamTacticalRC/LayerHound) (private). Optionally also claim a `layerhound` organization name to protect it.

@@ -146,6 +146,16 @@ deploy/             deploy.sh (runs on your computer), setup.sh (runs on the boa
 ROADMAP.md          What's planned next
 ```
 
+## Running the tests
+
+```bash
+cd backend
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q tests
+```
+
+The tests use their own temporary database and files folder, so they never touch your real data. GitHub runs them, plus a frontend build, on every pull request. Security issues: see [SECURITY.md](SECURITY.md).
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Highlights:

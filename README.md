@@ -1,3 +1,5 @@
+<p align="center"><img src="public/brand/layerhound-logo.png" alt="LayerHound" width="520"></p>
+
 # LayerHound
 
 **A home hub for your 3D print farm and home lab.** LayerHound watches your printers, server, storage, network and services from one dashboard that runs on a small board on your network (or on any Mac or Linux computer).

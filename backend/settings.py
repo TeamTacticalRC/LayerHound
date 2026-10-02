@@ -18,7 +18,7 @@ SCHEMA={
  'brand_short':('LayerHound',str,(1,12)),
  'brand_tagline':('Print Farm & Home Lab',str,(0,60)),
  'brand_description':("One place to see what's happening across your print farm.",str,(0,120)),
- 'accent':('violet',str,('violet','indigo','blue','fuchsia','pink')),
+ 'accent':('electric',str,('electric','violet','indigo','blue','fuchsia','pink')),
  'temp_unit':('C',str,('C','F')),
  'time_format':('12',str,('12','24')),
  'temp_warn':(75,int,(40,110)),

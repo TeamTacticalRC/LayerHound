@@ -14,7 +14,7 @@ const APP_VERSION = "v0.4";
 // read it; the Dashboard re-renders the whole app whenever settings change.
 const prefs = {
   brand_name: "LayerHound", brand_short: "LayerHound", brand_tagline: "Print Farm & Home Lab",
-  brand_description: "One place to see what's happening across your print farm.", accent: "violet",
+  brand_description: "One place to see what's happening across your print farm.", accent: "electric",
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
   network_history_days: 7, storage_history_days: 90, data_usage_days: 90,
@@ -23,6 +23,8 @@ const prefs = {
 // Accent colors. The app's styles use Tailwind's violet shades, so switching accent swaps
 // those CSS variables. Green, amber and red are left out: they mean good/warning/error here.
 const ACCENTS = {
+  // LayerHound's brand blue. 400 is the exact logo color; 500 is deeper so white button text stays readable
+  electric: { label: "Electric blue", 200: "#B3E3FF", 300: "#66C8FF", 400: "#00A3FF", 500: "#007ACC" },
   violet: { label: "Violet", 200: "oklch(89.4% 0.057 293.283)", 300: "oklch(81.1% 0.111 293.571)", 400: "oklch(70.2% 0.183 293.541)", 500: "oklch(60.6% 0.25 292.717)" },
   indigo: { label: "Indigo", 200: "oklch(87% 0.065 274.039)", 300: "oklch(78.5% 0.115 274.713)", 400: "oklch(67.3% 0.182 276.935)", 500: "oklch(58.5% 0.233 277.117)" },
   blue: { label: "Blue", 200: "oklch(88.2% 0.059 254.128)", 300: "oklch(80.9% 0.105 251.813)", 400: "oklch(70.7% 0.165 254.624)", 500: "oklch(62.3% 0.214 259.815)" },
@@ -232,7 +234,9 @@ function BrandMark() {
   let last = words.length > 1 ? words.pop() : null;
   const camel = !last && words[0].match(/^(.+?)([A-Z][a-z0-9]+)$/);
   if (camel) { words[0] = camel[1]; last = camel[2]; }
-  return <div className="truncate text-lg font-black uppercase tracking-tight text-white" title={prefs.brand_name}>{words.join(" ")}{last && <>{camel ? "" : " "}<span className="text-violet-400">{last}</span></>}</div>;
+  // Long names wrap onto a second line instead of being cut off next to the mascot
+  const size = prefs.brand_name.length > 12 ? "text-[15px]" : "text-lg";
+  return <div className={`line-clamp-2 ${size} font-black uppercase leading-tight tracking-tight text-white`} title={prefs.brand_name}>{words.join(" ")}{last && <>{camel ? "" : " "}<span className="text-violet-400">{last}</span></>}</div>;
 }
 
 function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
@@ -250,9 +254,12 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
       {open && <div className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setOpen(false)} />}
       <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-white/7 bg-[#0b0e15] transition-transform lg:static lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex h-20 items-center justify-between px-5">
-          <div>
+          <div className="flex min-w-0 items-center gap-3">
+            <img src="/brand/layerhound-mascot.png" alt="" className="h-11 w-11 shrink-0 object-contain" />
+            <div className="min-w-0">
             <BrandMark />
-            {prefs.brand_tagline && <div className="mt-0.5 truncate text-[9px] font-bold uppercase tracking-[.28em] text-slate-600">{prefs.brand_tagline}</div>}
+            {prefs.brand_tagline && <div className="mt-0.5 truncate text-[9px] font-bold uppercase tracking-[.18em] text-slate-600" title={prefs.brand_tagline}>{prefs.brand_tagline}</div>}
+            </div>
           </div>
           <button className="lg:hidden text-slate-500" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
         </div>

@@ -174,7 +174,9 @@ def restore(data:dict):
  return {'status':'restored','printers':len(data['printers']),'devices':len(data['net_devices']),'services':len(data['services']),'secrets_missing':not data.get('includes_secrets',True)}
 
 # ---- About / maintenance ----------------------------------------------------------------
-def as_service(): return bool(os.environ.get('INVOCATION_ID'))  # set by systemd for the service it starts
+# Set only in the layerhound systemd unit (deploy/setup.sh). Checking systemd's own INVOCATION_ID
+# isn't enough: other systemd-managed processes (e.g. CI runners) have it too.
+def as_service(): return os.environ.get('LAYERHOUND_SERVICE')=='1'
 
 _about_paths={'db':None,'files':None}
 def set_paths(db_path,files_root): _about_paths.update(db=str(db_path),files=str(files_root))

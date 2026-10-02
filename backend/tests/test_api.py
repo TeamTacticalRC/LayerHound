@@ -142,9 +142,13 @@ def test_old_backup_branding_is_migrated(client):
     assert s["farm_name"] == "Smith Print Shop" and "brand_name" not in s
 
 
-def test_restart_only_as_service(client):
-    # Outside systemd the restart button must not kill the process
+def test_restart_only_as_service(client, monkeypatch):
+    # Outside the LayerHound service the restart button must not kill the process,
+    # even under systemd (e.g. on CI runners, which set INVOCATION_ID)
+    monkeypatch.delenv("LAYERHOUND_SERVICE", raising=False)
+    monkeypatch.setenv("INVOCATION_ID", "ci-runner")
     assert client.post("/api/settings/restart").status_code == 409
+    assert client.get("/api/settings/about").json()["can_restart"] is False
 
 
 # ---- Network & services -------------------------------------------------------------------

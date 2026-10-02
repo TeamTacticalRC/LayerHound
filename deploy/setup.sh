@@ -51,6 +51,8 @@ WorkingDirectory=$APP_DIR/backend
 ExecStart=$APP_DIR/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port $PORT
 Restart=always
 RestartSec=3
+# Tells LayerHound it runs as this service, which enables the Restart button in Settings
+Environment=LAYERHOUND_SERVICE=1
 # Lets a normal user listen on port 80 without running as root
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 

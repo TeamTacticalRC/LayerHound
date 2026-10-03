@@ -31,6 +31,21 @@ sudo visudo -cf "$SUDOERS.tmp" >/dev/null && sudo install -m 440 "$SUDOERS.tmp" 
 
 python3 -c "import sys; sys.exit(sys.version_info < (3, 10))" || { echo "!! Python 3.10 or newer is required" >&2; exit 1; }
 
+# Wi-Fi settings on the Network page: let the LayerHound service account (only) manage
+# network connections through NetworkManager, without an admin password
+POLKIT=/etc/polkit-1/rules.d/50-layerhound-network.rules
+sudo tee "$POLKIT" >/dev/null <<POLKIT_RULE
+// Installed by LayerHound's setup.sh: Wi-Fi settings in the dashboard
+polkit.addRule(function(action, subject) {
+  var allowed = ["org.freedesktop.NetworkManager.network-control",
+                 "org.freedesktop.NetworkManager.settings.modify.system",
+                 "org.freedesktop.NetworkManager.wifi.scan",
+                 "org.freedesktop.NetworkManager.enable-disable-wifi"];
+  if (subject.user == "$APP_USER" && allowed.indexOf(action.id) >= 0) return polkit.Result.YES;
+});
+POLKIT_RULE
+sudo chmod 644 "$POLKIT"
+
 echo "==> Python environment"
 cd "$APP_DIR/backend"
 [ -x .venv/bin/python ] || python3 -m venv .venv

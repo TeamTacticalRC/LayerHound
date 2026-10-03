@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
-  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap
 } from "lucide-react";
 import "./index.css";
@@ -1443,6 +1443,133 @@ function Discovery({ printers, devices, onAddPrinter, onMonitored }) {
   );
 }
 
+function SignalBars({ signal }) {
+  const bars = signal >= 75 ? 4 : signal >= 50 ? 3 : signal >= 30 ? 2 : 1;
+  return (
+    <span className="inline-flex items-end gap-[2px]" role="img" aria-label={`Signal ${signal}%`} title={`Signal ${signal}%`}>
+      {[1, 2, 3, 4].map(b => <span key={b} className={`w-[3px] rounded-sm ${b <= bars ? "bg-violet-400" : "bg-white/12"}`} style={{ height: 3 + b * 3 }} />)}
+    </span>
+  );
+}
+
+// Wi-Fi settings for the board: see networks, join one, forget one. No terminal needed.
+function WifiCard() {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  // Once connected, show just the summary; the network list opens on request
+  const [showList, setShowList] = useState(null);
+  const load = useCallback(async (rescan = false) => {
+    try { setInfo(await getWifi(rescan)); setError(""); } catch (e) { setError(e.message); }
+  }, []);
+  const expanded = showList ?? !info?.wifi?.connected;
+  useEffect(() => { load(); const t = setInterval(() => load(), 30000); return () => clearInterval(t); }, [load]);
+
+  const rescan = async () => { setScanning(true); await load(true); setScanning(false); };
+  const join = async net => {
+    setBusy(net.ssid); setMsg(null);
+    try {
+      const r = await connectWifi(net.ssid, password);
+      setMsg({ ok: `Connected to ${r.network}${r.ip ? ` (${r.ip})` : ""}. If this page stops responding, reopen http://layerhound.local.` });
+      setOpen(null); setPassword(""); setShowList(null);
+    } catch (e) { setMsg({ error: e.message }); }
+    finally { setBusy(null); load(); }
+  };
+  const forget = async net => {
+    setBusy(net.ssid); setMsg(null);
+    try { await forgetWifi(net.ssid); setMsg({ ok: `Forgot ${net.ssid}.` }); setOpen(null); }
+    catch (e) { setMsg({ error: e.message }); }
+    finally { setBusy(null); load(); }
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-white">Wi-Fi</h2>
+          <p className="mt-1 text-xs text-slate-600">How this LayerHound box connects to your network</p>
+        </div>
+        {info?.available && (
+          <div className="flex gap-2">
+            {expanded && (
+              <button onClick={rescan} disabled={scanning} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
+                {scanning ? <Loader2 size={15} className="animate-spin" /> : <RotateCw size={15} />} Scan
+              </button>
+            )}
+            {info.wifi.connected && (
+              <button onClick={() => { setShowList(!expanded); setOpen(null); setMsg(null); }} className="rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]">
+                {expanded ? "Hide networks" : "Change network"}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error}</div>}
+      {!info ? <div className="mt-4 flex items-center gap-2 text-sm text-slate-500"><Loader2 size={15} className="animate-spin" /> Checking Wi-Fi…</div>
+        : !info.available ? <div className="mt-4 rounded-xl border border-dashed border-white/10 px-4 py-5 text-sm text-slate-500">{info.reason}</div>
+        : (
+        <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl bg-white/[.025] px-4 py-3">
+              <div className="flex items-center gap-2 text-xs text-slate-500"><Network size={14} /> Ethernet</div>
+              <div className="mt-1 flex items-center gap-2 text-sm text-white"><StatusDot tone={info.ethernet.connected ? "good" : "off"} /> {info.ethernet.connected ? `Connected · ${info.ethernet.ip ?? ""}` : info.ethernet.present ? "Not plugged in" : "None"}</div>
+            </div>
+            <div className="rounded-xl bg-white/[.025] px-4 py-3">
+              <div className="flex items-center gap-2 text-xs text-slate-500"><Wifi size={14} /> Wi-Fi</div>
+              <div className="mt-1 flex items-center gap-2 truncate text-sm text-white"><StatusDot tone={info.wifi.connected ? "good" : "off"} /> {info.wifi.connected ? `${info.wifi.network} · ${info.wifi.ip ?? ""}` : "Not connected"}</div>
+            </div>
+          </div>
+          {info.ethernet.connected && info.wifi.connected && <p className="mt-2 text-xs text-slate-600">Both are connected; the board prefers Ethernet while it's plugged in. You can unplug the cable and it will keep running on Wi-Fi.</p>}
+          {msg && <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${msg.error ? "border-red-500/20 bg-red-500/6 text-red-300" : "border-emerald-500/20 bg-emerald-500/6 text-emerald-200"}`}>{msg.error ?? msg.ok}</div>}
+          {expanded && (<>
+          <div className="mt-4 overflow-hidden rounded-xl border border-white/6">
+            {info.networks.length === 0 && <div className="py-8 text-center text-sm text-slate-500">No Wi-Fi networks found. Try Scan.</div>}
+            {info.networks.map(n => (
+              <div key={n.ssid} className="border-b border-white/6 last:border-0">
+                <button onClick={() => { setOpen(open === n.ssid ? null : n.ssid); setPassword(""); setMsg(null); }} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[.02]">
+                  <SignalBars signal={n.signal} />
+                  <span className="min-w-0 flex-1 truncate text-sm text-white">{n.ssid}</span>
+                  {n.band && <span className="text-[11px] text-slate-600">{n.band}</span>}
+                  {n.in_use ? <span className="rounded-full border border-emerald-500/20 bg-emerald-500/6 px-2 py-0.5 text-[10px] text-emerald-300">Connected</span>
+                    : n.saved ? <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-400">Saved</span> : null}
+                  {n.secure && <Lock size={13} className="text-slate-500" aria-label="Password protected" />}
+                </button>
+                {open === n.ssid && (
+                  <div className="flex flex-wrap items-center gap-2 bg-white/[.02] px-3 pb-3 pt-1">
+                    {n.enterprise ? <span className="text-xs text-slate-500">This network uses a company login (802.1X), which isn't supported yet.</span> : (
+                      <>
+                        {!n.in_use && n.secure && !n.saved && (
+                          <input autoFocus type="password" autoComplete="off" className={`${inputClass} max-w-xs`} placeholder="Wi-Fi password" value={password}
+                            onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && password && join(n)} />
+                        )}
+                        {!n.in_use && (
+                          <button onClick={() => join(n)} disabled={busy === n.ssid || (n.secure && !n.saved && !password)} className="flex items-center gap-2 rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+                            {busy === n.ssid && <Loader2 size={14} className="animate-spin" />} {busy === n.ssid ? "Connecting… (up to 30s)" : "Connect"}
+                          </button>
+                        )}
+                        {n.saved && (
+                          <button onClick={() => forget(n)} disabled={busy === n.ssid} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-red-500/6 hover:text-red-300 disabled:opacity-50">Forget network</button>
+                        )}
+                        {n.in_use && !n.saved && <span className="text-xs text-slate-500">Connected.</span>}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-slate-600">If a new network doesn't work (wrong password, out of range), the board goes back to the network it was on. Power saving is turned off automatically for a steadier connection.</p>
+          </>)}
+        </>
+      )}
+    </div>
+  );
+}
+
 function NetworkPage({ printers, onAddPrinter }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState("");
@@ -1497,6 +1624,8 @@ function NetworkPage({ printers, onAddPrinter }) {
           <div className="mt-1 text-xs text-slate-500">This server, since midnight</div>
         </div>
       </section>
+
+      <section className="mt-4"><WifiCard /></section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">

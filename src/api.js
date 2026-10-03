@@ -38,3 +38,6 @@ export const getHistory=params=>req(`/api/history?${new URLSearchParams(Object.e
 export const getHistoryStats=days=>req(`/api/history/stats?days=${days}`);
 export const deleteHistoryJob=id=>req(`/api/history/${id}`,{method:'DELETE'});
 export const importHistory=()=>req('/api/history/import',{method:'POST'});
+export const getWifi=(rescan=false)=>req(`/api/network/wifi${rescan?'?rescan=true':''}`);
+export const connectWifi=(ssid,password)=>req('/api/network/wifi/connect',{method:'POST',body:JSON.stringify({ssid,password:password||null})});
+export const forgetWifi=ssid=>req('/api/network/wifi/forget',{method:'POST',body:JSON.stringify({ssid})});

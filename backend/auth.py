@@ -84,7 +84,9 @@ def principal(request):
  return None
 
 # Endpoints anyone can reach: health check, and the auth endpoints that sign in or set up
-PUBLIC={('GET','/api/health'),('GET','/api/auth/status'),('POST','/api/auth/login'),('POST','/api/auth/logout'),('POST','/api/auth/setup')}
+# (hotspot.py checks its own endpoints: open to the first-run setup on the hotspot, otherwise admins only)
+PUBLIC={('GET','/api/health'),('GET','/api/auth/status'),('POST','/api/auth/login'),('POST','/api/auth/logout'),('POST','/api/auth/setup'),
+ ('GET','/api/hotspot'),('POST','/api/hotspot/connect')}
 # Changes any signed-in user may make to their own account
 SELF_SERVICE={('POST','/api/auth/password')}
 # Reads that are admin-only because they contain secrets
@@ -138,7 +140,9 @@ def start_session(response,user_id,remember):
 def status(request:Request):
  who=principal(request) if has_users() else None
  return {'setup_required':not has_users(),'user':who and {'username':who['username'],'role':who['role'],'kind':who['kind']},
-  'farm_name':settings.get('farm_name'),'accent':settings.get('accent')}
+  'farm_name':settings.get('farm_name'),'accent':settings.get('accent'),
+  # Phones on the setup hotspot get the Wi-Fi setup screen
+  'on_hotspot':bool(request.client) and request.client.host.startswith('10.42.0.')}
 
 class Setup(BaseModel):
  farm_name:str=Field(min_length=1,max_length=40); username:str; password:str

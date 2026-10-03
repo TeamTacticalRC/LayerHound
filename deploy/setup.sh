@@ -40,11 +40,17 @@ polkit.addRule(function(action, subject) {
   var allowed = ["org.freedesktop.NetworkManager.network-control",
                  "org.freedesktop.NetworkManager.settings.modify.system",
                  "org.freedesktop.NetworkManager.wifi.scan",
-                 "org.freedesktop.NetworkManager.enable-disable-wifi"];
+                 "org.freedesktop.NetworkManager.enable-disable-wifi",
+                 "org.freedesktop.NetworkManager.wifi.share.open"];
   if (subject.user == "$APP_USER" && allowed.indexOf(action.id) >= 0) return polkit.Result.YES;
 });
 POLKIT_RULE
 sudo chmod 644 "$POLKIT"
+
+# Setup hotspot: on LayerHound-Setup (and only there; it's the only "shared" connection),
+# every web address points at the board, so phones open the setup page by themselves
+sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+echo "address=/#/10.42.0.1" | sudo tee /etc/NetworkManager/dnsmasq-shared.d/layerhound-setup.conf >/dev/null
 
 echo "==> Python environment"
 cd "$APP_DIR/backend"
@@ -61,7 +67,8 @@ if [ ! -s "$APP_DIR/backend/data/oui.csv" ] || [ -n "$(find "$APP_DIR/backend/da
     || echo "   (skipped: couldn't download the list; device manufacturers won't be shown)"
 fi
 
-# Owner tools on the board, e.g. "layerhound reset-password" for a forgotten password
+# Owner tools on the board, e.g. "layerhound reset-password" for a forgotten password,
+# or "layerhound hotspot start" to turn on the setup hotspot
 sudo tee /usr/local/bin/layerhound >/dev/null <<CMD
 #!/bin/sh
 exec "$APP_DIR/backend/.venv/bin/python" "$APP_DIR/backend/manage.py" "\$@"

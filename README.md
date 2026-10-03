@@ -142,6 +142,7 @@ Most settings live on the **Settings** page. A few can also be set with environm
 - **Network scans** only run when you press **Scan network**, and only cover your local network (at most 254 addresses).
 - **Login:** the first visit creates the admin account (there are no default passwords). Admins can add **view-only** accounts and read-only **access keys** for devices in **Settings → Login & users**, and can let anyone on the local network view without signing in. Passwords are stored only as one-way hashes, and 5 wrong passwords pause sign-ins from that device for 5 minutes.
 - **Forgot your password?** On the board, run `layerhound reset-password`.
+- **Setup hotspot:** when the board has no network for a few minutes, it creates an open Wi-Fi network called **LayerHound-Setup** so you can connect it to your Wi-Fi from a phone. It turns off as soon as the board is back on a network. On a board that's already set up, changing Wi-Fi there needs an admin sign-in.
 - **Never expose LayerHound's port to the internet.** It uses plain `http://`, which is fine on your own network. For remote access, use a private network tool such as [Tailscale](https://tailscale.com).
 - **Backups** can include your access codes and tokens. Keep backup files private, or download them with that option turned off.
 
@@ -155,7 +156,8 @@ backend/            Python API (FastAPI)
   services.py       service checks, Home Assistant / Pi-hole, Docker
   settings.py       settings, backups, about/restart
   auth.py           login, accounts, sessions, access keys
-  manage.py         owner tools on the board (reset-password)
+  hotspot.py        LayerHound-Setup hotspot for Wi-Fi setup without a cable
+  manage.py         owner tools on the board (reset-password, hotspot)
 src/                Dashboard (React + Tailwind)
 deploy/             deploy.sh (runs on your computer), setup.sh (runs on the board)
 ROADMAP.md          What's planned next

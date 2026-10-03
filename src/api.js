@@ -57,3 +57,5 @@ export const deleteUser=id=>req(`/api/auth/users/${id}`,{method:'DELETE'});
 export const getKeys=()=>req('/api/auth/keys');
 export const addKey=name=>req('/api/auth/keys',{method:'POST',body:JSON.stringify({name})});
 export const deleteKey=id=>req(`/api/auth/keys/${id}`,{method:'DELETE'});
+export const getHotspot=()=>req('/api/hotspot');
+export const joinWifi=(ssid,password)=>req('/api/hotspot/connect',{method:'POST',body:JSON.stringify({ssid,password:password||null})});

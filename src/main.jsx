@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -454,6 +454,87 @@ function LoginScreen({ farmName, onDone, onCancel }) {
   );
 }
 
+// Shown to a phone on the "LayerHound-Setup" hotspot: pick the home Wi-Fi, and on a new board
+// also name the farm and create the admin account, all in one go
+function HotspotScreen({ setupRequired, farmName, onDone }) {
+  const [info, setInfo] = useState(null);
+  const [net, setNet] = useState({ ssid: "", other: false, password: "" });
+  const [acct, setAcct] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [joining, setJoining] = useState(null);
+  useEffect(() => { getHotspot().then(setInfo).catch(e => setError(e.message)); }, []);
+  const chosen = info?.networks?.find(n => n.ssid === net.ssid);
+  const needsPassword = net.other || (chosen?.secure && !chosen?.saved);
+  const submit = async e => {
+    e.preventDefault(); setError("");
+    if (!net.ssid.trim()) return setError("Pick your Wi-Fi network.");
+    if (needsPassword && net.other === false && !net.password) return setError("Enter the Wi-Fi password.");
+    if (setupRequired) {
+      if (acct.password.length < 8) return setError("The admin password needs at least 8 characters.");
+      if (acct.password !== acct.confirm) return setError("The admin passwords don't match.");
+    }
+    setBusy(true);
+    try {
+      if (setupRequired) await setupLayerHound({ farm_name: acct.farm_name.trim() || "My Print Farm", username: acct.username.trim(), password: acct.password });
+      setJoining(await joinWifi(net.ssid.trim(), net.password));
+    } catch (err) { setError(err.message); setBusy(false); if (setupRequired) onDone(); }
+  };
+  if (joining) return (
+    <AuthShell title={`Joining ${joining.network}…`}>
+      <div className="space-y-3 text-sm text-slate-300">
+        <p>LayerHound is switching to your Wi-Fi now, so this phone will drop off <span className="text-white">LayerHound-Setup</span>.</p>
+        <ol className="list-decimal space-y-2 pl-5">
+          <li>Connect this phone back to <span className="text-white">{joining.network}</span>.</li>
+          <li>Open <a href={`http://${joining.hostname}`} className="font-medium text-violet-300">http://{joining.hostname}</a> and sign in.</li>
+        </ol>
+        <p className="text-xs text-slate-500">If the password was wrong, LayerHound-Setup comes back within a minute. Join it again to see what happened and try again.</p>
+      </div>
+    </AuthShell>
+  );
+  return (
+    <AuthShell title="Connect LayerHound to your Wi-Fi" sub={setupRequired ? "Then name your farm and create the admin account." : "Pick the network LayerHound should use."}>
+      <form onSubmit={submit} className="space-y-4">
+        {info?.last_error && <div className="rounded-lg border border-amber-500/20 bg-amber-500/6 px-3 py-2 text-sm text-amber-100">{info.last_error} Check the password and try again.</div>}
+        <div>
+          <div className="mb-2 text-xs font-medium text-slate-400">Wi-Fi network</div>
+          {!info ? <div className="flex items-center gap-2 py-2 text-sm text-slate-500"><Loader2 size={15} className="animate-spin" /> Loading networks…</div> : (
+            <div className="max-h-56 space-y-1 overflow-y-auto">
+              {(info.networks ?? []).map(n => (
+                <label key={n.ssid} className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm ${net.ssid === n.ssid && !net.other ? "border-violet-400 bg-violet-500/10 text-white" : "border-white/8 text-slate-300 hover:bg-white/[.03]"}`}>
+                  <input type="radio" name="ssid" className="sr-only" checked={net.ssid === n.ssid && !net.other} onChange={() => setNet({ ssid: n.ssid, other: false, password: "" })} />
+                  <SignalBars signal={n.signal} />
+                  <span className="min-w-0 flex-1 truncate">{n.ssid}</span>
+                  {n.saved ? <span className="text-[11px] text-slate-500">Saved</span> : n.secure && <Lock size={13} className="text-slate-500" aria-label="Needs a password" />}
+                </label>
+              ))}
+              <label className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm ${net.other ? "border-violet-400 bg-violet-500/10 text-white" : "border-white/8 text-slate-400 hover:bg-white/[.03]"}`}>
+                <input type="radio" name="ssid" className="sr-only" checked={net.other} onChange={() => setNet({ ssid: "", other: true, password: "" })} />
+                <Plus size={14} /> Other network (hidden or not listed)
+              </label>
+            </div>
+          )}
+        </div>
+        {net.other && <Field label="Network name"><input className={inputClass} maxLength={64} value={net.ssid} onChange={e => setNet(x => ({ ...x, ssid: e.target.value }))} autoComplete="off" autoCapitalize="none" /></Field>}
+        {(needsPassword || net.other) && <Field label="Wi-Fi password" hint={net.other ? "Leave blank if the network has no password." : undefined}><PasswordInput value={net.password} onChange={v => setNet(x => ({ ...x, password: v }))} autoComplete="off" /></Field>}
+        {setupRequired && (
+          <div className="space-y-3 border-t border-white/6 pt-4">
+            <Field label="Farm name" hint="You can change it later."><input className={inputClass} maxLength={40} placeholder="My Print Farm" value={acct.farm_name} onChange={e => setAcct(x => ({ ...x, farm_name: e.target.value }))} /></Field>
+            <div className="text-xs text-slate-500">Create the admin account. You'll use it to sign in once LayerHound is on your Wi-Fi.</div>
+            <Field label="Username"><input className={inputClass} maxLength={40} value={acct.username} onChange={e => setAcct(x => ({ ...x, username: e.target.value }))} autoComplete="username" autoCapitalize="none" /></Field>
+            <Field label="Password" hint="At least 8 characters."><PasswordInput value={acct.password} onChange={v => setAcct(x => ({ ...x, password: v }))} autoComplete="new-password" /></Field>
+            <Field label="Type it again"><PasswordInput value={acct.confirm} onChange={v => setAcct(x => ({ ...x, confirm: v }))} autoComplete="new-password" /></Field>
+          </div>
+        )}
+        {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+        <button type="submit" disabled={busy || !info} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+          {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Connecting…" : setupRequired ? "Finish setup" : "Connect"}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
 // Loads who is signed in, then shows the welcome screen, the sign-in screen or the dashboard
 function App() {
   const [status, setStatus] = useState(null);
@@ -481,6 +562,8 @@ function App() {
       </div>
     </AuthShell>
   );
+  // On the setup hotspot: Wi-Fi setup (plus the admin account on a new board). Once accounts exist, an admin signs in first.
+  if (status.on_hotspot && (status.setup_required || status.user?.role === "admin") && !signingIn) return <HotspotScreen setupRequired={status.setup_required} farmName={status.farm_name} onDone={check} />;
   if (status.setup_required) return <WelcomeScreen farmName={status.farm_name} onDone={signedIn} />;
   if (!status.user || signingIn) return <LoginScreen farmName={status.farm_name} onDone={signedIn} onCancel={status.user ? () => setSigningIn(false) : null} />;
   // key: a different person signing in gets a fresh dashboard

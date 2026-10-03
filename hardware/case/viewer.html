@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LayerHound Case Viewer</title>
+<style>
+  :root { --bg: #eef0f3; --panel: #ffffff; --text: #1d2129; --muted: #5d6676; --border: #d9dde3; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0f1218; --panel: #171b23; --text: #e6e9ee; --muted: #8a94a6; --border: #2a303b; } }
+  :root[data-theme="dark"] { --bg: #0f1218; --panel: #171b23; --text: #e6e9ee; --muted: #8a94a6; --border: #2a303b; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  #view { position: fixed; inset: 0; }
+  .panel { position: fixed; top: 16px; left: 16px; max-width: calc(100% - 32px); background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+  .panel h1 { margin: 0 0 6px; font-size: 15px; }
+  .panel p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  button[aria-pressed="true"] { background: #007ACC; border-color: #007ACC; color: #fff; }
+  label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div class="panel">
+  <h1>LayerHound case · ROCK 4D</h1>
+  <p>Drag to rotate, scroll to zoom. 91 × 73 × 49 mm.</p>
+  <div class="row" role="group" aria-label="View">
+    <button data-mode="assembled" aria-pressed="true">Assembled</button>
+    <button data-mode="exploded" aria-pressed="false">Exploded</button>
+    <button data-mode="inside" aria-pressed="false">Inside</button>
+  </div>
+  <label><input type="checkbox" id="board" checked> Show board and fan</label>
+</div>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+// STL files are in print orientation; these put them back together (mm, z up)
+const TOP = 47.4, FLOOR = 2.0;
+const PARTS = [
+  { file: 'stl/case-shell.stl', color: 0x2B2F3A, kind: 'shell' },
+  { file: 'stl/case-logo-blue.stl', color: 0x00A3FF, kind: 'shell' },
+  { file: 'stl/case-logo-white.stl', color: 0xE8EBEF, kind: 'shell' },
+  { file: 'stl/case-logo-gray.stl', color: 0x8A94A6, kind: 'shell' },
+  { file: 'stl/case-base.stl', color: 0x434a58, kind: 'base' },
+];
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio); view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 1, 2000);
+camera.up.set(0, 0, 1); camera.position.set(-90, -170, 120);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(42, 33, 22); controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-60, -120, 200); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.6); fill.position.set(120, 160, 60); scene.add(fill);
+
+const shellGroup = new THREE.Group(), baseGroup = new THREE.Group(), boardGroup = new THREE.Group();
+scene.add(shellGroup, baseGroup, boardGroup);
+const clip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 24);
+renderer.localClippingEnabled = true;
+
+const loader = new STLLoader();
+for (const p of PARTS) {
+  loader.load(p.file, geo => {
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.75, metalness: 0.05, clippingPlanes: [], side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    if (p.kind === 'shell') { mesh.rotation.x = Math.PI; mesh.position.z = TOP; shellGroup.add(mesh); }
+    else { mesh.position.z = -FLOOR; baseGroup.add(mesh); }
+  });
+}
+
+// Rough stand-ins for the board, its ports, and the fan
+const box = (x0, y0, z0, x1, y1, z1, color) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), new THREE.MeshStandardMaterial({ color, roughness: 0.8 }));
+  m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); boardGroup.add(m);
+};
+const z = 4, t = 5.6;
+box(0, 0, z, 85, 56, t, 0x1f6f43);
+box(70, 40.2, t, 87.1, 54.8, t + 16, 0xb8bec8); box(70, 21.6, t, 87.1, 36.8, t + 16, 0xb8bec8);
+box(66, 2.1, t, 87.1, 18.1, t + 13.5, 0xc9cdd3); box(6.8, -0.8, t, 15.8, 7, t + 3.3, 0xb8bec8);
+box(24.5, -0.8, t, 39.5, 11, t + 6.2, 0xb8bec8); box(50.1, -2.7, t, 57.1, 12, t + 6, 0x222222);
+box(7.2, 50.5, t, 58, 55.5, t + 8.5, 0x222222); box(40, 26, t, 57, 45, t + 1.5, 0x555555);
+box(22.5, 58, 3, 62.5, 68, 43, 0x6b7280);
+
+function layout(mode) {
+  shellGroup.position.set(0, 0, mode === 'exploded' ? 45 : 0);
+  baseGroup.position.set(0, 0, mode === 'exploded' ? -25 : 0);
+  shellGroup.traverse(o => { if (o.material) o.material.clippingPlanes = mode === 'inside' ? [clip] : []; });
+  document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === mode));
+}
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => layout(b.dataset.mode));
+document.getElementById('board').onchange = e => { boardGroup.visible = e.target.checked; };
+let mode = 'assembled'; layout(mode);
+// Apply the clip again once the STLs have loaded
+setTimeout(() => layout(document.querySelector('[aria-pressed="true"]').dataset.mode), 800);
+
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>

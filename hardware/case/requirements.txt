@@ -1,0 +1,6 @@
+manifold3d==3.5.4
+numpy==2.5.3
+pillow==12.3.0
+scikit-image==0.26.0
+shapely==2.1.2
+trimesh==5.1.1

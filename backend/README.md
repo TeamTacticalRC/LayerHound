@@ -12,6 +12,9 @@ When running, interactive API docs are at `http://localhost:8000/docs`.
 | Storage and files | `/api/storage`, `/api/files/*` | `storage.py` |
 | Network | `/api/network`, `/api/network/devices`, `/api/network/scan` | `network.py` |
 | Services | `/api/services`, `/api/services/docker/{id}/restart` | `services.py` |
+| Login and accounts | `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/password`, `/api/auth/users`, `/api/auth/keys` | `auth.py` |
 | Settings | `/api/settings`, `/api/settings/about`, `/api/settings/backup`, `/api/settings/restore`, `/api/settings/clear-history/{kind}`, `/api/settings/restart` | `settings.py` |
+
+Every `/api` endpoint except `/api/health` and the sign-in endpoints needs a session cookie or a read-only access key (`Authorization: Bearer lhk_...`). Changes need an admin and the `X-Requested-With: LayerHound` header.
 
 Data is stored in SQLite (`layerhound.db` by default; see `LAYERHOUND_DB`).

@@ -21,7 +21,7 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
 | **Storage** | Drive usage and health (NVMe wear, temperature, hours), a 90-day usage trend, and a shared files folder with uploads, downloads and a trash. |
 | **Network** | Internet uptime and outages, monitored devices with uptime bars, per-connection traffic, and a network scan that finds printers and pre-fills the Add printer form. |
 | **Services** | Health checks and quick-launch tiles for your web apps, Home Assistant and Pi-hole stats, and Docker containers with restart buttons. |
-| **Settings** | Your farm's name, accent color, °C/°F, 12/24-hour time, alert thresholds, history retention, backup and restore. |
+| **Settings** | Your farm's name, accent color, °C/°F, 12/24-hour time, alert thresholds, accounts and access keys, history retention, backup and restore. |
 
 ### Supported printers
 
@@ -82,7 +82,7 @@ npm install
 npm run dev
 ```
 
-**3.** Open **http://localhost:5173**, go to **Print Farm → Add printer**, or use **Network → Scan network** to find printers automatically.
+**3.** Open **http://localhost:5173**. The first visit shows a welcome screen where you name your farm and create the admin account. Then go to **Print Farm → Add printer**, or use **Network → Scan network** to find printers automatically.
 
 ## Install on a home lab board
 
@@ -140,7 +140,9 @@ Most settings live on the **Settings** page. A few can also be set with environm
   - A DNS lookup once a minute
   - `standards-oui.ieee.org`, during board setup, to download the manufacturer list
 - **Network scans** only run when you press **Scan network**, and only cover your local network (at most 254 addresses).
-- **There is no login yet** (it's planned; see the [roadmap](ROADMAP.md)). Anyone on your network can open LayerHound and change printers, files and settings. **Never expose LayerHound's port to the internet.** For remote access, use a private network tool such as [Tailscale](https://tailscale.com).
+- **Login:** the first visit creates the admin account (there are no default passwords). Admins can add **view-only** accounts and read-only **access keys** for devices in **Settings → Login & users**, and can let anyone on the local network view without signing in. Passwords are stored only as one-way hashes, and 5 wrong passwords pause sign-ins from that device for 5 minutes.
+- **Forgot your password?** On the board, run `layerhound reset-password`.
+- **Never expose LayerHound's port to the internet.** It uses plain `http://`, which is fine on your own network. For remote access, use a private network tool such as [Tailscale](https://tailscale.com).
 - **Backups** can include your access codes and tokens. Keep backup files private, or download them with that option turned off.
 
 ## Project layout
@@ -152,6 +154,8 @@ backend/            Python API (FastAPI)
   network.py        internet health, device monitor, interfaces, discovery
   services.py       service checks, Home Assistant / Pi-hole, Docker
   settings.py       settings, backups, about/restart
+  auth.py           login, accounts, sessions, access keys
+  manage.py         owner tools on the board (reset-password)
 src/                Dashboard (React + Tailwind)
 deploy/             deploy.sh (runs on your computer), setup.sh (runs on the board)
 ROADMAP.md          What's planned next
@@ -170,7 +174,6 @@ The tests use their own temporary database and files folder, so they never touch
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Highlights:
-- login with admin and viewer accounts
 - a Wi-Fi LED status bar that shows each printer's state
 - a one-line installer
 - a ready-to-run LayerHound board

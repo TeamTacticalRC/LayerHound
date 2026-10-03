@@ -14,6 +14,6 @@ Security fixes go into the latest release. Please update before reporting, in ca
 
 ## Things to know
 
-- **LayerHound has no login yet.** Anyone who can reach it on your network can view and change printers, files and settings. Never expose its port to the internet; use a private network tool such as Tailscale for remote access. Login is planned (see [ROADMAP.md](ROADMAP.md)).
+- **Sign-in is required** (unless the owner turns on local-network viewing), but LayerHound uses plain `http://`. Never expose its port to the internet; use a private network tool such as Tailscale for remote access.
 - **Only download LayerHound from this repository's Releases page** (or layerhound.com once it exists). Copies from anywhere else may have been modified.
 - Printer access codes, API keys and service tokens are stored in the local database and never sent to the browser. Backups can include them if you choose; keep those files private.

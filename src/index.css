@@ -36,3 +36,6 @@ button { font: inherit; }
 }
 @media (min-width: 1024px) { .printer-grid { --cols: var(--cols-lg); } }
 @media (min-width: 1280px) { .printer-grid { --cols: var(--cols-xl); } }
+
+/* Viewers (and guests) only look: hide controls that change things. The server refuses those changes anyway. */
+.lh-viewer [data-admin] { display: none !important; }

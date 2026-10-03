@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 router=APIRouter(prefix='/api/settings')
-APP_VERSION='0.4.2'
+APP_VERSION='0.5.0'
 _db=None; _cache={}; _lock=threading.Lock()
 # Functions to run after a restore (main.py uses this to drop Bambu connections tied to old printer ids)
 after_restore=[]
@@ -32,6 +32,8 @@ SCHEMA={
  'network_history_days':(7,int,(1,90)),
  'storage_history_days':(90,int,(7,365)),
  'data_usage_days':(90,int,(7,365)),
+ # Let devices on the local network view the dashboard without signing in (changes still need an admin)
+ 'guest_view':(False,bool,None),
 }
 
 # Names used in error messages, matching the labels on the Settings page

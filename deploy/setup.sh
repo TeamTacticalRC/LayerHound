@@ -61,6 +61,13 @@ if [ ! -s "$APP_DIR/backend/data/oui.csv" ] || [ -n "$(find "$APP_DIR/backend/da
     || echo "   (skipped: couldn't download the list; device manufacturers won't be shown)"
 fi
 
+# Owner tools on the board, e.g. "layerhound reset-password" for a forgotten password
+sudo tee /usr/local/bin/layerhound >/dev/null <<CMD
+#!/bin/sh
+exec "$APP_DIR/backend/.venv/bin/python" "$APP_DIR/backend/manage.py" "\$@"
+CMD
+sudo chmod 755 /usr/local/bin/layerhound
+
 echo "==> systemd service ($SERVICE, port $PORT)"
 sudo tee /etc/systemd/system/$SERVICE.service >/dev/null <<EOF
 [Unit]

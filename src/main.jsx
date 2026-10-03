@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
   ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
-  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap
+  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
 
-const APP_VERSION = "v0.4.2";
+const APP_VERSION = "v0.5.0";
 
 // Display preferences from the Settings page. A plain object so helpers outside components can
 // read it; the Dashboard re-renders the whole app whenever settings change.
@@ -16,7 +16,7 @@ const prefs = {
   farm_name: "My Print Farm", farm_description: "One place to see what's happening across your print farm.", accent: "electric",
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
-  network_history_days: 7, storage_history_days: 90, data_usage_days: 90,
+  network_history_days: 7, storage_history_days: 90, data_usage_days: 90, guest_view: false,
 };
 
 // Accent colors. The app's styles use Tailwind's violet shades, so switching accent swaps
@@ -50,6 +50,15 @@ function fmtTemp(c, digits = 1) {
   return `${digits === 0 ? Math.round(v) : Math.round(v * 10) / 10}°${prefs.temp_unit}`;
 }
 const fmtDate = (d, opts) => new Date(d).toLocaleString([], { ...opts, hour12: prefs.time_format === "12" });
+
+// Who is using the dashboard: { username, role: "admin" | "viewer", kind: "user" | "guest" | "key" }
+const session = { user: null };
+const isAdmin = () => session.user?.role === "admin";
+function applySession(user) {
+  session.user = user;
+  // Viewers and guests only look; index.css hides controls marked data-admin
+  document.documentElement.classList.toggle("lh-viewer", !!user && user.role !== "admin");
+}
 
 // Shown only when the backend's /api/printers can't be reached.
 const DEMO_PRINTERS = [
@@ -288,7 +297,7 @@ function BrandMark() {
   return <div className="text-lg font-black uppercase leading-tight tracking-tight text-white">Layer<span className="text-violet-400">Hound</span></div>;
 }
 
-function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
+function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, onSignIn }) {
   const items = [
     ["Dashboard", LayoutDashboard, "dashboard"],
     ["Print Farm", Printer, "printers"],
@@ -325,9 +334,157 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary }) {
           <div className="flex items-center gap-2 text-xs font-medium text-slate-300"><StatusDot tone={summary.tone} /> <span className="truncate">{summary.text}</span></div>
           <div className="mt-2 text-[10px] text-slate-600">LayerHound {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
         </div>
+        <AccountBadge onSignOut={onSignOut} onSignIn={onSignIn} />
       </aside>
     </>
   );
+}
+
+// Signed-in user at the bottom of the sidebar, with sign out (or sign in, for guests)
+function AccountBadge({ onSignOut, onSignIn }) {
+  const u = session.user;
+  if (!u) return null;
+  const guest = u.kind !== "user";
+  return (
+    <div className="mx-3 mb-3 flex items-center gap-3 rounded-xl px-3 py-2">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-300"><UserRound size={16} /></div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm text-slate-200">{guest ? "Guest" : u.username}</div>
+        <div className="text-[11px] text-slate-600">{u.role === "admin" ? "Admin" : "View only"}</div>
+      </div>
+      {guest
+        ? <button onClick={onSignIn} className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-violet-300 hover:bg-white/5"><LogIn size={14} /> Sign in</button>
+        : <button onClick={onSignOut} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Sign out" title="Sign out"><LogOut size={16} /></button>}
+    </div>
+  );
+}
+
+// Centered card used by the welcome and sign-in screens
+function AuthShell({ title, sub, children }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#090b12] px-4 py-10 text-slate-200">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <img src="/brand/layerhound-mascot.png" alt="" className="h-20 w-20 object-contain" />
+          <div className="mt-3 text-2xl"><BrandMark /></div>
+          {title && <h1 className="mt-4 text-lg font-semibold text-white">{title}</h1>}
+          {sub && <p className="mt-1 text-sm text-slate-500">{sub}</p>}
+        </div>
+        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PasswordInput({ value, onChange, autoComplete, placeholder, id }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input id={id} className={`${inputClass} pr-10`} type={show ? "text" : "password"} value={value} onChange={e => onChange(e.target.value)} autoComplete={autoComplete} placeholder={placeholder} maxLength={200} />
+      <button type="button" onClick={() => setShow(v => !v)} className="absolute inset-y-0 right-0 px-3 text-slate-500 hover:text-white" aria-label={show ? "Hide password" : "Show password"}><Eye size={16} /></button>
+    </div>
+  );
+}
+
+// First run: no accounts exist yet. Name the farm and create the admin account.
+function WelcomeScreen({ farmName, onDone }) {
+  const [f, setF] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set = k => v => setF(x => ({ ...x, [k]: v }));
+  const submit = async e => {
+    e.preventDefault(); setError("");
+    if (f.password.length < 8) return setError("Passwords need at least 8 characters.");
+    if (f.password !== f.confirm) return setError("The passwords don't match.");
+    setBusy(true);
+    try { await setupLayerHound({ farm_name: f.farm_name.trim() || "My Print Farm", username: f.username.trim(), password: f.password }); onDone(); }
+    catch (err) { setError(err.message); setBusy(false); }
+  };
+  return (
+    <AuthShell title="Welcome to LayerHound" sub="Two quick things and you're in.">
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Farm name" hint="Shown across the dashboard. You can change it later."><input className={inputClass} maxLength={40} placeholder="My Print Farm" value={f.farm_name} onChange={e => set("farm_name")(e.target.value)} autoFocus /></Field>
+        <div className="border-t border-white/6 pt-4">
+          <div className="mb-3 text-xs text-slate-500">Create the admin account. Admins can change everything; you can add view-only accounts later in Settings.</div>
+          <div className="space-y-3">
+            <Field label="Username"><input className={inputClass} maxLength={40} value={f.username} onChange={e => set("username")(e.target.value)} autoComplete="username" /></Field>
+            <Field label="Password" hint="At least 8 characters."><PasswordInput value={f.password} onChange={set("password")} autoComplete="new-password" /></Field>
+            <Field label="Type it again"><PasswordInput value={f.confirm} onChange={set("confirm")} autoComplete="new-password" /></Field>
+          </div>
+        </div>
+        {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+        <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+          {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Setting up…" : "Finish setup"}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function LoginScreen({ farmName, onDone, onCancel }) {
+  const [f, setF] = useState({ username: "", password: "", remember: true });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [forgot, setForgot] = useState(false);
+  const submit = async e => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try { await login(f.username.trim(), f.password, f.remember); onDone(); }
+    catch (err) { setError(err.message); setBusy(false); setF(x => ({ ...x, password: "" })); }
+  };
+  return (
+    <AuthShell title={farmName} sub="Sign in to continue.">
+      <form onSubmit={submit} className="space-y-3">
+        <Field label="Username"><input className={inputClass} maxLength={40} value={f.username} onChange={e => setF(x => ({ ...x, username: e.target.value }))} autoComplete="username" autoFocus /></Field>
+        <Field label="Password"><PasswordInput value={f.password} onChange={v => setF(x => ({ ...x, password: v }))} autoComplete="current-password" /></Field>
+        <label className="flex items-center gap-2 pt-1 text-sm text-slate-400">
+          <input type="checkbox" checked={f.remember} onChange={e => setF(x => ({ ...x, remember: e.target.checked }))} className="accent-violet-500" /> Keep me signed in for 30 days
+        </label>
+        {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+        <button type="submit" disabled={busy || !f.username || !f.password} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+          {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
+      <div className="mt-4 border-t border-white/6 pt-3 text-center text-xs text-slate-500">
+        {forgot
+          ? <p>On the LayerHound board (over SSH, or with a keyboard and screen), run <code className="rounded bg-white/5 px-1.5 py-0.5 text-slate-300">layerhound reset-password</code></p>
+          : <button onClick={() => setForgot(true)} className="hover:text-slate-300">Forgot your password?</button>}
+        {onCancel && <div className="mt-2"><button onClick={onCancel} className="hover:text-slate-300">Back to the dashboard</button></div>}
+      </div>
+    </AuthShell>
+  );
+}
+
+// Loads who is signed in, then shows the welcome screen, the sign-in screen or the dashboard
+function App() {
+  const [status, setStatus] = useState(null);
+  const [error, setError] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
+  const check = useCallback(async () => {
+    // The farm name and accent color come with the status, so the sign-in screen looks right too
+    try { const s = await getAuthStatus(); applySession(s.user); applyPrefs({ farm_name: s.farm_name, accent: s.accent }); setStatus(s); setError(""); }
+    catch (e) { setError(e.message || "Can't reach LayerHound"); }
+  }, []);
+  useEffect(() => { check(); }, [check]);
+  useEffect(() => {
+    // Any API call that finds the session gone (expired, signed out elsewhere) brings back the sign-in screen
+    const onSignedOut = () => check();
+    window.addEventListener("layerhound:signed-out", onSignedOut);
+    return () => window.removeEventListener("layerhound:signed-out", onSignedOut);
+  }, [check]);
+  const signedIn = () => { setSigningIn(false); check(); };
+  const signOut = async () => { try { await logout(); } catch { /* the cookie is cleared either way */ } check(); };
+
+  if (!status) return (
+    <AuthShell>
+      <div className="flex items-center justify-center gap-2 py-4 text-sm text-slate-400">
+        {error ? <><CircleX size={16} className="text-red-300" /> {error}. <button onClick={check} className="text-violet-300 hover:text-violet-200">Try again</button></> : <><Loader2 size={16} className="animate-spin" /> Loading…</>}
+      </div>
+    </AuthShell>
+  );
+  if (status.setup_required) return <WelcomeScreen farmName={status.farm_name} onDone={signedIn} />;
+  if (!status.user || signingIn) return <LoginScreen farmName={status.farm_name} onDone={signedIn} onCancel={status.user ? () => setSigningIn(false) : null} />;
+  // key: a different person signing in gets a fresh dashboard
+  return <Dashboard key={`${status.user.kind}:${status.user.username}`} onSignOut={signOut} onSignIn={() => setSigningIn(true)} />;
 }
 
 function useEscape(handler) {
@@ -403,10 +560,10 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
         <p className="mt-4 text-xs text-slate-600">This is a demo printer. Add a real printer from the Print Farm page to test or remove it.</p>
       ) : (
         <div className="mt-4 space-y-3">
-          <button onClick={() => onEdit(printer)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06]">
+          <button data-admin onClick={() => onEdit(printer)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06]">
             <Pencil size={16} /> Edit printer
           </button>
-          <button onClick={runTest} disabled={testing} className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
+          <button data-admin onClick={runTest} disabled={testing} className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
             {testing ? <Loader2 size={16} className="animate-spin" /> : <Plug size={16} />} {testing ? "Testing…" : "Test connection"}
           </button>
           {testResult && (
@@ -421,7 +578,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
               </div>
             </div>
           ) : (
-            <button onClick={() => setConfirmRemove(true)} className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm text-slate-500 hover:bg-red-500/6 hover:text-red-300">
+            <button data-admin onClick={() => setConfirmRemove(true)} className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm text-slate-500 hover:bg-red-500/6 hover:text-red-300">
               <Trash2 size={16} /> Remove printer
             </button>
           )}
@@ -624,11 +781,11 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
         ) : (
           <div className="flex gap-2">
             {!usingDemo && printers.length > 1 && (
-              <button onClick={() => setOrder(printers.map(p => p.id))} className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06]">
+              <button data-admin onClick={() => setOrder(printers.map(p => p.id))} className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06]">
                 <ArrowUpDown size={16} /> Reorder
               </button>
             )}
-            <button onClick={onAdd} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
+            <button data-admin onClick={onAdd} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
               <Plus size={17} /> Add printer
             </button>
           </div>
@@ -655,7 +812,7 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
           <Printer className="text-violet-400" size={28} />
           <h2 className="mt-4 font-semibold text-white">No printers yet</h2>
           <p className="mt-1 max-w-xs text-sm text-slate-500">Add your first Klipper, OctoPrint or Bambu Lab printer to start tracking jobs here.</p>
-          <button onClick={onAdd} className="mt-5 flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400"><Plus size={16} /> Add printer</button>
+          <button data-admin onClick={onAdd} className="mt-5 flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400"><Plus size={16} /> Add printer</button>
         </div>
       ) : (
         <PrinterGrid count={printers.length}>
@@ -1052,8 +1209,8 @@ function FileBrowser({ filesInfo, onChanged }) {
           </nav>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => { setCreating(true); setNewName(""); }} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><FolderPlus size={16} /> New folder</button>
-          <button onClick={() => picker.current?.click()} className="flex items-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400"><CloudUpload size={16} /> Upload</button>
+          <button data-admin onClick={() => { setCreating(true); setNewName(""); }} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><FolderPlus size={16} /> New folder</button>
+          <button data-admin onClick={() => picker.current?.click()} className="flex items-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400"><CloudUpload size={16} /> Upload</button>
           <input ref={picker} type="file" multiple className="hidden" onChange={e => { upload(e.target.files); e.target.value = ""; }} />
         </div>
       </div>
@@ -1126,8 +1283,8 @@ function FileBrowser({ filesInfo, onChanged }) {
                 ) : (
                   <div className="flex shrink-0 items-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
                     {it.type === "file" && <a href={downloadUrl(it.path)} className={iconBtn} aria-label={`Download ${it.name}`}><Download size={16} /></a>}
-                    <button onClick={() => setRenaming({ path: it.path, name: it.name })} className={iconBtn} aria-label={`Rename ${it.name}`}><Pencil size={16} /></button>
-                    <button onClick={() => setConfirmDelete(it.path)} className={`${iconBtn} hover:text-red-300`} aria-label={`Delete ${it.name}`}><Trash2 size={16} /></button>
+                    <button data-admin onClick={() => setRenaming({ path: it.path, name: it.name })} className={iconBtn} aria-label={`Rename ${it.name}`}><Pencil size={16} /></button>
+                    <button data-admin onClick={() => setConfirmDelete(it.path)} className={`${iconBtn} hover:text-red-300`} aria-label={`Delete ${it.name}`}><Trash2 size={16} /></button>
                   </div>
                 )}
               </li>
@@ -1146,7 +1303,7 @@ function FileBrowser({ filesInfo, onChanged }) {
               <button onClick={() => setConfirmEmpty(false)} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-white/5">Cancel</button>
             </span>
           ) : (
-            <button onClick={() => setConfirmEmpty(true)} className="flex items-center gap-1.5 text-slate-500 hover:text-red-300"><Trash2 size={13} /> Trash: {filesInfo.trash_count} item{filesInfo.trash_count === 1 ? "" : "s"} ({formatBytes(filesInfo.trash_size)}) · Empty</button>
+            <button data-admin onClick={() => setConfirmEmpty(true)} className="flex items-center gap-1.5 text-slate-500 hover:text-red-300"><Trash2 size={13} /> Trash: {filesInfo.trash_count} item{filesInfo.trash_count === 1 ? "" : "s"} ({formatBytes(filesInfo.trash_size)}) · Empty</button>
           )
         ) : <span className="flex items-center gap-1.5"><Trash2 size={13} /> Trash is empty</span>)}
       </div>
@@ -1285,7 +1442,7 @@ function DeviceMonitor({ devices, checkEvery, onChanged }) {
     <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
       <div className="flex items-start justify-between gap-3">
         <div><h2 className="font-semibold text-white">Device monitor</h2><p className="mt-1 text-xs text-slate-600">{devices.length ? `${up} of ${devices.length} responding · checked every ${checkEvery / 60} min · last 24 hours` : "Add devices to watch"}</p></div>
-        {!adding && <button onClick={() => { setAdding(true); setEditing(null); }} className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><Plus size={16} /> Add device</button>}
+        {!adding && <button data-admin onClick={() => { setAdding(true); setEditing(null); }} className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><Plus size={16} /> Add device</button>}
       </div>
       <div className="mt-4 overflow-hidden rounded-xl border border-white/6">
         {adding && <DeviceForm onCancel={() => setAdding(false)} onSave={async d => { await addNetDevice(d); setAdding(false); onChanged(); }} />}
@@ -1314,8 +1471,8 @@ function DeviceMonitor({ devices, checkEvery, onChanged }) {
                 </div>
               ) : (
                 <div className="flex items-center justify-end sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
-                  <button onClick={() => { setEditing(d.id); setAdding(false); }} className={iconBtn} aria-label={`Edit ${d.name}`}><Pencil size={16} /></button>
-                  <button onClick={() => setConfirm(d.id)} className={`${iconBtn} hover:text-red-300`} aria-label={`Remove ${d.name}`}><Trash2 size={16} /></button>
+                  <button data-admin onClick={() => { setEditing(d.id); setAdding(false); }} className={iconBtn} aria-label={`Edit ${d.name}`}><Pencil size={16} /></button>
+                  <button data-admin onClick={() => setConfirm(d.id)} className={`${iconBtn} hover:text-red-300`} aria-label={`Remove ${d.name}`}><Trash2 size={16} /></button>
                 </div>
               )}
             </div>
@@ -1395,7 +1552,7 @@ function Discovery({ printers, devices, onAddPrinter, onMonitored }) {
               : "Find everything on your network, including printers the dashboard can add."}
           </p>
         </div>
-        <button onClick={run} disabled={scan?.running} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-60">
+        <button data-admin onClick={run} disabled={scan?.running} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-60">
           {scan?.running ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />} {scan?.running ? `Scanning ${scan.progress}%` : scan?.finished ? "Scan again" : "Scan network"}
         </button>
       </div>
@@ -1625,7 +1782,7 @@ function NetworkPage({ printers, onAddPrinter }) {
         </div>
       </section>
 
-      <section className="mt-4"><WifiCard /></section>
+      <section data-admin className="mt-4"><WifiCard /></section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
@@ -1767,11 +1924,11 @@ function DockerCard({ docker, onRestarted }) {
               {c.state === "running" && <div className="text-right text-xs tabular-nums text-slate-400">{c.cpu_percent ?? "—"}% CPU · {formatBytes(c.memory_bytes)}</div>}
               {confirm === c.id ? (
                 <div className="flex items-center gap-1">
-                  <button onClick={() => restart(c)} disabled={busy === c.id} className="rounded-lg bg-amber-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-amber-500 disabled:opacity-50">{busy === c.id ? "Working…" : `${c.state === "running" ? "Restart" : "Start"} ${c.name}`}</button>
+                  <button data-admin onClick={() => restart(c)} disabled={busy === c.id} className="rounded-lg bg-amber-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-amber-500 disabled:opacity-50">{busy === c.id ? "Working…" : `${c.state === "running" ? "Restart" : "Start"} ${c.name}`}</button>
                   <button onClick={() => setConfirm(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
                 </div>
               ) : (
-                <button onClick={() => setConfirm(c.id)} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/5"><RotateCw size={13} /> {c.state === "running" ? "Restart" : "Start"}</button>
+                <button data-admin onClick={() => setConfirm(c.id)} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/5"><RotateCw size={13} /> {c.state === "running" ? "Restart" : "Start"}</button>
               )}
             </div>
           ))}
@@ -1821,7 +1978,7 @@ function ServicesPage({ printers }) {
           <h1 className="text-3xl font-bold tracking-tight text-white">Services</h1>
           <p className="mt-2 text-sm text-slate-500">{svcs.length ? `${up} of ${svcs.length} services up` : "Your home lab's web apps, in one place"}{info.docker.available ? ` · ${info.docker.containers.filter(c => c.state === "running").length} containers running` : ""}</p>
         </div>
-        <button onClick={() => { setAdding(true); setEditing(null); }} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400"><Plus size={17} /> Add service</button>
+        <button data-admin onClick={() => { setAdding(true); setEditing(null); }} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400"><Plus size={17} /> Add service</button>
       </div>
 
       {svcs.length > 0 && (
@@ -1837,10 +1994,10 @@ function ServicesPage({ printers }) {
       )}
 
       {suggestions.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <div data-admin className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-slate-600">Suggested:</span>
           {suggestions.map(sg => (
-            <button key={sg.url} onClick={async () => { await addService({ ...sg, integration: "none" }); load(); }} className="flex items-center gap-1 rounded-full border border-white/10 px-2.5 py-1 text-slate-300 hover:border-violet-400/40 hover:text-white"><Plus size={12} /> {sg.name}</button>
+            <button data-admin key={sg.url} onClick={async () => { await addService({ ...sg, integration: "none" }); load(); }} className="flex items-center gap-1 rounded-full border border-white/10 px-2.5 py-1 text-slate-300 hover:border-violet-400/40 hover:text-white"><Plus size={12} /> {sg.name}</button>
           ))}
         </div>
       )}
@@ -1879,8 +2036,8 @@ function ServicesPage({ printers }) {
                   </div>
                 ) : (
                   <div className="flex items-center justify-end sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
-                    <button onClick={() => { setEditing(s.id); setAdding(false); }} className={iconBtn} aria-label={`Edit ${s.name}`}><Pencil size={16} /></button>
-                    <button onClick={() => setConfirm(s.id)} className={`${iconBtn} hover:text-red-300`} aria-label={`Remove ${s.name}`}><Trash2 size={16} /></button>
+                    <button data-admin onClick={() => { setEditing(s.id); setAdding(false); }} className={iconBtn} aria-label={`Edit ${s.name}`}><Pencil size={16} /></button>
+                    <button data-admin onClick={() => setConfirm(s.id)} className={`${iconBtn} hover:text-red-300`} aria-label={`Remove ${s.name}`}><Trash2 size={16} /></button>
                   </div>
                 )}
               </div>
@@ -2115,7 +2272,7 @@ function AboutSection() {
                 <button onClick={() => setConfirm(false)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
               </>
             ) : (
-              <button onClick={() => setConfirm(true)} disabled={!about.can_restart} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:cursor-not-allowed disabled:opacity-40"><RotateCw size={15} /> Restart dashboard</button>
+              <button data-admin onClick={() => setConfirm(true)} disabled={!about.can_restart} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:cursor-not-allowed disabled:opacity-40"><RotateCw size={15} /> Restart dashboard</button>
             )}
             {!about.can_restart && <span className="text-xs text-slate-600">{about.restart_note}</span>}
             {msg && <span className="text-xs text-slate-400">{msg}</span>}
@@ -2126,22 +2283,176 @@ function AboutSection() {
   );
 }
 
+function AccountSection() {
+  const [f, setF] = useState({ current: "", next: "", confirm: "" });
+  const [status, setStatus] = useState(null);
+  const submit = async e => {
+    e.preventDefault();
+    if (f.next.length < 8) return setStatus({ error: "Passwords need at least 8 characters." });
+    if (f.next !== f.confirm) return setStatus({ error: "The new passwords don't match." });
+    setStatus({ busy: true });
+    try { await changePassword(f.current, f.next); setF({ current: "", next: "", confirm: "" }); setStatus({ ok: "Password changed. Other devices were signed out." }); }
+    catch (err) { setStatus({ error: err.message }); }
+  };
+  return (
+    <Section title="Your account" sub={`Signed in as ${session.user.username} (${session.user.role === "admin" ? "admin" : "view only"}).`}>
+      <form onSubmit={submit}>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Current password"><PasswordInput value={f.current} onChange={v => setF(x => ({ ...x, current: v }))} autoComplete="current-password" /></Field>
+          <Field label="New password"><PasswordInput value={f.next} onChange={v => setF(x => ({ ...x, next: v }))} autoComplete="new-password" /></Field>
+          <Field label="Type it again"><PasswordInput value={f.confirm} onChange={v => setF(x => ({ ...x, confirm: v }))} autoComplete="new-password" /></Field>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+          {status?.error && <span className="text-xs text-red-300">{status.error}</span>}
+          {status?.ok && <span className="text-xs text-emerald-300">{status.ok}</span>}
+          <button type="submit" disabled={status?.busy || !f.current || !f.next} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{status?.busy ? "Saving…" : "Change password"}</button>
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+const ROLE_LABEL = { admin: "Admin", viewer: "View only" };
+
+function UserRow({ u, onChanged, onError }) {
+  const [mode, setMode] = useState(null); // "password" | "remove"
+  const [pw, setPw] = useState("");
+  const me = u.username.toLowerCase() === session.user.username?.toLowerCase();
+  const run = async fn => { try { await fn(); setMode(null); setPw(""); onChanged(); } catch (e) { onError(e.message); } };
+  return (
+    <li className="py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/5 text-slate-400"><UserRound size={15} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm text-white">{u.username}{me && <span className="ml-2 text-xs text-slate-500">(you)</span>}</div>
+          <div className="text-xs text-slate-600">{u.last_login ? `Last signed in ${fmtDate(u.last_login * 1000, { dateStyle: "medium", timeStyle: "short" })}` : "Never signed in"}</div>
+        </div>
+        <select aria-label={`Role for ${u.username}`} value={u.role} onChange={e => run(() => editUser(u.id, { role: e.target.value }))} className="rounded-lg border border-white/10 bg-[#0b0e15] px-2 py-1.5 text-xs text-slate-200">
+          <option value="admin">Admin</option><option value="viewer">View only</option>
+        </select>
+        {!me && <button onClick={() => setMode(mode === "password" ? null : "password")} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/5">Set password</button>}
+        {!me && <button onClick={() => setMode("remove")} className="rounded-lg p-1.5 text-slate-500 hover:bg-red-500/6 hover:text-red-300" aria-label={`Remove ${u.username}`}><Trash2 size={15} /></button>}
+      </div>
+      {mode === "password" && (
+        <form onSubmit={e => { e.preventDefault(); run(() => editUser(u.id, { password: pw })); }} className="mt-3 flex gap-2 pl-11">
+          <div className="flex-1"><PasswordInput value={pw} onChange={setPw} autoComplete="new-password" placeholder="New password (8+ characters)" /></div>
+          <button type="submit" disabled={pw.length < 8} className="rounded-lg bg-violet-500 px-3 text-sm text-white hover:bg-violet-400 disabled:opacity-50">Save</button>
+        </form>
+      )}
+      {mode === "remove" && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 pl-11 text-sm text-slate-300">
+          Remove {u.username}? They'll be signed out right away.
+          <button onClick={() => run(() => deleteUser(u.id))} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-500">Remove</button>
+          <button onClick={() => setMode(null)} className="rounded-lg px-2.5 py-1.5 text-xs text-slate-400 hover:bg-white/5">Keep</button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+// Admins: who can sign in, access keys for devices, and guest viewing on the local network
+function AccessSection({ onSaved }) {
+  const [users, setUsers] = useState(null);
+  const [keys, setKeys] = useState(null);
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(null);
+  const [keyName, setKeyName] = useState("");
+  const [newKey, setNewKey] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [guest, setGuest] = useState(!!prefs.guest_view);
+  const load = useCallback(async () => {
+    try { setUsers((await getUsers()).users); setKeys((await getKeys()).keys); } catch (e) { setError(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const toggleGuest = async v => {
+    setGuest(v);
+    try { onSaved(await saveSettings({ guest_view: v })); } catch (e) { setGuest(!v); setError(e.message); }
+  };
+  const submitUser = async e => {
+    e.preventDefault(); setError("");
+    try { await addUser(adding); setAdding(null); load(); } catch (err) { setError(err.message); }
+  };
+  const createKey = async e => {
+    e.preventDefault(); setError("");
+    try { setNewKey(await addKey(keyName.trim())); setKeyName(""); setCopied(false); load(); } catch (err) { setError(err.message); }
+  };
+  const copy = async () => { try { await navigator.clipboard.writeText(newKey.key); setCopied(true); } catch { /* select it by hand */ } };
+  return (
+    <Section title={<span className="flex items-center gap-2"><ShieldCheck size={16} className="text-violet-400" /> Login & users</span>} sub="Who can see and change this dashboard.">
+      <Toggle checked={guest} onChange={toggleGuest} label="Let anyone on my network view without signing in"
+        hint="Handy for a shop wall screen. Viewing only: changes still need an admin. Devices outside your local network always need to sign in." />
+
+      <div className="mt-5 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-slate-300"><Users size={15} /> Accounts</h3>
+        {!adding && <button onClick={() => setAdding({ username: "", password: "", role: "viewer" })} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5"><Plus size={14} /> Add account</button>}
+      </div>
+      {adding && (
+        <form onSubmit={submitUser} className="mt-3 grid gap-3 rounded-xl border border-white/8 bg-white/[.02] p-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
+          <Field label="Username"><input className={inputClass} maxLength={40} value={adding.username} onChange={e => setAdding(x => ({ ...x, username: e.target.value }))} autoComplete="off" autoFocus /></Field>
+          <Field label="Password"><PasswordInput value={adding.password} onChange={v => setAdding(x => ({ ...x, password: v }))} autoComplete="new-password" placeholder="8+ characters" /></Field>
+          <Field label="Access"><select value={adding.role} onChange={e => setAdding(x => ({ ...x, role: e.target.value }))} className={inputClass}><option value="viewer">View only</option><option value="admin">Admin</option></select></Field>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setAdding(null)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
+            <button type="submit" disabled={!adding.username || adding.password.length < 8} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">Add</button>
+          </div>
+        </form>
+      )}
+      <ul className="mt-1 divide-y divide-white/6">
+        {users?.map(u => <UserRow key={u.id} u={u} onChanged={load} onError={setError} />)}
+      </ul>
+
+      <div className="mt-5 border-t border-white/6 pt-5">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-slate-300"><KeyRound size={15} /> Access keys</h3>
+        <p className="mt-1 text-xs text-slate-600">For devices that read LayerHound without signing in, like an LED status bar. Keys can only view, never change anything.</p>
+        <form onSubmit={createKey} className="mt-3 flex gap-2">
+          <input className={inputClass} maxLength={60} placeholder="Device name, e.g. LED bar" value={keyName} onChange={e => setKeyName(e.target.value)} />
+          <button type="submit" disabled={!keyName.trim()} className="shrink-0 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">Create key</button>
+        </form>
+        {newKey && (
+          <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/6 p-3 text-sm">
+            <div className="text-emerald-200">Key for {newKey.name}. Copy it now: it won't be shown again.</div>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 select-all break-all rounded-lg bg-black/30 px-2 py-1.5 text-xs text-white">{newKey.key}</code>
+              <button onClick={copy} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5"><Copy size={13} /> {copied ? "Copied" : "Copy"}</button>
+              <button onClick={() => setNewKey(null)} className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:text-white" aria-label="Done"><X size={15} /></button>
+            </div>
+          </div>
+        )}
+        {keys?.length > 0 && (
+          <ul className="mt-3 divide-y divide-white/6">
+            {keys.map(k => (
+              <li key={k.id} className="flex items-center gap-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm text-white">{k.name} <span className="ml-1 font-mono text-xs text-slate-600">{k.prefix}…</span></div>
+                  <div className="text-xs text-slate-600">{k.last_used ? `Last used ${fmtDate(k.last_used * 1000, { dateStyle: "medium", timeStyle: "short" })}` : "Not used yet"}</div>
+                </div>
+                <button onClick={async () => { try { await deleteKey(k.id); load(); } catch (e) { setError(e.message); } }} className="rounded-lg px-2.5 py-1.5 text-xs text-slate-400 hover:bg-red-500/6 hover:text-red-300">Revoke</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+    </Section>
+  );
+}
+
 function SettingsPage({ onSaved, onRestored }) {
   return (
     <>
       <div className="mb-7">
         <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
-        <p className="mt-2 text-sm text-slate-500">Branding, alerts, data and maintenance.</p>
+        <p className="mt-2 text-sm text-slate-500">{isAdmin() ? "Branding, alerts, accounts, data and maintenance." : "Your account. Other settings can be changed by an admin."}</p>
       </div>
       <div className="space-y-4">
-        <BrandingSection onSaved={onSaved} />
-        <AlertsSection onSaved={onSaved} />
-        <DataSection onSaved={onSaved} onRestored={onRestored} />
+        {isAdmin() && <>
+          <BrandingSection onSaved={onSaved} />
+          <AlertsSection onSaved={onSaved} />
+          <AccessSection onSaved={onSaved} />
+          <DataSection onSaved={onSaved} onRestored={onRestored} />
+        </>}
+        {session.user?.kind === "user" && <AccountSection />}
         <AboutSection />
-        <section className="rounded-2xl border border-dashed border-white/10 p-5">
-          <h2 className="flex items-center gap-2 font-semibold text-slate-400"><ShieldCheck size={16} /> Login & users</h2>
-          <p className="mt-1 text-xs text-slate-600">Coming in a future version: an admin account, viewer accounts and access keys for devices like the LED status bar.</p>
-        </section>
       </div>
     </>
   );
@@ -2273,7 +2584,7 @@ function HistoryPage({ printers }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Segmented label="Time range" value={days} onChange={setDays} options={ranges} />
-          <button onClick={sync} disabled={syncing} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
+          <button data-admin onClick={sync} disabled={syncing} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
             {syncing ? <Loader2 size={15} className="animate-spin" /> : <RotateCw size={15} />} Sync from printers
           </button>
         </div>
@@ -2368,7 +2679,7 @@ function HistoryPage({ printers }) {
                       <button onClick={() => setConfirm(null)} className="rounded-lg px-1.5 py-1 text-xs text-slate-400 hover:bg-white/5">Keep</button>
                     </span>
                   ) : (
-                    <button onClick={() => setConfirm(j.id)} className="rounded-lg p-1.5 text-slate-600 opacity-100 hover:bg-white/6 hover:text-red-300 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Delete ${j.file} from history`}><Trash2 size={15} /></button>
+                    <button data-admin onClick={() => setConfirm(j.id)} className="rounded-lg p-1.5 text-slate-600 opacity-100 hover:bg-white/6 hover:text-red-300 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Delete ${j.file} from history`}><Trash2 size={15} /></button>
                   )}
                 </div>
               </div>
@@ -2383,7 +2694,7 @@ function HistoryPage({ printers }) {
   );
 }
 
-function Dashboard() {
+function Dashboard({ onSignOut, onSignIn }) {
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState("dashboard");
   const [menu, setMenu] = useState(false);
@@ -2474,7 +2785,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-[#090b12] text-slate-200">
       <div className="flex min-h-screen">
-        <Sidebar page={page} setPage={setPage} open={menu} setOpen={setMenu} usingDemo={usingDemo} summary={summary} />
+        <Sidebar page={page} setPage={setPage} open={menu} setOpen={setMenu} usingDemo={usingDemo} summary={summary} onSignOut={onSignOut} onSignIn={onSignIn} />
         <main className="min-w-0 flex-1">
           <header className="flex h-20 items-center justify-between border-b border-white/7 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
@@ -2541,7 +2852,7 @@ function Dashboard() {
                     <button onClick={() => setPage("printers")} className="flex items-center gap-1 text-xs font-medium text-violet-400 hover:text-violet-300">View all <ChevronRight size={14} /></button>
                   </div>
                   {printers.length === 0 ? (
-                    <button onClick={() => { setPage("printers"); setAdding(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 py-10 text-sm text-slate-500 hover:border-violet-400/40 hover:text-slate-300">
+                    <button data-admin onClick={() => { setPage("printers"); setAdding(true); }} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 py-10 text-sm text-slate-500 hover:border-violet-400/40 hover:text-slate-300">
                       <Plus size={16} /> Add your first printer
                     </button>
                   ) : (
@@ -2623,4 +2934,4 @@ function Dashboard() {
   );
 }
 
-createRoot(document.getElementById("root")).render(<Dashboard />);
+createRoot(document.getElementById("root")).render(<App />);

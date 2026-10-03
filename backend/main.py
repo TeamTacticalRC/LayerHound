@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import history, media, network, services, settings, storage, wifi
+import auth, history, media, network, services, settings, storage, wifi
 from fastapi.responses import Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
@@ -21,6 +21,8 @@ if not env('DB') and not DB_PATH.exists() and DB_PATH.with_name('ttrc.db').exist
 DIST=Path(__file__).resolve().parent.parent/'dist'
 TYPES=('moonraker','octoprint','bambu'); MODELS={'moonraker':'Klipper / Moonraker','octoprint':'OctoPrint','bambu':'Bambu Lab'}
 app=FastAPI(title='LayerHound API',version=settings.APP_VERSION)
+# Sign-in check on every /api request (see auth.py); CORS is added after so it wraps it
+app.middleware('http')(auth.middleware)
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -202,6 +204,7 @@ def sampler():
    rx0,tx0,t0=rx,tx,t
    HISTORY.append({'t':round(t),'cpu':latest['cpu'],'memory':psutil.virtual_memory().percent,'temp':main_temp(temps),'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps'])})
   except Exception as e: print('sampler error:',e,flush=True)
+auth.configure(db); app.include_router(auth.router)
 settings.configure(db); app.include_router(settings.router); settings.after_restore.append(bambu_stop_all); settings.set_paths(DB_PATH,storage.FILES_ROOT)
 storage.configure(db,disks); app.include_router(storage.router)
 app.include_router(wifi.router)

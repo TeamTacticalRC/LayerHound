@@ -1,4 +1,8 @@
-async function req(path,options={}){const r=await fetch(path,{headers:{'Content-Type':'application/json'},...options});if(!r.ok){let m=`API error ${r.status}`;try{m=(await r.json()).detail||m}catch{}throw Error(m)}return r.json()}
+// Every change carries this header; the server refuses changes without it (a form on another site can't add it)
+const HEADERS={'Content-Type':'application/json','X-Requested-With':'LayerHound'};
+// When the session ends (signed out elsewhere, expired), tell the app so it can show the sign-in screen
+const signedOut=()=>window.dispatchEvent(new Event('layerhound:signed-out'));
+async function req(path,options={}){const r=await fetch(path,{headers:HEADERS,...options});if(!r.ok){let m=`API error ${r.status}`;try{m=(await r.json()).detail||m}catch{}if(r.status===401&&(m==='login_required'||m==='setup_required')){signedOut();m='Please sign in'}throw Error(m)}return r.json()}
 export const getSystem=()=>req('/api/system');
 export const getPrinters=()=>req('/api/printers');
 export const createPrinter=p=>req('/api/printers',{method:'POST',body:JSON.stringify(p)});
@@ -16,7 +20,7 @@ export const deleteFile=path=>req('/api/files/delete',{method:'POST',body:JSON.s
 export const emptyTrash=()=>req('/api/files/trash/empty',{method:'POST'});
 export const downloadUrl=path=>`/api/files/download?path=${encodeURIComponent(path)}`;
 // XHR instead of fetch: fetch can't report upload progress
-export function uploadFile(path,file,onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('PUT',`/api/files/upload?path=${encodeURIComponent(path)}&name=${encodeURIComponent(file.name)}`);x.upload.onprogress=e=>e.lengthComputable&&onProgress(e.loaded/e.total);x.onload=()=>{if(x.status<300)resolve(JSON.parse(x.responseText));else{let m=`Upload failed (${x.status})`;try{m=JSON.parse(x.responseText).detail||m}catch{}reject(Error(m))}};x.onerror=()=>reject(Error('Network error during upload'));x.send(file)})}
+export function uploadFile(path,file,onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('PUT',`/api/files/upload?path=${encodeURIComponent(path)}&name=${encodeURIComponent(file.name)}`);x.setRequestHeader('X-Requested-With','LayerHound');x.upload.onprogress=e=>e.lengthComputable&&onProgress(e.loaded/e.total);x.onload=()=>{if(x.status<300)resolve(JSON.parse(x.responseText));else{let m=`Upload failed (${x.status})`;try{m=JSON.parse(x.responseText).detail||m}catch{}reject(Error(m))}};x.onerror=()=>reject(Error('Network error during upload'));x.send(file)})}
 export const getNetwork=()=>req('/api/network');
 export const addNetDevice=d=>req('/api/network/devices',{method:'POST',body:JSON.stringify(d)});
 export const editNetDevice=(id,d)=>req(`/api/network/devices/${id}`,{method:'PUT',body:JSON.stringify(d)});
@@ -41,3 +45,15 @@ export const importHistory=()=>req('/api/history/import',{method:'POST'});
 export const getWifi=(rescan=false)=>req(`/api/network/wifi${rescan?'?rescan=true':''}`);
 export const connectWifi=(ssid,password)=>req('/api/network/wifi/connect',{method:'POST',body:JSON.stringify({ssid,password:password||null})});
 export const forgetWifi=ssid=>req('/api/network/wifi/forget',{method:'POST',body:JSON.stringify({ssid})});
+export const getAuthStatus=()=>fetch('/api/auth/status').then(r=>{if(!r.ok)throw Error(`API error ${r.status}`);return r.json()});
+export const setupLayerHound=d=>req('/api/auth/setup',{method:'POST',body:JSON.stringify(d)});
+export const login=(username,password,remember)=>req('/api/auth/login',{method:'POST',body:JSON.stringify({username,password,remember})});
+export const logout=()=>req('/api/auth/logout',{method:'POST'});
+export const changePassword=(current,next)=>req('/api/auth/password',{method:'POST',body:JSON.stringify({current,new:next})});
+export const getUsers=()=>req('/api/auth/users');
+export const addUser=u=>req('/api/auth/users',{method:'POST',body:JSON.stringify(u)});
+export const editUser=(id,u)=>req(`/api/auth/users/${id}`,{method:'PUT',body:JSON.stringify(u)});
+export const deleteUser=id=>req(`/api/auth/users/${id}`,{method:'DELETE'});
+export const getKeys=()=>req('/api/auth/keys');
+export const addKey=name=>req('/api/auth/keys',{method:'POST',body:JSON.stringify({name})});
+export const deleteKey=id=>req(`/api/auth/keys/${id}`,{method:'DELETE'});

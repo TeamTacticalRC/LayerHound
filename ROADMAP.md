@@ -57,8 +57,9 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 ### Work needed
 - [ ] **Pre-built releases:** GitHub Actions builds the frontend on each version tag, so buyers don't need Node.js.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
-- [x] **Remove hardcoded personal details:** the LayerHound name and logo are fixed product branding (2026-10-02); each install sets its own **farm name** in Settings, shown under the logo, as the main heading and in the browser tab. A first-run setup screen that asks for the farm name is still to come (see Login plan).
-- [ ] **Security:** add login (see the Login plan below), and encrypt the stored access codes and API keys. Right now anyone on the network can edit or delete printers and upload, rename or delete files in TTRC Files.
+- [x] **Remove hardcoded personal details:** the LayerHound name and logo are fixed product branding (2026-10-02); each install sets its own **farm name** in Settings, shown under the logo, as the main heading and in the browser tab. The first-run welcome screen asks for it (v0.5.0).
+- [x] **Login** (v0.5.0, 2026-10-02): see the Login plan below.
+- [ ] **Encrypt stored secrets:** encrypt the stored printer access codes, API keys and service tokens, so a copied database file doesn't reveal them.
 - [ ] **Updates** (planned 2026-10-02). Today the board only updates when `deploy/deploy.sh` is run from the Mac; it never fetches anything itself. Customers need the board to update on its own, in stages:
   - [ ] **Stage 1: update check (do first, about an hour once Releases exist).** Once a day the board asks GitHub for the latest release, and Settings → About shows "Update available: vX.Y.Z" with the release notes and a link. It only reads public release information. It helps Kyle and early testers know when a deploy is due, before automatic installs exist.
   - [ ] **Stage 2: one-click update.** An **Update now** button in Settings that downloads the release, **verifies its signature** (see Signed updates), backs up the database, installs the new version next to the old one, restarts, and checks the dashboard comes back. If it doesn't, it **rolls back** automatically.
@@ -68,7 +69,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - [ ] **Bambu risk:** Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.
 
 ### Login plan
-About one focused session of work. Do it together with encrypting the stored printer secrets.
+Built in v0.5.0 (2026-10-02), except encrypting the stored printer secrets, which is still to do.
 
 - **First-run setup:** a fresh install opens a "Create your admin account" screen. There are no default passwords.
 - **Passwords:** store only a one-way hash (scrypt, built into Python; no new dependency).
@@ -76,8 +77,9 @@ About one focused session of work. Do it together with encrypting the stored pri
 - **Roles:** Admin (everything, including restarting Docker containers and managing files) and Viewer (read-only, for employees or a shop display).
 - **Access keys:** read-only keys for devices that can't type a password (the LED status bar, a wall display). Admins create and revoke them in Settings.
 - **Brute-force protection:** after 5 wrong passwords, pause logins from that device for a few minutes.
-- **Password reset:** a command on the board, e.g. `ttrc reset-password`. Being able to log into the board proves ownership.
-- **Undecided:** should viewing require a login? Suggested default: required, with a setting to let anyone on the local network view without logging in. Changing anything always requires an admin login.
+- **Password reset:** `layerhound reset-password` on the board. Being able to log into the board proves ownership.
+- **Viewing:** login required by default. A setting lets anyone on the local network view without logging in (for a shop wall screen). Changing anything always requires an admin login.
+- **Cross-site protection:** every change must carry an `X-Requested-With` header, which a form on another website can't add.
 - **HTTPS:** plain `http://` on the local network is acceptable. Document clearly that the dashboard's port must never be exposed to the internet, and recommend Tailscale for remote access. Optional built-in HTTPS can come later.
 
 ## Release & security process

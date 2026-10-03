@@ -9,12 +9,20 @@ APP_USER="$(id -un)"
 PORT="${LAYERHOUND_PORT:-${TTRC_PORT:-80}}"
 SERVICE=layerhound
 
+# After renaming a board (hostnamectl), /etc/hosts may still list the old name, which makes
+# sudo print "unable to resolve host". Add the current name if it's missing.
+if ! grep -qE "[[:space:]]$(hostname)([[:space:]]|$)" /etc/hosts; then
+  echo "127.0.1.1 $(hostname)" | sudo tee -a /etc/hosts >/dev/null
+fi
+
 echo "==> Installing system packages"
-sudo apt-get update -qq
+# Answer Debian's prompts automatically (e.g. "which services should be restarted?")
+APT="sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get"
+$APT update -qq
 # avahi-daemon lets you reach the board as http://<hostname>.local
 # smartmontools (smartctl) reads drive health for the Storage page
 # iputils-ping and iproute2 are used by the Network page (ping checks, router address, scan)
-sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools iputils-ping iproute2 curl >/dev/null
+$APT install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools iputils-ping iproute2 curl >/dev/null
 
 # Drive health needs root, so allow exactly the read-only health command and nothing else
 SUDOERS=/etc/sudoers.d/layerhound

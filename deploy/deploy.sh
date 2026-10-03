@@ -15,6 +15,12 @@ cd "$(dirname "$0")/.."
 echo "==> Building frontend"
 npm run build --silent
 
+# Fresh board images don't always include rsync; install it first (may ask for the board's password)
+if ! ssh "$TARGET" 'command -v rsync >/dev/null'; then
+  echo "==> Installing rsync on the board"
+  ssh -t "$TARGET" "sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -qq rsync"
+fi
+
 echo "==> Copying files to $TARGET:~/$REMOTE_DIR"
 rsync -az --delete \
   --exclude .git --exclude node_modules --exclude .DS_Store \

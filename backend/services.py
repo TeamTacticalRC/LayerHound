@@ -5,7 +5,7 @@ from pathlib import Path
 import http.client, json, os, re, socket, ssl, threading, time, urllib.error, urllib.parse, urllib.request
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import network
+import network, vault
 
 router=APIRouter(prefix='/api/services')
 CHECK_EVERY=60; STATS_EVERY=300; DOCKER_TTL=15
@@ -92,7 +92,7 @@ def get_json(url,headers=None,data=None,method=None):
 
 def home_assistant(s):
  # Uses a long-lived access token (Home Assistant: Profile -> Security -> Long-lived access tokens)
- base=origin(s['url']); h={'Authorization':f"Bearer {s['token']}"}
+ base=origin(s['url']); h={'Authorization':f"Bearer {vault.decrypt(s['token'])}"}
  cfg=get_json(base+'/api/config',h); ents=get_json(base+'/api/states',h)
  bad=[e for e in ents if e.get('state') in ('unavailable','unknown')]
  return {'version':cfg.get('version'),'location':cfg.get('location_name'),'entities':len(ents),'unavailable':len(bad)}
@@ -107,14 +107,14 @@ def pihole(s):
   try: d=summary(sid)
   except urllib.error.HTTPError as e:
    if e.code!=401: raise
-   auth=get_json(base+'/api/auth',data={'password':s['token'] or ''},method='POST')
+   auth=get_json(base+'/api/auth',data={'password':vault.decrypt(s['token']) or ''},method='POST')
    sid=(auth.get('session') or {}).get('sid'); _pihole_sid[s['id']]=sid; d=summary(sid)
   q=d.get('queries') or {}
   return {'api':'v6','queries_today':q.get('total'),'blocked_today':q.get('blocked'),'percent_blocked':round(q.get('percent_blocked') or 0,1),'blocklist':(d.get('gravity') or {}).get('domains_being_blocked')}
  except urllib.error.HTTPError as e:
   if e.code not in (404,405): raise
  # Pi-hole v5: API token from Settings -> API
- d=get_json(f"{base}/admin/api.php?summaryRaw&auth={urllib.parse.quote(s['token'] or '')}")
+ d=get_json(f"{base}/admin/api.php?summaryRaw&auth={urllib.parse.quote(vault.decrypt(s['token']) or '')}")
  if not isinstance(d,dict) or 'dns_queries_today' not in d: raise ValueError('Pi-hole did not accept the API token')
  return {'api':'v5','queries_today':d.get('dns_queries_today'),'blocked_today':d.get('ads_blocked_today'),'percent_blocked':round(float(d.get('ads_percentage_today') or 0),1),'blocklist':d.get('domains_being_blocked'),'enabled':d.get('status')=='enabled'}
 
@@ -208,7 +208,7 @@ def add(b:ServiceIn):
  url=validate(b)
  if b.integration=='homeassistant' and not (b.token or '').strip(): raise HTTPException(400,'Home Assistant needs a long-lived access token')
  c=_db(); nxt=c.execute('SELECT COALESCE(MAX(sort_order),0)+1 FROM services').fetchone()[0]
- cur=c.execute('INSERT INTO services(name,url,integration,token,sort_order,created_at) VALUES(?,?,?,?,?,?)',(b.name.strip(),url,b.integration,(b.token or '').strip() or None,nxt,now()))
+ cur=c.execute('INSERT INTO services(name,url,integration,token,sort_order,created_at) VALUES(?,?,?,?,?,?)',(b.name.strip(),url,b.integration,vault.encrypt((b.token or '').strip()),nxt,now()))
  c.commit(); s=dict(c.execute('SELECT * FROM services WHERE id=?',(cur.lastrowid,)).fetchone()); c.close(); check_soon(s); return public(s)
 
 @router.put('/{sid}')
@@ -216,7 +216,7 @@ def edit(sid:int,b:ServiceIn):
  url=validate(b); c=_db(); old=c.execute('SELECT * FROM services WHERE id=?',(sid,)).fetchone()
  if not old: c.close(); raise HTTPException(404,'Service not found')
  # Blank token keeps the saved one; switching to "none" clears it
- token=None if b.integration=='none' else ((b.token or '').strip() or old['token'])
+ token=None if b.integration=='none' else (vault.encrypt((b.token or '').strip()) or old['token'])
  c.execute('UPDATE services SET name=?,url=?,integration=?,token=? WHERE id=?',(b.name.strip(),url,b.integration,token,sid)); c.commit()
  s=dict(c.execute('SELECT * FROM services WHERE id=?',(sid,)).fetchone()); c.close()
  _pihole_sid.pop(sid,None); stats.pop(sid,None); check_soon(s); return public(s)

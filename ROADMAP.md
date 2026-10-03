@@ -59,7 +59,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
 - [x] **Remove hardcoded personal details:** the LayerHound name and logo are fixed product branding (2026-10-02); each install sets its own **farm name** in Settings, shown under the logo, as the main heading and in the browser tab. The first-run welcome screen asks for it (v0.5.0).
 - [x] **Login** (v0.5.0, 2026-10-02): see the Login plan below.
-- [ ] **Encrypt stored secrets:** encrypt the stored printer access codes, API keys and service tokens, so a copied database file doesn't reveal them.
+- [x] **Encrypt stored secrets** (2026-10-02): printer access codes, API keys and service tokens are encrypted in the database (`backend/vault.py`, using the `cryptography` package). The key is in `backend/data/secret.key` (owner-only), never in the database, so a copied database file doesn't reveal them. Backups with secrets hold them in plain text so they can be restored onto another board.
 - [ ] **Updates** (planned 2026-10-02). Today the board only updates when `deploy/deploy.sh` is run from the Mac; it never fetches anything itself. Customers need the board to update on its own, in stages:
   - [ ] **Stage 1: update check (do first, about an hour once Releases exist).** Once a day the board asks GitHub for the latest release, and Settings → About shows "Update available: vX.Y.Z" with the release notes and a link. It only reads public release information. It helps Kyle and early testers know when a deploy is due, before automatic installs exist.
   - [ ] **Stage 2: one-click update.** An **Update now** button in Settings that downloads the release, **verifies its signature** (see Signed updates), backs up the database, installs the new version next to the old one, restarts, and checks the dashboard comes back. If it doesn't, it **rolls back** automatically.
@@ -69,7 +69,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - [ ] **Bambu risk:** Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.
 
 ### Login plan
-Built in v0.5.0 (2026-10-02), except encrypting the stored printer secrets, which is still to do.
+Built in v0.5.0 (2026-10-02), including encrypting the stored printer secrets.
 
 - **First-run setup:** a fresh install opens a "Create your admin account" screen. There are no default passwords.
 - **Passwords:** store only a one-way hash (scrypt, built into Python; no new dependency).

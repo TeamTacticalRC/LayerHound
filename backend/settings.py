@@ -5,6 +5,7 @@ import json, os, platform, sqlite3, sys, threading, time
 import psutil
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
+import vault
 
 router=APIRouter(prefix='/api/settings')
 APP_VERSION='0.5.0'
@@ -127,9 +128,10 @@ def backup(secrets:bool=True):
  c=_db(); data={'app':'layerhound','version':APP_VERSION,'created':datetime.now(timezone.utc).isoformat(),'includes_secrets':secrets,'settings':all_settings()}
  for t,cols in BACKUP_TABLES.items():
   rows=[dict(zip(cols,r)) for r in c.execute(f'SELECT {",".join(cols)} FROM {t} ORDER BY sort_order,id')]
-  if not secrets:
-   for r in rows:
-    for col in SECRET_COLUMNS.get(t,()): r[col]=None
+  # Secrets are encrypted with this board's own key, so a backup holds them in plain text
+  # (to restore onto another board) or not at all
+  for r in rows:
+   for col in SECRET_COLUMNS.get(t,()): r[col]=vault.decrypt(r[col]) if secrets else None
   data[t]=rows
  c.close()
  name=f"layerhound-backup-{datetime.now().strftime('%Y-%m-%d')}.json"
@@ -162,7 +164,7 @@ def restore(data:dict):
    c.execute(f'DELETE FROM {t}')
    for i,r in enumerate(data[t]):
     if not isinstance(r,dict): raise HTTPException(400,f'Bad entry in {t}')
-    vals=[r.get(col) for col in cols]
+    vals=[vault.encrypt(r.get(col)) if col in SECRET_COLUMNS.get(t,()) else r.get(col) for col in cols]
     if t=='printers' and not (r.get('name') and r.get('printer_type') and r.get('base_url')): raise HTTPException(400,'A printer in the backup is missing its name, type or address')
     c.execute(f'INSERT INTO {t}({",".join(cols)}) VALUES({",".join("?"*len(cols))})',[fill(col,v,i) for col,v in zip(cols,vals)])
   c.execute('DELETE FROM settings')

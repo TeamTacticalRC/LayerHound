@@ -1,5 +1,6 @@
 # Part thumbnails, layer metadata and camera snapshots for printers.
 import json, socket, ssl, struct, threading, time, urllib.parse, urllib.request
+import vault
 
 TIMEOUT=6; META_TTL=3600; FAIL_TTL=300; WEBCAM_TTL=600; CAMERA_TTL=1.5
 _meta={}; _thumbs={}; _webcams={}; _frames={}; lock=threading.Lock()
@@ -93,7 +94,7 @@ def camera_source(row):
  # Where this printer's camera image comes from, or None. A camera URL set on the printer wins.
  if row['camera_url']: return ('url',row['camera_url'])
  host=urllib.parse.urlparse(row['base_url'] if '://' in row['base_url'] else 'http://'+row['base_url']).hostname
- if row['printer_type']=='bambu' and row['api_key']: return ('bambu',(host,row['api_key']))
+ if row['printer_type']=='bambu' and row['api_key']: return ('bambu',(host,vault.decrypt(row['api_key'])))
  if row['printer_type']=='moonraker':
   base=row['base_url'] if '://' in row['base_url'] else 'http://'+row['base_url']
   cams=moonraker_webcams(base.rstrip('/'))

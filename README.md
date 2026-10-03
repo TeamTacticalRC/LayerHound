@@ -133,7 +133,7 @@ Most settings live on the **Settings** page. A few can also be set with environm
 
 ## Privacy and security
 
-- **Your data stays on your network.** Printer access codes, API keys and service tokens are stored in the local database and are never sent to the browser.
+- **Your data stays on your network.** Printer access codes, API keys and service tokens are stored **encrypted** in the local database and are never sent to the browser. The encryption key is a separate file (`backend/data/secret.key`), so a copy of the database alone doesn't reveal them. If you move the database to another computer by hand, copy that key file with it (`deploy.sh --with-db` does this for you).
 - **What LayerHound contacts outside your network:**
   - `1.1.1.1` and `8.8.8.8` (pings for internet health)
   - Cloudflare's `1.1.1.1/cdn-cgi/trace` (your public IP, every 15 minutes)
@@ -156,6 +156,7 @@ backend/            Python API (FastAPI)
   services.py       service checks, Home Assistant / Pi-hole, Docker
   settings.py       settings, backups, about/restart
   auth.py           login, accounts, sessions, access keys
+  vault.py          encryption for stored access codes and tokens
   hotspot.py        LayerHound-Setup hotspot for Wi-Fi setup without a cable
   manage.py         owner tools on the board (reset-password, hotspot)
 src/                Dashboard (React + Tailwind)

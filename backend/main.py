@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import auth, history, hotspot, media, network, services, settings, storage, wifi
+import auth, history, hotspot, vault, media, network, services, settings, storage, wifi
 from fastapi.responses import Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
@@ -41,6 +41,9 @@ def init():
  if 'camera_url' not in [r['name'] for r in c.execute('PRAGMA table_info(printers)')]: c.execute('ALTER TABLE printers ADD COLUMN camera_url TEXT')
  c.commit(); c.close()
 init()
+# Printer access codes, API keys and service tokens are stored encrypted (see vault.py)
+KEY_PATH=Path(env('KEY') or DB_PATH.parent/'data'/'secret.key')
+vault.configure(KEY_PATH)
 class PrinterIn(BaseModel):
  name:str=Field(min_length=1,max_length=80); printer_type:str; base_url:str; api_key:str|None=None; serial:str|None=None; camera_url:str|None=None; enabled:bool=True
 class PrinterUpdate(BaseModel):
@@ -135,7 +138,7 @@ OFFLINE_GRACE=45; last_good={}
 def snapshot(r,grace=True):
  t=r['printer_type']; base=clean_url(r['base_url']); key=(r['id'],base)
  try:
-  x=moonraker(base) if t=='moonraker' else bambu(r['id'],base,r['serial'],r['api_key']) if t=='bambu' else octoprint(base,r['api_key'])
+  x=moonraker(base) if t=='moonraker' else bambu(r['id'],base,r['serial'],vault.decrypt(r['api_key'])) if t=='bambu' else octoprint(base,vault.decrypt(r['api_key']))
   last_good[key]=(time.time(),x)
  except Exception as e:
   prev=last_good.get(key)
@@ -212,6 +215,7 @@ storage.configure(db,disks); app.include_router(storage.router)
 app.include_router(wifi.router); app.include_router(hotspot.router); hotspot.configure()
 network.configure(db); app.include_router(network.router)
 services.configure(db); app.include_router(services.router)
+vault.migrate(db)
 threading.Thread(target=sampler,daemon=True,name='layerhound-sampler').start()
 
 def primary_ip():
@@ -301,7 +305,7 @@ def add(p:PrinterIn):
  if p.printer_type not in TYPES: raise HTTPException(400,'Invalid printer type')
  serial=(p.serial or '').strip().upper() or None
  if p.printer_type=='bambu' and not (serial and p.api_key): raise HTTPException(400,'Bambu printers need a serial number and access code')
- c=db(); t=now(); nxt=c.execute('SELECT COALESCE(MAX(sort_order),0)+1 FROM printers').fetchone()[0]; cur=c.execute('INSERT INTO printers(name,printer_type,base_url,api_key,serial,camera_url,enabled,created_at,updated_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)',(p.name.strip(),p.printer_type,clean_url(p.base_url).rstrip('/'),p.api_key or None,serial if p.printer_type=='bambu' else None,camera_url(p.camera_url),int(p.enabled),t,t,nxt)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(cur.lastrowid,)).fetchone(); c.close(); return snapshot(r)
+ c=db(); t=now(); nxt=c.execute('SELECT COALESCE(MAX(sort_order),0)+1 FROM printers').fetchone()[0]; cur=c.execute('INSERT INTO printers(name,printer_type,base_url,api_key,serial,camera_url,enabled,created_at,updated_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)',(p.name.strip(),p.printer_type,clean_url(p.base_url).rstrip('/'),vault.encrypt(p.api_key),serial if p.printer_type=='bambu' else None,camera_url(p.camera_url),int(p.enabled),t,t,nxt)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(cur.lastrowid,)).fetchone(); c.close(); return snapshot(r)
 # Declared before the /{pid} routes so "order" isn't parsed as a printer id
 @app.put('/api/printers/order')
 def reorder(o:PrinterOrder):
@@ -313,7 +317,7 @@ def edit(pid:int,p:PrinterUpdate):
  if p.printer_type is not None and p.printer_type not in TYPES: c.close(); raise HTTPException(400,'Invalid printer type')
  name=p.name.strip() if p.name else r['name']; ptype=p.printer_type or r['printer_type']; url=clean_url(p.base_url).rstrip('/') if p.base_url else r['base_url']
  # A blank API key means "keep the saved one" so the key never has to be sent back to the browser
- key=None if ptype=='moonraker' else (p.api_key.strip() if p.api_key and p.api_key.strip() else r['api_key'])
+ key=None if ptype=='moonraker' else (vault.encrypt(p.api_key.strip()) if p.api_key and p.api_key.strip() else r['api_key'])
  serial=None if ptype!='bambu' else ((p.serial or '').strip().upper() or r['serial'])
  if ptype=='bambu' and not (serial and key): c.close(); raise HTTPException(400,'Bambu printers need a serial number and access code')
  cam=r['camera_url'] if p.camera_url is None else camera_url(p.camera_url)

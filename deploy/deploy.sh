@@ -31,6 +31,11 @@ if [ "$WITH_DB" = "--with-db" ]; then
   echo "==> Copying printer database"
   DB=backend/layerhound.db; [ -f "$DB" ] || DB=backend/ttrc.db   # installs from before the rename
   rsync -az "$DB" "$TARGET:$REMOTE_DIR/backend/layerhound.db"
+  # Stored access codes are encrypted with this computer's key; the board needs the same key to read them
+  if [ -f backend/data/secret.key ]; then
+    ssh "$TARGET" "mkdir -p $REMOTE_DIR/backend/data"
+    rsync -az --chmod=F600 backend/data/secret.key "$TARGET:$REMOTE_DIR/backend/data/secret.key"
+  fi
 fi
 
 echo "==> Running setup on the board (it may ask for the board's password for sudo)"

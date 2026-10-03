@@ -93,11 +93,14 @@ sudo systemctl daemon-reload
 sudo systemctl enable --quiet $SERVICE
 sudo systemctl restart $SERVICE
 
-sleep 2
-if curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null; then
-  URL="http://$(hostname).local"; [ "$PORT" = 80 ] || URL="$URL:$PORT"
-  echo "==> Dashboard is running: $URL"
-else
-  echo "!! Service did not answer yet. Check the logs with: journalctl -u $SERVICE -n 50" >&2
-  exit 1
-fi
+# Startup takes a few seconds on the board (database upgrades, loading Python), so keep checking for up to 20 seconds
+for _ in $(seq 20); do
+  if curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null; then
+    URL="http://$(hostname).local"; [ "$PORT" = 80 ] || URL="$URL:$PORT"
+    echo "==> Dashboard is running: $URL"
+    exit 0
+  fi
+  sleep 1
+done
+echo "!! Service did not answer within 20 seconds. Check the logs with: journalctl -u $SERVICE -n 50" >&2
+exit 1

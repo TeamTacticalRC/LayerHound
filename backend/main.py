@@ -249,7 +249,7 @@ def server():
 def server_history(): return {'sample_seconds':SAMPLE_EVERY,'points':list(HISTORY)}
 # ---- Background printer checks ------------------------------------------------------------
 # Every printer is checked every few seconds whether or not anyone has the dashboard open.
-# This feeds print history (and later notifications); the dashboard reads the latest results.
+# This feeds print history; the dashboard reads the latest results.
 POLL_EVERY=10; CACHE_MAX_AGE=30; printer_cache={}
 def printer_rows():
  c=db(); rows=c.execute('SELECT * FROM printers ORDER BY sort_order,id').fetchall(); c.close(); return rows

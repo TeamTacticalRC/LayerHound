@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import auth, fan, history, hotspot, vault, media, network, services, settings, storage, wifi
+import auth, fan, history, hotspot, updates, vault, media, network, services, settings, storage, wifi
 from fastapi.responses import Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
@@ -222,6 +222,7 @@ def sampler():
    HISTORY.append({'t':round(t),'cpu':latest['cpu'],'memory':psutil.virtual_memory().percent,'temp':main_temp(temps),'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps'])})
   except Exception as e: print('sampler error:',e,flush=True)
 auth.configure(db); app.include_router(auth.router)
+updates.configure(DB_PATH.parent/'data'); app.include_router(updates.router)
 settings.configure(db); fan.configure(); app.include_router(settings.router); settings.after_restore.append(bambu_stop_all); settings.set_paths(DB_PATH,storage.FILES_ROOT)
 storage.configure(db,disks); app.include_router(storage.router)
 app.include_router(wifi.router); app.include_router(hotspot.router); hotspot.configure()

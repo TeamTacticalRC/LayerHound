@@ -169,7 +169,9 @@ def docker_info():
    'cpu_percent':(st.get(c['Id']) or (None,None))[0],'memory_bytes':(st.get(c['Id']) or (None,None))[1],
    'ports':sorted({p['PublicPort'] for p in c.get('Ports') or [] if p.get('PublicPort')})} for c in cs]
   data={'available':True,'containers':sorted(out,key=lambda x:(x['state']!='running',x['name']))}
- except Exception as e: data={'available':False,'reason':str(e) if not isinstance(e,FileNotFoundError) else 'Docker is not installed on this server'}
+ # installed=False hides the Docker section; Docker that's there but unreachable still shows, with the reason
+ except FileNotFoundError: data={'available':False,'installed':False,'reason':'Docker is not installed on this server'}
+ except Exception as e: data={'available':False,'installed':True,'reason':str(e)}
  _docker_cache.update(at=time.time(),data=data); return data
 
 # ---- API --------------------------------------------------------------------------------

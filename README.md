@@ -20,7 +20,7 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
 | **Server** | CPU, memory, temperature, storage and network for the machine running LayerHound, with an hour of history. On the LayerHound board, the case fan's speed follows the chip temperature. |
 | **Storage** | Drive usage and health (NVMe wear, temperature, hours), a 90-day usage trend, and a shared files folder with uploads, downloads and a trash. |
 | **Network** | Internet uptime and outages, monitored devices with uptime bars, per-connection traffic, and a network scan that finds printers and pre-fills the Add printer form. |
-| **Services** | Health checks and quick-launch tiles for your web apps, Home Assistant and Pi-hole stats, and Docker containers with restart buttons. |
+| **Services** | Health checks and quick-launch tiles for your web apps, Home Assistant and Pi-hole stats, and Docker containers with restart buttons (shown when Docker is installed). |
 | **Settings** | Your farm's name, accent color, °C/°F, 12/24-hour time, alert thresholds, accounts and access keys, history retention, backup and restore. |
 
 ### Supported printers
@@ -139,6 +139,7 @@ Most settings live on the **Settings** page. A few can also be set with environm
   - Cloudflare's `1.1.1.1/cdn-cgi/trace` (your public IP, every 15 minutes)
   - A DNS lookup once a minute
   - `standards-oui.ieee.org`, during board setup, to download the manufacturer list
+  - `api.github.com` once a day, to check for a newer LayerHound (turn off in **Settings → Updates**), and GitHub's download servers when an admin installs an update
 - **Network scans** only run when you press **Scan network**, and only cover your local network (at most 254 addresses).
 - **Login:** the first visit creates the admin account (there are no default passwords). Admins can add **view-only** accounts and read-only **access keys** for devices in **Settings → Login & users**, and can let anyone on the local network view without signing in. Passwords are stored only as one-way hashes, and 5 wrong passwords pause sign-ins from that device for 5 minutes.
 - **Forgot your password?** On the board, run `layerhound reset-password`.
@@ -158,6 +159,7 @@ backend/            Python API (FastAPI)
   auth.py           login, accounts, sessions, access keys
   vault.py          encryption for stored access codes and tokens
   fan.py            case fan speed from the chip temperature
+  updates.py        update check and one-click install (with updater.py)
   hotspot.py        LayerHound-Setup hotspot for Wi-Fi setup without a cable
   manage.py         owner tools on the board (reset-password, hotspot)
 src/                Dashboard (React + Tailwind)
@@ -184,4 +186,8 @@ See [ROADMAP.md](ROADMAP.md). Highlights:
 
 ## License
 
-A license hasn't been chosen yet. Until one is added, all rights are reserved by Team Tactical RC.
+Copyright © 2026 Team Tactical RC.
+
+LayerHound is free software under the **[GNU Affero General Public License v3.0](LICENSE)**. You may use, study, change and share it. If you distribute a modified version, or run one as a service others use over a network, you must share its source code under the same license.
+
+The **LayerHound name, logo and mascot are not covered by the license**. Forks need their own name; see [TRADEMARKS.md](TRADEMARKS.md).

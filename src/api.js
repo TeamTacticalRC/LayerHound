@@ -60,3 +60,6 @@ export const deleteKey=id=>req(`/api/auth/keys/${id}`,{method:'DELETE'});
 export const getHotspot=()=>req('/api/hotspot');
 export const joinWifi=(ssid,password)=>req('/api/hotspot/connect',{method:'POST',body:JSON.stringify({ssid,password:password||null})});
 export const getHealth=()=>fetch('/api/health',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error(`API error ${r.status}`);return r.json()});
+export const getUpdates=()=>req('/api/updates');
+export const checkUpdates=()=>req('/api/updates/check',{method:'POST'});
+export const installUpdate=()=>req('/api/updates/install',{method:'POST'});

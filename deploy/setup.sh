@@ -84,6 +84,32 @@ exit 0
 SCRIPT
 sudo chmod 755 /usr/local/sbin/layerhound-fan-full
 
+# One-click updates (backend/updates.py, updater.py): a helper service that installs an update
+# and restarts LayerHound, which LayerHound can't do to itself. It runs as the LayerHound user,
+# not root. The rule lets that user start only this helper and restart only LayerHound.
+sudo tee /etc/systemd/system/layerhound-updater.service >/dev/null <<EOF
+[Unit]
+Description=LayerHound updater (installs an update, rolls back if it fails)
+
+[Service]
+Type=oneshot
+User=$APP_USER
+WorkingDirectory=$APP_DIR/backend
+Environment=LAYERHOUND_PORT=$PORT
+ExecStart=$APP_DIR/backend/.venv/bin/python $APP_DIR/backend/updater.py
+TimeoutStartSec=45min
+EOF
+sudo tee /etc/polkit-1/rules.d/50-layerhound-updates.rules >/dev/null <<POLKIT_RULE
+// Installed by LayerHound's setup.sh: one-click updates
+polkit.addRule(function(action, subject) {
+  if (action.id != "org.freedesktop.systemd1.manage-units" || subject.user != "$APP_USER") return;
+  var unit = action.lookup("unit"), verb = action.lookup("verb");
+  if (unit == "layerhound-updater.service" && verb == "start") return polkit.Result.YES;
+  if (unit == "$SERVICE.service" && verb == "restart") return polkit.Result.YES;
+});
+POLKIT_RULE
+sudo chmod 644 /etc/polkit-1/rules.d/50-layerhound-updates.rules
+
 # Owner tools on the board, e.g. "layerhound reset-password" for a forgotten password,
 # or "layerhound hotspot start" to turn on the setup hotspot
 sudo tee /usr/local/bin/layerhound >/dev/null <<CMD

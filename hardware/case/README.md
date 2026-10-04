@@ -78,3 +78,7 @@ python3 -m http.server 8770 --directory hardware/case
 ```
 
 The emblem is traced from `public/brand/layerhound-mascot.png`, so updated art changes the case logo too. The wordmark uses Arial Black, slanted; swap in the final brand font when there is one.
+
+## License
+
+The case design is covered by LayerHound's [AGPL-3.0 license](../../LICENSE), except the LayerHound emblem and wordmark (`emblem.py`, `case-logo-*.stl`), which are trademarks; see [TRADEMARKS.md](../../TRADEMARKS.md).

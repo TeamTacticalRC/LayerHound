@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -16,7 +16,7 @@ const prefs = {
   farm_name: "My Print Farm", farm_description: "One place to see what's happening across your print farm.", accent: "electric",
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
-  network_history_days: 7, storage_history_days: 90, data_usage_days: 90, guest_view: false,
+  network_history_days: 7, storage_history_days: 90, data_usage_days: 90, guest_view: false, update_check: true,
   fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30,
 };
 
@@ -2207,7 +2207,8 @@ function ServicesPage({ printers }) {
         </div>
       </section>
 
-      <section className="mt-4"><DockerCard docker={info.docker} onRestarted={load} /></section>
+      {/* Hidden unless Docker is on this machine (most LayerHound boards don't have it) */}
+      {(info.docker.available || info.docker.installed) && <section className="mt-4"><DockerCard docker={info.docker} onRestarted={load} /></section>}
     </>
   );
 }
@@ -2436,6 +2437,70 @@ function DataSection({ onSaved, onRestored }) {
   );
 }
 
+const UPDATE_PHASES = { downloading: "Downloading", verifying: "Checking the signature", installing: "Installing", restarting: "Restarting LayerHound" };
+
+// Settings: is there a newer LayerHound, and one-click install (backend/updates.py, updater.py)
+function UpdatesSection({ onSaved }) {
+  const [u, setU] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const load = useCallback(async () => {
+    try { setU(await getUpdates()); setOffline(false); } catch { setOffline(true); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const job = u?.job;
+  const working = job && UPDATE_PHASES[job.phase];
+  // While an update runs, keep checking; LayerHound restarts partway through
+  useEffect(() => { if (!working) return; const t = setInterval(load, 3000); return () => clearInterval(t); }, [working, load]);
+  const run = async (what, fn) => { setBusy(what); setError(""); try { await fn(); await load(); } catch (e) { setError(e.message); } setBusy(""); };
+  const toggle = async v => { try { onSaved(await saveSettings({ update_check: v })); load(); } catch (e) { setError(e.message); } };
+  if (!u) return null;
+  const latest = u.latest;
+  return (
+    <Section title={<span className="flex items-center gap-2"><Download size={16} className="text-violet-400" /> Updates</span>}
+      sub={`You're on LayerHound v${u.current}.${u.checked_at ? ` Last checked ${fmtDate(u.checked_at * 1000, { dateStyle: "medium", timeStyle: "short" })}.` : ""}`}>
+      {working ? (
+        <div className="flex items-center gap-3 rounded-xl border border-violet-400/25 bg-violet-500/8 px-4 py-3 text-sm text-slate-200">
+          <Loader2 size={16} className="shrink-0 animate-spin text-violet-400" />
+          <span>{offline ? "LayerHound is restarting…" : `${UPDATE_PHASES[job.phase]} v${job.version}…`} This takes a minute or two. The database was backed up, and if the new version doesn't start, the previous one comes back by itself.</span>
+        </div>
+      ) : u.available ? (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/6 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-medium text-white">LayerHound v{latest.version} is available</div>
+              {latest.published && <div className="text-xs text-slate-500">Released {fmtDate(latest.published, { dateStyle: "medium" })}</div>}
+            </div>
+            {u.can_install && !confirm && <button onClick={() => setConfirm(true)} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400">Update now</button>}
+          </div>
+          {latest.notes && <div className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/10 p-3 text-sm text-slate-300">{latest.notes}</div>}
+          {u.reason && <p className="mt-3 text-xs text-amber-200">{u.reason}</p>}
+          {confirm && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-300">
+              LayerHound will restart, so the dashboard is unavailable for a minute or two. Printers keep printing.
+              <button onClick={() => { setConfirm(false); run("install", installUpdate); }} disabled={!!busy} className="rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">Update to v{latest.version}</button>
+              <button onClick={() => setConfirm(false)} className="rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-white/5">Not now</button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-sm text-slate-300">{u.error ? <><AlertTriangle size={15} className="text-amber-300" /> {u.error}</> : <><CircleCheck size={15} className="text-emerald-300" /> {u.checked_at ? "LayerHound is up to date." : "Not checked yet."}</>}</div>
+      )}
+      {job?.phase === "done" && !working && <p className="mt-3 text-xs text-emerald-300">Updated from v{job.from_version} to v{job.version} {job.finished ? fmtDate(job.finished * 1000, { dateStyle: "medium", timeStyle: "short" }) : ""}.</p>}
+      {job?.phase === "failed" && <p className="mt-3 text-xs text-red-300">The update to v{job.version} didn't work: {job.error}{job.rolled_back ? ` LayerHound is back on v${job.from_version}.` : ""}</p>}
+      {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/6 pt-3">
+        <div className="min-w-0 flex-1"><Toggle checked={u.auto_check} onChange={toggle} label="Check for updates once a day" hint="Asks GitHub for the latest LayerHound release. Installing always needs an admin." /></div>
+        <button onClick={() => run("check", checkUpdates)} disabled={!!busy || !!working} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
+          {busy === "check" ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />} Check now
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 function AboutSection() {
   const [about, setAbout] = useState(null);
   const [confirm, setConfirm] = useState(false);
@@ -2656,6 +2721,7 @@ function SettingsPage({ onSaved, onRestored }) {
         {/* Everyone can pick their theme; admins see it right under Farm & display */}
         {!isAdmin() && <AppearanceSection />}
         {session.user?.kind === "user" && <AccountSection />}
+        {isAdmin() && <UpdatesSection onSaved={onSaved} />}
         <AboutSection />
       </div>
     </>

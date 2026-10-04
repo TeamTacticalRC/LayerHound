@@ -13,6 +13,7 @@ When running, interactive API docs are at `http://localhost:8000/docs`.
 | Network | `/api/network`, `/api/network/devices`, `/api/network/scan` | `network.py` |
 | Services | `/api/services`, `/api/services/docker/{id}/restart` | `services.py` |
 | Login and accounts | `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/password`, `/api/auth/users`, `/api/auth/keys` | `auth.py` |
+| Updates | `/api/updates`, `/api/updates/check`, `/api/updates/install` | `updates.py`, `updater.py` |
 | Setup hotspot | `/api/hotspot`, `/api/hotspot/connect` | `hotspot.py` |
 | Settings | `/api/settings`, `/api/settings/about`, `/api/settings/backup`, `/api/settings/restore`, `/api/settings/clear-history/{kind}`, `/api/settings/restart` | `settings.py` |
 

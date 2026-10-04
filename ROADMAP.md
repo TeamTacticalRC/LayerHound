@@ -60,12 +60,12 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - [x] **Remove hardcoded personal details:** the LayerHound name and logo are fixed product branding (2026-10-02); each install sets its own **farm name** in Settings, shown under the logo, as the main heading and in the browser tab. The first-run welcome screen asks for it (v0.5.0).
 - [x] **Login** (v0.5.0, 2026-10-02): see the Login plan below.
 - [x] **Encrypt stored secrets** (2026-10-02): printer access codes, API keys and service tokens are encrypted in the database (`backend/vault.py`, using the `cryptography` package). The key is in `backend/data/secret.key` (owner-only), never in the database, so a copied database file doesn't reveal them. Backups with secrets hold them in plain text so they can be restored onto another board.
-- [ ] **Updates** (planned 2026-10-02). Today the board only updates when `deploy/deploy.sh` is run from the Mac; it never fetches anything itself. Customers need the board to update on its own, in stages:
-  - [ ] **Stage 1: update check (do first, about an hour once Releases exist).** Once a day the board asks GitHub for the latest release, and Settings → About shows "Update available: vX.Y.Z" with the release notes and a link. It only reads public release information. It helps Kyle and early testers know when a deploy is due, before automatic installs exist.
-  - [ ] **Stage 2: one-click update.** An **Update now** button in Settings that downloads the release, **verifies its signature** (see Signed updates), backs up the database, installs the new version next to the old one, restarts, and checks the dashboard comes back. If it doesn't, it **rolls back** automatically.
+- [ ] **Updates** (planned 2026-10-02; stages 1 and 2 built 2026-10-04). Today the board only updates when `deploy/deploy.sh` is run from the Mac; it never fetches anything itself. Customers need the board to update on its own, in stages:
+  - [x] **Stage 1: update check.** Once a day (switchable) the board asks the public releases repo, **TeamTacticalRC/layerhound-releases**, for the latest release; Settings → Updates shows it with the release notes, plus **Check now**.
+  - [x] **Stage 2: one-click update.** **Update now** downloads the package, checks its SHA-256 and **Ed25519 signature** (release key in `~/.layerhound/release-signing.key` on the Mac only; public key in `backend/updates.py`), then `layerhound-updater.service` backs up the database, installs, restarts and **rolls back** automatically if the new version doesn't start. Releases that change `deploy/setup.sh` are marked "needs setup" and must be deployed instead. Publish with `scripts/release.py` (see RELEASING.md).
   - [ ] **Stage 3: optional automatic updates** overnight, off by default, with a setting to choose.
-  - Requires **pre-built releases** (above): GitHub Actions builds each tagged version with a checksum and signature.
-- [ ] **Licensing:** choose a license for this code. Review paho-mqtt's license terms if it will be sold closed-source.
+  - Releases are built and signed on the Mac by `scripts/release.py`, not by GitHub Actions, so the signing key never leaves the Mac.
+- [x] **Licensing** (2026-10-04): **AGPL-3.0** (`LICENSE`); the name, logo and mascot are excluded (`TRADEMARKS.md`). All dependencies are compatible (paho-mqtt is dual-licensed EPL-2.0/EDL-1.0).
 - [ ] **Bambu risk:** Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.
 
 ### Login plan
@@ -107,7 +107,7 @@ Plan: free **open-source software**, plus a **pre-built plug-and-play board** so
 
 ### Decisions
 - [x] **Product name: LayerHound** (chosen 2026-10-01). Team Tactical RC stays the maker: "LayerHound by Team Tactical RC".
-- [ ] **License:** recommended **AGPL-3.0**. Anyone who modifies it and offers it to others, even as a hosted service, must share their changes. All current dependencies (FastAPI, React, paho-mqtt, psutil, lucide) are compatible.
+- [x] **License:** **AGPL-3.0**, chosen 2026-10-04. Anyone who modifies it and offers it to others, even as a hosted service, must share their changes. All current dependencies (FastAPI, React, paho-mqtt, psutil, lucide) are compatible.
 - [ ] **Trademark: deferred (decided 2026-10-02).** Registering costs about $1,000 in USPTO fees (two classes: 9 and 42, intent-to-use) plus $500–$2,000 for an attorney. Until it's worth it, rely on common-law rights from using the name: mark it **LayerHound™**, keep proof of first-use dates (GitHub history from 2026-10-01, domain registration, first posts and first sale), and revisit filing if sales take off. Risk accepted: someone else could register a similar name first.
 - [ ] **Legal check (optional for now):** if the budget allows before launch, a short attorney consult on the license, the AI-generated logo and trademark risk.
 - [ ] **Disclaimers:** "not affiliated with" Bambu Lab, Klipper, OctoPrint and others. Don't use their logos.
@@ -132,7 +132,8 @@ Taken or in use when checked: FarmDeck, LayerWatch, Spoolhouse, PrintHQ, PrintHo
 - [x] Rename in the code (done 2026-10-01): LayerHound is the default branding, the files folder is `~/LayerHound Files`, settings use `LAYERHOUND_*` (old `TTRC_*` names still work), the service and install folder are `layerhound`, and backups are `layerhound-backup-*.json` (old backups still restore). This install keeps Team Tactical RC branding in Settings.
 - [x] Project folder renamed to `~/Downloads/layerhound` (2026-10-01).
 - [ ] GitHub: the repository is at [TeamTacticalRC/LayerHound](https://github.com/TeamTacticalRC/LayerHound) (private). Optionally also claim a `layerhound` organization name to protect it.
-- [ ] Add `LICENSE` (AGPL-3.0), a trademark policy and a contributing guide.
+- [x] Add `LICENSE` (AGPL-3.0) and a trademark policy (`TRADEMARKS.md`), 2026-10-04.
+- [ ] Contributing guide. If outside contributions are accepted, use a contributor agreement so Team Tactical RC can still offer other licenses later.
 - [ ] Logo and simple brand guide (name usage, colors; the accent color system already exists).
 
 ### Plug-and-play board

@@ -40,6 +40,8 @@ SCHEMA={
  'fan_quiet_temp':(45,int,(30,70)),
  'fan_full_temp':(65,int,(40,85)),
  'fan_min_percent':(30,int,(20,100)),
+ # Check once a day for a newer LayerHound (updates.py); installing always needs an admin
+ 'update_check':(True,bool,None),
 }
 
 # Names used in error messages, matching the labels on the Settings page

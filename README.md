@@ -98,6 +98,7 @@ deploy/deploy.sh user@BOARD-HOSTNAME.local
 
 - Add `--with-db` the first time to copy the printers, devices, services and settings from your computer to the board. Leave it off for later updates so the board keeps its own data.
 - The script builds the dashboard, copies the project to `~/layerhound` on the board, and runs [`deploy/setup.sh`](deploy/setup.sh) there. That installs Python, the drive health tool (`smartctl`), ping and network tools, and the public IEEE manufacturer list used by network scans. It then sets up a `layerhound` service that starts on boot and restarts if it crashes. It may ask for the board's password once, for `sudo`.
+- **Later deploys are quicker:** they copy LayerHound, install any new Python packages and restart it, without asking for a password. The full setup (and its password prompt) runs again only when `deploy/setup.sh` has changed, or when you add `--full`.
 - When it finishes, open **http://BOARD-HOSTNAME.local**.
 
 Useful commands on the board:

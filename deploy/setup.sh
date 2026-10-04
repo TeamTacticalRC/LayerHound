@@ -57,6 +57,7 @@ cd "$APP_DIR/backend"
 [ -x .venv/bin/python ] || python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements.txt
+cp requirements.txt .venv/.installed-requirements   # lets quick deploys skip pip when nothing changed
 
 echo "==> Manufacturer list for network discovery"
 # Public IEEE list that maps device MAC addresses to manufacturers. Optional: discovery works without it.
@@ -150,6 +151,11 @@ for _ in $(seq 20); do
   if curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null; then
     URL="http://$(hostname).local"; [ "$PORT" = 80 ] || URL="$URL:$PORT"
     echo "==> Dashboard is running: $URL"
+    # Record which setup was applied (as root, so it reflects what really ran); deploy.sh then
+    # skips the full setup, and its password prompt, until setup.sh changes
+    sudo mkdir -p /var/lib/layerhound
+    sha256sum "$APP_DIR/deploy/setup.sh" | cut -d' ' -f1 | sudo tee /var/lib/layerhound/setup.sha256 >/dev/null
+    echo "$PORT" | sudo tee /var/lib/layerhound/port >/dev/null
     exit 0
   fi
   sleep 1

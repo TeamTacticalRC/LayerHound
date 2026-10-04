@@ -2,18 +2,60 @@
 
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Surfaces; light mode redefines these below */
+  --lh-bg: #090b12;
+  --lh-card: #11151f;
+  --lh-input: #0b0e15;
+  --lh-sunken: #0d1018;
+  --lh-grid: rgba(255,255,255,.06);
+  --lh-grid-strong: rgba(255,255,255,.25);
+  --lh-scroll-thumb: #2b3040;
+  color-scheme: dark;
   color: #e8eaf0;
-  background: #090b12;
+  background: var(--lh-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; background: #090b12; }
+body { margin: 0; min-width: 320px; background: var(--lh-bg); }
 button { font: inherit; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #0d1018; }
-::-webkit-scrollbar-thumb { background: #2b3040; border-radius: 8px; }
+::-webkit-scrollbar-track { background: var(--lh-sunken); }
+::-webkit-scrollbar-thumb { background: var(--lh-scroll-thumb); border-radius: 8px; }
+
+/* Light mode (chosen per device; see applyTheme in main.jsx). The dashboard is styled for dark,
+   so light mode swaps the colors underneath: "white" text and tints become near-black, the
+   gray scale flips, and status colors use darker shades that read well on white. Buttons on
+   solid colors use text-[#fff], which stays white in both modes. */
+:root.lh-light {
+  --lh-bg: #f3f5f8;
+  --lh-card: #ffffff;
+  --lh-input: #ffffff;
+  --lh-sunken: #e8ecf1;
+  --lh-grid: rgba(15,23,42,.08);
+  --lh-grid-strong: rgba(15,23,42,.3);
+  --lh-scroll-thumb: #c3cad5;
+  color-scheme: light;
+  color: #0f172a;
+  --color-white: #0f172a;
+  --color-slate-100: #1e293b;
+  --color-slate-200: #1e293b;
+  --color-slate-300: #334155;
+  --color-slate-400: #475569;
+  --color-slate-500: #5b6678;
+  --color-slate-600: #737e90;
+  --color-slate-700: #cbd5e1;
+  --color-red-100: #991b1b;
+  --color-red-200: #b91c1c;
+  --color-red-300: #b91c1c;
+  --color-amber-100: #92400e;
+  --color-amber-200: #92400e;
+  --color-amber-300: #a16207;
+  --color-emerald-200: #047857;
+  --color-emerald-300: #047857;
+  --color-sky-300: #0369a1;
+}
 /* Printer cards: columns follow the printer count (max 5 per row), cards grow
    when there are fewer printers up to --card-max, and every row is centered,
    including a partial last row. --cols-* are set inline by <PrinterGrid>. */

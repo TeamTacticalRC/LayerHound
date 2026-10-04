@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
   ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
-  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, KeyRound, LogIn, LogOut, UserRound, Users, Copy
+  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
 
@@ -35,9 +35,13 @@ const ACCENTS = {
 function applyPrefs(next) {
   Object.assign(prefs, next);
   const root = document.documentElement.style;
+  const light = document.documentElement.classList.contains("lh-light");
+  const accent = ACCENTS[prefs.accent] ?? ACCENTS.violet;
   for (const shade of [200, 300, 400, 500]) {
-    if (prefs.accent === "violet" || !ACCENTS[prefs.accent]) root.removeProperty(`--color-violet-${shade}`);
-    else root.setProperty(`--color-violet-${shade}`, ACCENTS[prefs.accent][shade]);
+    // Light mode: the pale accent shades are hard to read on white, so text uses the deeper 500
+    if (light) root.setProperty(`--color-violet-${shade}`, accent[Math.max(shade, 500)]);
+    else if (prefs.accent === "violet" || !ACCENTS[prefs.accent]) root.removeProperty(`--color-violet-${shade}`);
+    else root.setProperty(`--color-violet-${shade}`, accent[shade]);
   }
   // Product name first, then the customer's farm name
   document.title = prefs.farm_name ? `LayerHound · ${prefs.farm_name}` : "LayerHound";
@@ -51,6 +55,43 @@ function fmtTemp(c, digits = 1) {
   return `${digits === 0 ? Math.round(v) : Math.round(v * 10) / 10}°${prefs.temp_unit}`;
 }
 const fmtDate = (d, opts) => new Date(d).toLocaleString([], { ...opts, hour12: prefs.time_format === "12" });
+
+// Light or dark is chosen per device (each browser remembers its own), not for the whole farm.
+// "system" follows the device's own light/dark setting.
+const THEMES = [["dark", "Dark", Moon], ["light", "Light", Sun], ["system", "Match device", Monitor]];
+function readTheme() { try { return localStorage.getItem("lh-theme") || "dark"; } catch { return "dark"; } }
+const systemLight = () => window.matchMedia?.("(prefers-color-scheme: light)").matches;
+function applyTheme(choice = readTheme()) {
+  const light = choice === "light" || (choice === "system" && systemLight());
+  document.documentElement.classList.toggle("lh-light", light);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", light ? "#f3f5f8" : "#090b12");
+  applyPrefs({});
+}
+function setTheme(choice) {
+  try { localStorage.setItem("lh-theme", choice); } catch { /* not saved, still applied */ }
+  applyTheme(choice);
+  window.dispatchEvent(new Event("lh-theme"));
+}
+window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => { if (readTheme() === "system") applyTheme(); });
+
+function useTheme() {
+  const [theme, setLocal] = useState(readTheme);
+  useEffect(() => { const on = () => setLocal(readTheme()); window.addEventListener("lh-theme", on); return () => window.removeEventListener("lh-theme", on); }, []);
+  return [theme, setTheme];
+}
+
+// Three small buttons (dark / light / match device), used in the sidebar
+function ThemeButtons() {
+  const [theme, choose] = useTheme();
+  return (
+    <div className="flex rounded-lg border border-white/8 p-0.5" role="radiogroup" aria-label="Theme">
+      {THEMES.map(([v, label, Icon]) => (
+        <button key={v} type="button" role="radio" aria-checked={theme === v} title={label} aria-label={label} onClick={() => choose(v)}
+          className={`rounded-md p-1.5 ${theme === v ? "bg-violet-500/15 text-violet-300" : "text-slate-500 hover:text-slate-300"}`}><Icon size={14} /></button>
+      ))}
+    </div>
+  );
+}
 
 // Who is using the dashboard: { username, role: "admin" | "viewer", kind: "user" | "guest" | "key" }
 const session = { user: null };
@@ -163,7 +204,7 @@ function CameraView({ printer }) {
   }, [paused]);
   const src = `/api/printers/${printer.id}/camera?t=${tick}`;
   return (
-    <div className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-600"><Camera size={14} /> Camera</div>
         <div className="flex items-center gap-1">
@@ -232,7 +273,7 @@ function UpdatedAgo({ at }) {
 
 function Metric({ icon: Icon, label, value, sub, progress }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500">
         <Icon size={15} /> {label}
       </div>
@@ -312,7 +353,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
   return (
     <>
       {open && <div className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-white/7 bg-[#0b0e15] transition-transform lg:static lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-white/7 bg-[var(--lh-input)] transition-transform lg:static lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex h-20 items-center justify-between px-5">
           <div className="flex min-w-0 items-center gap-3">
             <img src="/brand/layerhound-mascot.png" alt="" className="h-11 w-11 shrink-0 object-contain" />
@@ -333,7 +374,10 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
         </nav>
         <div className="m-3 rounded-xl border border-white/6 bg-white/[.025] p-3">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-300"><StatusDot tone={summary.tone} /> <span className="truncate">{summary.text}</span></div>
-          <div className="mt-2 text-[10px] text-slate-600">LayerHound {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="text-[10px] text-slate-600">LayerHound {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
+            <ThemeButtons />
+          </div>
         </div>
         <AccountBadge onSignOut={onSignOut} onSignIn={onSignIn} />
       </aside>
@@ -363,7 +407,7 @@ function AccountBadge({ onSignOut, onSignIn }) {
 // Centered card used by the welcome and sign-in screens
 function AuthShell({ title, sub, children }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#090b12] px-4 py-10 text-slate-200">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--lh-bg)] px-4 py-10 text-slate-200">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
           <img src="/brand/layerhound-mascot.png" alt="" className="h-20 w-20 object-contain" />
@@ -371,7 +415,7 @@ function AuthShell({ title, sub, children }) {
           {title && <h1 className="mt-4 text-lg font-semibold text-white">{title}</h1>}
           {sub && <p className="mt-1 text-sm text-slate-500">{sub}</p>}
         </div>
-        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">{children}</div>
+        <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">{children}</div>
       </div>
     </div>
   );
@@ -414,7 +458,7 @@ function WelcomeScreen({ farmName, onDone }) {
           </div>
         </div>
         {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
-        <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+        <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
           {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Setting up…" : "Finish setup"}
         </button>
       </form>
@@ -441,7 +485,7 @@ function LoginScreen({ farmName, onDone, onCancel }) {
           <input type="checkbox" checked={f.remember} onChange={e => setF(x => ({ ...x, remember: e.target.checked }))} className="accent-violet-500" /> Keep me signed in for 30 days
         </label>
         {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
-        <button type="submit" disabled={busy || !f.username || !f.password} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+        <button type="submit" disabled={busy || !f.username || !f.password} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
           {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Signing in…" : "Sign in"}
         </button>
       </form>
@@ -528,7 +572,7 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
           </div>
         )}
         {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
-        <button type="submit" disabled={busy || !info} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+        <button type="submit" disabled={busy || !info} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
           {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Connecting…" : setupRequired ? "Finish setup" : "Connect"}
         </button>
       </form>
@@ -606,7 +650,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l border-white/10 bg-[#0d1018] p-6 shadow-2xl">
+    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l border-white/10 bg-[var(--lh-sunken)] p-6 shadow-2xl">
       <div className="flex items-center justify-between">
         <div>
           <div className="text-xs uppercase tracking-widest text-violet-400">Printer detail</div>
@@ -615,7 +659,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
         </div>
         <button onClick={close} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Close"><X size={20} /></button>
       </div>
-      <div className="mt-8 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="mt-8 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="flex items-start gap-4">
           <PartThumb printer={printer} size={96} className="p-1" />
           <div className="min-w-0">
@@ -632,7 +676,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
         </div>
       </div>
       {printer.hasCamera && !isDemo && <CameraView printer={printer} />}
-      <div className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
         <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : "Connected"}</div>
         {printer.firmware && <div className="mt-3 text-xs text-slate-600">Firmware {printer.firmware}</div>}
@@ -657,7 +701,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
             <div className="rounded-xl border border-red-500/20 bg-red-500/6 p-4">
               <div className="text-sm text-red-200">Remove {printer.name} from the dashboard?</div>
               <div className="mt-3 flex gap-2">
-                <button onClick={remove} disabled={removing} className="flex-1 rounded-lg bg-red-500/80 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">{removing ? "Removing…" : "Remove printer"}</button>
+                <button onClick={remove} disabled={removing} className="flex-1 rounded-lg bg-red-500/80 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-red-500 disabled:opacity-50">{removing ? "Removing…" : "Remove printer"}</button>
                 <button onClick={() => setConfirmRemove(false)} className="flex-1 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/5">Keep it</button>
               </div>
             </div>
@@ -691,7 +735,7 @@ function PrinterGrid({ count, children }) {
   return <div className="printer-grid" style={{ "--cols-sm": cols(2), "--cols-lg": cols(3), "--cols-xl": cols(5) }}>{children}</div>;
 }
 
-const inputClass = "w-full rounded-lg border border-white/10 bg-[#0b0e15] px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-violet-400 focus:outline-none";
+const inputClass = "w-full rounded-lg border border-white/10 bg-[var(--lh-input)] px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-violet-400 focus:outline-none";
 
 // Split a saved base_url back into the form's host + port fields. A URL with no
 // port (e.g. the Neptune's "http://192.168.1.155") shows 80/443 so saving it
@@ -751,7 +795,7 @@ function PrinterFormModal({ printer, initial, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="printer-form-title" className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1018] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-labelledby="printer-form-title" className="w-full max-w-md rounded-2xl border border-white/10 bg-[var(--lh-sunken)] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 id="printer-form-title" className="text-lg font-semibold text-white">{editing ? "Edit printer" : "Add printer"}</h2>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Close"><X size={20} /></button>
@@ -792,7 +836,7 @@ function PrinterFormModal({ printer, initial, onClose, onSaved }) {
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-white">Cancel</button>
-          <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+          <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
             {saving && <Loader2 size={15} className="animate-spin" />} {saving ? "Saving…" : editing ? "Save changes" : "Add printer"}
           </button>
         </div>
@@ -813,7 +857,7 @@ function ReorderRow({ printer, index, count, move, dragging, setDragging }) {
   };
   const stop = () => setDragging(null);
   return (
-    <li data-reorder-index={index} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${dragging === index ? "border-violet-400/60 bg-violet-500/10" : "border-white/8 bg-[#11151f]"}`}>
+    <li data-reorder-index={index} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${dragging === index ? "border-violet-400/60 bg-violet-500/10" : "border-white/8 bg-[var(--lh-card)]"}`}>
       <span onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stop} onPointerCancel={stop} className="shrink-0 cursor-grab touch-none p-1 text-slate-600 hover:text-slate-400 active:cursor-grabbing" aria-hidden="true"><GripVertical size={18} /></span>
       <span className="w-6 shrink-0 text-right text-xs tabular-nums text-slate-600">{index + 1}</span>
       <div className="min-w-0 flex-1 select-none">
@@ -858,7 +902,7 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
         {reordering ? (
           <div className="flex gap-2">
             <button onClick={() => { setOrder(null); setOrderError(""); }} className="rounded-xl px-4 py-2.5 text-sm text-slate-400 hover:bg-white/5 hover:text-white">Cancel</button>
-            <button onClick={saveOrder} disabled={savingOrder} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+            <button onClick={saveOrder} disabled={savingOrder} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
               {savingOrder && <Loader2 size={15} className="animate-spin" />} {savingOrder ? "Saving…" : "Save order"}
             </button>
           </div>
@@ -869,7 +913,7 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
                 <ArrowUpDown size={16} /> Reorder
               </button>
             )}
-            <button data-admin onClick={onAdd} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
+            <button data-admin onClick={onAdd} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
               <Plus size={17} /> Add printer
             </button>
           </div>
@@ -896,7 +940,7 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
           <Printer className="text-violet-400" size={28} />
           <h2 className="mt-4 font-semibold text-white">No printers yet</h2>
           <p className="mt-1 max-w-xs text-sm text-slate-500">Add your first Klipper, OctoPrint or Bambu Lab printer to start tracking jobs here.</p>
-          <button data-admin onClick={onAdd} className="mt-5 flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400"><Plus size={16} /> Add printer</button>
+          <button data-admin onClick={onAdd} className="mt-5 flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400"><Plus size={16} /> Add printer</button>
         </div>
       ) : (
         <PrinterGrid count={printers.length}>
@@ -942,7 +986,7 @@ function Bar({ percent, warnAt = 80 }) {
 
 function Card({ title, icon: Icon, sub, children, className = "" }) {
   return (
-    <div className={`rounded-2xl border border-white/8 bg-[#11151f] p-5 ${className}`}>
+    <div className={`rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5 ${className}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold text-white">{title}</h2>
@@ -1007,7 +1051,7 @@ function HistoryChart({ title, points, field, unit, max, empty, bare = false }) 
   };
 
   return (
-    <div className={bare ? "" : "rounded-2xl border border-white/8 bg-[#11151f] p-5"}>
+    <div className={bare ? "" : "rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5"}>
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-semibold text-white">{title}</h3>
         <div className="text-right">
@@ -1022,7 +1066,7 @@ function HistoryChart({ title, points, field, unit, max, empty, bare = false }) 
           <svg width={width} height={H} className="block touch-none select-none" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onTouchMove={onMove} onTouchEnd={() => setHover(null)} role="img" aria-label={`${title}, from ${ago} to now, latest ${latest[field]}${unit}`}>
             {ticks.map(v => (
               <g key={v}>
-                <line x1={L} x2={width - R} y1={y(v)} y2={y(v)} stroke="rgba(255,255,255,.06)" />
+                <line x1={L} x2={width - R} y1={y(v)} y2={y(v)} style={{ stroke: "var(--lh-grid)" }} />
                 <text x={L - 6} y={y(v) + 3.5} textAnchor="end" className="fill-slate-600 text-[10px] tabular-nums">{Math.round(v)}</text>
               </g>
             ))}
@@ -1032,8 +1076,8 @@ function HistoryChart({ title, points, field, unit, max, empty, bare = false }) 
             <text x={width - R} y={H - 4} textAnchor="end" className="fill-slate-600 text-[10px]">now</text>
             {hover && (
               <g>
-                <line x1={x(hover.t)} x2={x(hover.t)} y1={T} y2={H - B} stroke="rgba(255,255,255,.25)" />
-                <circle cx={x(hover.t)} cy={y(hover[field])} r="4.5" style={{ fill: "var(--color-violet-400)" }} stroke="#11151f" strokeWidth="2" />
+                <line x1={x(hover.t)} x2={x(hover.t)} y1={T} y2={H - B} style={{ stroke: "var(--lh-grid-strong)" }} />
+                <circle cx={x(hover.t)} cy={y(hover[field])} r="4.5" style={{ fill: "var(--color-violet-400)", stroke: "var(--lh-card)" }} strokeWidth="2" />
               </g>
             )}
           </svg>
@@ -1090,7 +1134,7 @@ function ServerPage() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={Cpu} label="CPU" value={`${Math.round(cpu.percent)}%`} sub={`Load ${cpu.load_avg.join(" / ")}`} progress={cpu.percent} />
         <Metric icon={Database} label="Memory" value={`${Math.round(memory.percent)}%`} sub={`${memory.used_gb} GB / ${memory.total_gb} GB`} progress={memory.percent} />
-        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+        <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Thermometer size={15} /> Temperature</div>
           <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{info.temperature_c != null ? fmtTemp(info.temperature_c) : "—"}</div>
           {status
@@ -1098,7 +1142,7 @@ function ServerPage() {
             : <div className="mt-1 text-xs text-slate-500">No sensor on this machine</div>}
           {info.fan?.available && <div className="mt-2 flex items-center gap-1.5 border-t border-white/6 pt-2 text-xs text-slate-400"><Fan size={13} className={info.fan.percent ? "animate-spin [animation-duration:2s]" : ""} /> Fan {info.fan.percent ?? "—"}% · {!info.fan.controlled ? "not controlled" : info.fan.mode === "full" ? "full speed" : "auto"}</div>}
         </div>
-        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+        <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Network size={15} /> Network</div>
           <div className="mt-3 flex items-center gap-4 text-white">
             <span className="flex items-center gap-1.5 text-lg font-semibold tabular-nums"><ArrowDownToLine size={16} className="text-slate-500" aria-label="Download" />{formatRate(network.rx_bps)}</span>
@@ -1194,7 +1238,7 @@ function DriveCard({ drive, holdsFiles }) {
     : worn ? { text: "Wearing out", cls: "border-amber-500/20 bg-amber-500/6 text-amber-200", Icon: AlertTriangle }
     : { text: "Healthy", cls: "border-emerald-500/20 bg-emerald-500/6 text-emerald-300", Icon: ShieldCheck };
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate font-semibold text-white" title={drive.mount}>{driveLabel(drive.mount)}</h3>
@@ -1275,7 +1319,7 @@ function FileBrowser({ filesInfo, onChanged }) {
 
   return (
     <div
-      className={`relative rounded-2xl border bg-[#11151f] p-5 transition-colors ${dragOver ? "border-violet-400/60" : "border-white/8"}`}
+      className={`relative rounded-2xl border bg-[var(--lh-card)] p-5 transition-colors ${dragOver ? "border-violet-400/60" : "border-white/8"}`}
       onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
       onDrop={e => { e.preventDefault(); setDragOver(false); upload(e.dataTransfer.files); }}
@@ -1295,7 +1339,7 @@ function FileBrowser({ filesInfo, onChanged }) {
         </div>
         <div className="flex gap-2">
           <button data-admin onClick={() => { setCreating(true); setNewName(""); }} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><FolderPlus size={16} /> New folder</button>
-          <button data-admin onClick={() => picker.current?.click()} className="flex items-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400"><CloudUpload size={16} /> Upload</button>
+          <button data-admin onClick={() => picker.current?.click()} className="flex items-center gap-2 rounded-xl bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400"><CloudUpload size={16} /> Upload</button>
           <input ref={picker} type="file" multiple className="hidden" onChange={e => { upload(e.target.files); e.target.value = ""; }} />
         </div>
       </div>
@@ -1319,7 +1363,7 @@ function FileBrowser({ filesInfo, onChanged }) {
           <form className="flex items-center gap-2 border-b border-white/6 bg-white/[.02] px-3 py-2" onSubmit={e => { e.preventDefault(); run(async () => { await newFolder(path, newName); setCreating(false); }); }}>
             <Folder size={16} className="shrink-0 text-violet-400" />
             <input autoFocus className={`${inputClass} py-1.5`} placeholder="Folder name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Escape" && setCreating(false)} />
-            <button type="submit" className="rounded-lg bg-violet-500 px-3 py-1.5 text-sm text-white hover:bg-violet-400">Create</button>
+            <button type="submit" className="rounded-lg bg-violet-500 px-3 py-1.5 text-sm text-[#fff] hover:bg-violet-400">Create</button>
             <button type="button" onClick={() => setCreating(false)} className="rounded-lg px-3 py-1.5 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
           </form>
         )}
@@ -1345,7 +1389,7 @@ function FileBrowser({ filesInfo, onChanged }) {
                   {renaming?.path === it.path ? (
                     <form className="flex gap-2" onSubmit={e => { e.preventDefault(); run(async () => { await renameFile(it.path, renaming.name); setRenaming(null); }); }}>
                       <input autoFocus className={`${inputClass} py-1`} value={renaming.name} onChange={e => setRenaming(r => ({ ...r, name: e.target.value }))} onKeyDown={e => e.key === "Escape" && setRenaming(null)} />
-                      <button type="submit" className="rounded-lg bg-violet-500 px-3 text-sm text-white hover:bg-violet-400">Save</button>
+                      <button type="submit" className="rounded-lg bg-violet-500 px-3 text-sm text-[#fff] hover:bg-violet-400">Save</button>
                     </form>
                   ) : it.type === "folder" ? (
                     <button onClick={() => setPath(it.path)} className="block max-w-full truncate text-left text-sm text-white hover:text-violet-300">{it.name}</button>
@@ -1362,7 +1406,7 @@ function FileBrowser({ filesInfo, onChanged }) {
                 </div>
                 {confirmDelete === it.path ? (
                   <div className="flex shrink-0 items-center gap-1">
-                    <button onClick={() => run(async () => { await deleteFile(it.path); setConfirmDelete(null); })} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-500">Move to trash</button>
+                    <button onClick={() => run(async () => { await deleteFile(it.path); setConfirmDelete(null); })} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-[#fff] hover:bg-red-500">Move to trash</button>
                     <button onClick={() => setConfirmDelete(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
                   </div>
                 ) : (
@@ -1384,7 +1428,7 @@ function FileBrowser({ filesInfo, onChanged }) {
           confirmEmpty ? (
             <span className="flex items-center gap-2">
               <span className="text-red-300">Permanently delete {filesInfo.trash_count} item{filesInfo.trash_count === 1 ? "" : "s"}?</span>
-              <button onClick={() => run(async () => { await emptyTrash(); setConfirmEmpty(false); })} className="rounded-lg bg-red-500/80 px-2.5 py-1 font-medium text-white hover:bg-red-500">Empty trash</button>
+              <button onClick={() => run(async () => { await emptyTrash(); setConfirmEmpty(false); })} className="rounded-lg bg-red-500/80 px-2.5 py-1 font-medium text-[#fff] hover:bg-red-500">Empty trash</button>
               <button onClick={() => setConfirmEmpty(false)} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-white/5">Cancel</button>
             </span>
           ) : (
@@ -1395,7 +1439,7 @@ function FileBrowser({ filesInfo, onChanged }) {
 
       {dragOver && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-violet-500/10 backdrop-blur-[1px]">
-          <div className="flex items-center gap-2 rounded-xl border border-violet-400/40 bg-[#11151f] px-4 py-3 text-sm text-violet-200"><CloudUpload size={18} /> Drop to upload to {listing?.crumbs.at(-1)?.name ?? "All files"}</div>
+          <div className="flex items-center gap-2 rounded-xl border border-violet-400/40 bg-[var(--lh-card)] px-4 py-3 text-sm text-violet-200"><CloudUpload size={18} /> Drop to upload to {listing?.crumbs.at(-1)?.name ?? "All files"}</div>
         </div>
       )}
     </div>
@@ -1511,7 +1555,7 @@ function DeviceForm({ device, onSave, onCancel }) {
       {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error}</div>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
-        <button type="submit" disabled={saving} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{saving ? "Saving…" : device ? "Save" : "Add device"}</button>
+        <button type="submit" disabled={saving} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{saving ? "Saving…" : device ? "Save" : "Add device"}</button>
       </div>
     </form>
   );
@@ -1524,7 +1568,7 @@ function DeviceMonitor({ devices, checkEvery, onChanged }) {
   const up = devices.filter(d => d.up).length;
   const iconBtn = "rounded-lg p-2 text-slate-500 hover:bg-white/6 hover:text-white";
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex items-start justify-between gap-3">
         <div><h2 className="font-semibold text-white">Device monitor</h2><p className="mt-1 text-xs text-slate-600">{devices.length ? `${up} of ${devices.length} responding · checked every ${checkEvery / 60} min · last 24 hours` : "Add devices to watch"}</p></div>
         {!adding && <button data-admin onClick={() => { setAdding(true); setEditing(null); }} className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><Plus size={16} /> Add device</button>}
@@ -1551,7 +1595,7 @@ function DeviceMonitor({ devices, checkEvery, onChanged }) {
               </div>
               {confirm === d.id ? (
                 <div className="flex items-center gap-1">
-                  <button onClick={async () => { await deleteNetDevice(d.id); setConfirm(null); onChanged(); }} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-500">Remove</button>
+                  <button onClick={async () => { await deleteNetDevice(d.id); setConfirm(null); onChanged(); }} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-[#fff] hover:bg-red-500">Remove</button>
                   <button onClick={() => setConfirm(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
                 </div>
               ) : (
@@ -1571,7 +1615,7 @@ function DeviceMonitor({ devices, checkEvery, onChanged }) {
 function InterfaceCard({ iface }) {
   const mbps = (field) => iface.history.map(p => ({ t: p.t, v: +(p[field] * 8 / 1e6).toFixed(2) }));
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="flex items-center gap-2 font-semibold text-white">{iface.type === "Wi-Fi" ? <Wifi size={16} className="text-violet-400" /> : <Network size={16} className="text-violet-400" />} {iface.type} <span className="text-xs font-normal text-slate-500">({iface.name})</span></h3>
@@ -1627,7 +1671,7 @@ function Discovery({ printers, devices, onAddPrinter, onMonitored }) {
   };
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div>
           <h2 className="font-semibold text-white">Device discovery</h2>
@@ -1637,7 +1681,7 @@ function Discovery({ printers, devices, onAddPrinter, onMonitored }) {
               : "Find everything on your network, including printers the dashboard can add."}
           </p>
         </div>
-        <button data-admin onClick={run} disabled={scan?.running} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-60">
+        <button data-admin onClick={run} disabled={scan?.running} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-60">
           {scan?.running ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />} {scan?.running ? `Scanning ${scan.progress}%` : scan?.finished ? "Scan again" : "Scan network"}
         </button>
       </div>
@@ -1670,7 +1714,7 @@ function Discovery({ printers, devices, onAddPrinter, onMonitored }) {
                   <div className="flex shrink-0 items-center gap-2">
                     {known ? <span className="flex items-center gap-1.5 text-xs text-emerald-300"><StatusDot tone="good" /> {known}</span> : (
                       <>
-                        {r.printer && <button onClick={() => onAddPrinter({ ...r.printer, name: r.hostname?.split(".")[0] ?? "" })} className="rounded-lg bg-violet-500 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-violet-400">Add printer</button>}
+                        {r.printer && <button onClick={() => onAddPrinter({ ...r.printer, name: r.hostname?.split(".")[0] ?? "" })} className="rounded-lg bg-violet-500 px-2.5 py-1.5 text-xs font-medium text-[#fff] hover:bg-violet-400">Add printer</button>}
                         {added[r.ip] ? <span className="text-xs text-emerald-300">Monitoring</span> : <button onClick={() => monitor(r)} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/5">Monitor</button>}
                       </>
                     )}
@@ -1729,7 +1773,7 @@ function WifiCard() {
   };
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold text-white">Wi-Fi</h2>
@@ -1789,7 +1833,7 @@ function WifiCard() {
                             onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && password && join(n)} />
                         )}
                         {!n.in_use && (
-                          <button onClick={() => join(n)} disabled={busy === n.ssid || (n.secure && !n.saved && !password)} className="flex items-center gap-2 rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">
+                          <button onClick={() => join(n)} disabled={busy === n.ssid || (n.secure && !n.saved && !password)} className="flex items-center gap-2 rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
                             {busy === n.ssid && <Loader2 size={14} className="animate-spin" />} {busy === n.ssid ? "Connecting… (up to 30s)" : "Connect"}
                           </button>
                         )}
@@ -1846,18 +1890,18 @@ function NetworkPage({ printers, onAddPrinter }) {
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+        <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Globe size={15} /> Internet</div>
           <div className="mt-3 flex items-center gap-2 text-2xl font-semibold tracking-tight text-white"><StatusDot tone={inetTone} /> {internet.up == null ? "Checking" : internet.up ? "Online" : "Offline"}</div>
           <div className="mt-1 text-xs text-slate-500">{internet.up ? `${internet.ms} ms response` : "No response from 1.1.1.1 or 8.8.8.8"}</div>
         </div>
-        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+        <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Search size={15} /> DNS &amp; public IP</div>
           <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{internet.dns_ok == null ? "—" : internet.dns_ok ? `${internet.dns_ms} ms` : "Failing"}</div>
           <div className="mt-1 truncate text-xs text-slate-500">Public IP {internet.public_ip ?? "unknown"}</div>
         </div>
         <Metric icon={Router} label="Devices" value={devices.length ? `${devUp} / ${devices.length}` : "—"} sub={devices.length ? (devUp === devices.length ? "All responding" : `${devices.length - devUp} not responding`) : "None monitored yet"} />
-        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+        <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Network size={15} /> Data today</div>
           <div className="mt-3 flex flex-wrap gap-x-4 text-lg font-semibold tabular-nums text-white">
             <span className="flex items-center gap-1.5"><ArrowDownToLine size={16} className="text-slate-500" aria-label="Downloaded" />{formatBytes(todayRx)}</span>
@@ -1870,7 +1914,7 @@ function NetworkPage({ printers, onAddPrinter }) {
       <section data-admin className="mt-4"><WifiCard /></section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+        <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
           <div className="flex items-start justify-between gap-3">
             <div><h2 className="font-semibold text-white">Internet health</h2><p className="mt-1 text-xs text-slate-600">{internet.uptime_24h == null ? "Collecting data" : `${internet.uptime_24h}% up in the last 24 hours · ${internet.uptime_7d}% over 7 days`}</p></div>
             <Globe className="shrink-0 text-violet-400" size={18} />
@@ -1953,7 +1997,7 @@ function ServiceForm({ service, onSave, onCancel }) {
       {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-xs text-red-300">{error}</div>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
-        <button type="submit" disabled={saving} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{saving ? "Saving…" : service ? "Save" : "Add service"}</button>
+        <button type="submit" disabled={saving} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{saving ? "Saving…" : service ? "Save" : "Add service"}</button>
       </div>
     </form>
   );
@@ -1986,7 +2030,7 @@ function DockerCard({ docker, onRestarted }) {
   };
   const running = docker.containers?.filter(c => c.state === "running").length ?? 0;
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex items-start justify-between gap-3">
         <div><h2 className="font-semibold text-white">Docker containers</h2><p className="mt-1 text-xs text-slate-600">{docker.available ? `${running} of ${docker.containers.length} running` : "Not available"}</p></div>
         <Box className="shrink-0 text-violet-400" size={18} />
@@ -2009,7 +2053,7 @@ function DockerCard({ docker, onRestarted }) {
               {c.state === "running" && <div className="text-right text-xs tabular-nums text-slate-400">{c.cpu_percent ?? "—"}% CPU · {formatBytes(c.memory_bytes)}</div>}
               {confirm === c.id ? (
                 <div className="flex items-center gap-1">
-                  <button data-admin onClick={() => restart(c)} disabled={busy === c.id} className="rounded-lg bg-amber-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-amber-500 disabled:opacity-50">{busy === c.id ? "Working…" : `${c.state === "running" ? "Restart" : "Start"} ${c.name}`}</button>
+                  <button data-admin onClick={() => restart(c)} disabled={busy === c.id} className="rounded-lg bg-amber-500/80 px-2.5 py-1.5 text-xs font-medium text-[#fff] hover:bg-amber-500 disabled:opacity-50">{busy === c.id ? "Working…" : `${c.state === "running" ? "Restart" : "Start"} ${c.name}`}</button>
                   <button onClick={() => setConfirm(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
                 </div>
               ) : (
@@ -2063,13 +2107,13 @@ function ServicesPage({ printers }) {
           <h1 className="text-3xl font-bold tracking-tight text-white">Services</h1>
           <p className="mt-2 text-sm text-slate-500">{svcs.length ? `${up} of ${svcs.length} services up` : "Your home lab's web apps, in one place"}{info.docker.available ? ` · ${info.docker.containers.filter(c => c.state === "running").length} containers running` : ""}</p>
         </div>
-        <button data-admin onClick={() => { setAdding(true); setEditing(null); }} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-400"><Plus size={17} /> Add service</button>
+        <button data-admin onClick={() => { setAdding(true); setEditing(null); }} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400"><Plus size={17} /> Add service</button>
       </div>
 
       {svcs.length > 0 && (
         <section className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
           {svcs.map(s => (
-            <a key={s.id} href={s.open_url} target="_blank" rel="noopener noreferrer" className="group rounded-2xl border border-white/8 bg-[#11151f] p-4 transition hover:-translate-y-0.5 hover:border-violet-400/40">
+            <a key={s.id} href={s.open_url} target="_blank" rel="noopener noreferrer" className="group rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4 transition hover:-translate-y-0.5 hover:border-violet-400/40">
               <div className="flex items-center justify-between"><ServiceIcon url={s.open_url} /><StatusDot tone={s.up == null ? "off" : s.up ? "good" : "bad"} /></div>
               <div className="mt-3 truncate text-sm font-medium text-white">{s.name}</div>
               <div className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-slate-600">{s.up ? `${s.ms} ms` : s.up === false ? "Down" : "Checking…"} <ExternalLink size={11} className="opacity-0 group-hover:opacity-100" /></div>
@@ -2087,7 +2131,7 @@ function ServicesPage({ printers }) {
         </div>
       )}
 
-      <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <section className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div><h2 className="font-semibold text-white">Health checks</h2><p className="mt-1 text-xs text-slate-600">Checked every {info.check_every / 60} min · last 24 hours · a service that stops answering shows up in Alerts</p></div>
         <div className="mt-4 overflow-hidden rounded-xl border border-white/6">
           {adding && <ServiceForm onCancel={() => setAdding(false)} onSave={async x => { await addService(x); setAdding(false); load(); }} />}
@@ -2116,7 +2160,7 @@ function ServicesPage({ printers }) {
                 </div>
                 {confirm === s.id ? (
                   <div className="flex items-center gap-1">
-                    <button onClick={async () => { await deleteService(s.id); setConfirm(null); load(); }} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-500">Remove</button>
+                    <button onClick={async () => { await deleteService(s.id); setConfirm(null); load(); }} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-[#fff] hover:bg-red-500">Remove</button>
                     <button onClick={() => setConfirm(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
                   </div>
                 ) : (
@@ -2137,7 +2181,7 @@ function ServicesPage({ printers }) {
 
 function Section({ title, sub, children, footer }) {
   return (
-    <section className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <section className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <h2 className="font-semibold text-white">{title}</h2>
       {sub && <p className="mt-1 text-xs text-slate-600">{sub}</p>}
       <div className="mt-5">{children}</div>
@@ -2163,7 +2207,7 @@ function Toggle({ checked, onChange, label, hint }) {
       <span className="relative mt-0.5 inline-flex shrink-0">
         <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
         <span className="h-5 w-9 rounded-full bg-white/10 transition peer-checked:bg-violet-500 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-300" />
-        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[#fff] shadow transition peer-checked:translate-x-4" />
       </span>
     </label>
   );
@@ -2187,7 +2231,7 @@ function BrandingSection({ onSaved }) {
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   return (
     <Section title="Farm & display" sub="Your farm's name, plus colors and units used across the dashboard."
-      footer={<>{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
+      footer={<>{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Farm name" hint="Shown under the LayerHound logo, as the main heading, and in the browser tab."><input className={inputClass} maxLength={40} placeholder="My Print Farm" value={f.farm_name} onChange={set("farm_name")} /></Field>
         <Field label="Description" hint="Shown under the main heading. Leave blank to hide."><input className={inputClass} maxLength={120} value={f.farm_description} onChange={set("farm_description")} /></Field>
@@ -2198,7 +2242,7 @@ function BrandingSection({ onSaved }) {
           <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Accent color">
             {Object.entries(ACCENTS).map(([k, a]) => (
               <button key={k} type="button" role="radio" aria-checked={f.accent === k} aria-label={a.label} title={a.label} onClick={() => setF(x => ({ ...x, accent: k }))}
-                className={`h-8 w-8 rounded-full ring-offset-2 ring-offset-[#11151f] ${f.accent === k ? "ring-2 ring-white" : "hover:ring-2 hover:ring-white/30"}`} style={{ background: a[500] }} />
+                className={`h-8 w-8 rounded-full ring-offset-2 ring-offset-[var(--lh-card)] ${f.accent === k ? "ring-2 ring-white" : "hover:ring-2 hover:ring-white/30"}`} style={{ background: a[500] }} />
             ))}
           </div>
         </div>
@@ -2220,7 +2264,7 @@ function AlertsSection({ onSaved }) {
   );
   return (
     <Section title="Alerts" sub="When alerts appear in the header, sidebar and Alerts list."
-      footer={<>{note}<button onClick={submit} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
+      footer={<>{note}<button onClick={submit} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {NumberField({ k: "temp_warn", label: "Server running hot at", suffix: unit })}
         {NumberField({ k: "temp_hot", label: "Server overheating at", suffix: unit })}
@@ -2250,7 +2294,7 @@ function FanSection({ onSaved }) {
   const submit = () => save({ ...f, fan_quiet_temp: fromUnit(f.fan_quiet_temp), fan_full_temp: fromUnit(f.fan_full_temp) });
   return (
     <Section title={<span className="flex items-center gap-2"><Fan size={16} className="text-violet-400" /> Cooling fan</span>} sub={`Now ${fan.percent ?? "—"}%${fan.temp_c != null ? ` at ${fmtTemp(fan.temp_c, 0)}` : ""}. If LayerHound stops, the fan goes to full speed.`}
-      footer={<>{note}<button onClick={submit} disabled={busy || !fan.controlled} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
+      footer={<>{note}<button onClick={submit} disabled={busy || !fan.controlled} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
       {!fan.controlled && <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/6 px-3 py-2 text-sm text-amber-100">LayerHound doesn't have permission to set the fan speed yet, so it runs at full speed. Run the board setup again (deploy) to fix this.</div>}
       <Segmented label="Fan mode" value={f.fan_mode} onChange={v => setF(x => ({ ...x, fan_mode: v }))} options={[["auto", "Automatic"], ["full", "Always full speed"]]} />
       {f.fan_mode === "auto" && (
@@ -2308,7 +2352,7 @@ function DataSection({ onSaved, onRestored }) {
         <Field label="Storage trend">{days("storage_history_days", [7, 30, 90, 180, 365])}</Field>
         <Field label="Data usage">{days("data_usage_days", [7, 30, 90, 180, 365])}</Field>
       </div>
-      <div className="mt-3 flex items-center justify-end gap-3">{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></div>
+      <div className="mt-3 flex items-center justify-end gap-3">{note}<button onClick={() => save(f)} disabled={busy} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></div>
 
       <div className="mt-5 border-t border-white/6 pt-4">
         <div className="text-sm font-medium text-white">Clear history</div>
@@ -2318,7 +2362,7 @@ function DataSection({ onSaved, onRestored }) {
               <span><span className="block text-sm text-slate-200">{label}</span><span className="block text-xs text-slate-600">{hint}</span></span>
               {confirmClear === k ? (
                 <span className="flex items-center gap-2">
-                  <button onClick={async () => { await clearHistory(k); setConfirmClear(null); setCleared(k); setTimeout(() => setCleared(""), 2500); }} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500">Clear {label.toLowerCase()}</button>
+                  <button onClick={async () => { await clearHistory(k); setConfirmClear(null); setCleared(k); setTimeout(() => setCleared(""), 2500); }} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs font-medium text-[#fff] hover:bg-red-500">Clear {label.toLowerCase()}</button>
                   <button onClick={() => setConfirmClear(null)} className="rounded-lg px-2 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
                 </span>
               ) : cleared === k ? <span className="text-xs text-emerald-300">Cleared</span> : (
@@ -2345,7 +2389,7 @@ function DataSection({ onSaved, onRestored }) {
             <div className="mt-1 text-xs text-slate-400">From {restore.data.created ? fmtDate(restore.data.created, { dateStyle: "medium", timeStyle: "short" }) : "an unknown date"} · {restore.data.printers?.length ?? 0} printers · {restore.data.net_devices?.length ?? 0} devices · {restore.data.services?.length ?? 0} services{restore.data.includes_secrets === false ? " · no access codes or tokens" : ""}</div>
             <div className="mt-2 text-xs text-amber-200/80">This replaces your current printers, devices, services and settings.</div>
             <div className="mt-3 flex gap-2">
-              <button onClick={doRestore} className="rounded-lg bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500">Replace and restore</button>
+              <button onClick={doRestore} className="rounded-lg bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-[#fff] hover:bg-amber-500">Replace and restore</button>
               <button onClick={() => setRestore(null)} className="rounded-lg px-3 py-1.5 text-xs text-slate-400 hover:bg-white/5">Cancel</button>
             </div>
           </div>
@@ -2382,7 +2426,7 @@ function AboutSection() {
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {confirm ? (
               <>
-                <button onClick={restart} className="rounded-lg bg-amber-500/80 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500">Restart now</button>
+                <button onClick={restart} className="rounded-lg bg-amber-500/80 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-amber-500">Restart now</button>
                 <button onClick={() => setConfirm(false)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
               </>
             ) : (
@@ -2393,6 +2437,15 @@ function AboutSection() {
           </div>
         </>
       )}
+    </Section>
+  );
+}
+
+function AppearanceSection() {
+  const [theme, choose] = useTheme();
+  return (
+    <Section title="Appearance" sub="Saved on this device only, so each screen can have its own.">
+      <Segmented label="Theme" value={theme} onChange={choose} options={THEMES.map(([v, label]) => [v, label])} />
     </Section>
   );
 }
@@ -2419,7 +2472,7 @@ function AccountSection() {
         <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
           {status?.error && <span className="text-xs text-red-300">{status.error}</span>}
           {status?.ok && <span className="text-xs text-emerald-300">{status.ok}</span>}
-          <button type="submit" disabled={status?.busy || !f.current || !f.next} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{status?.busy ? "Saving…" : "Change password"}</button>
+          <button type="submit" disabled={status?.busy || !f.current || !f.next} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{status?.busy ? "Saving…" : "Change password"}</button>
         </div>
       </form>
     </Section>
@@ -2441,7 +2494,7 @@ function UserRow({ u, onChanged, onError }) {
           <div className="truncate text-sm text-white">{u.username}{me && <span className="ml-2 text-xs text-slate-500">(you)</span>}</div>
           <div className="text-xs text-slate-600">{u.last_login ? `Last signed in ${fmtDate(u.last_login * 1000, { dateStyle: "medium", timeStyle: "short" })}` : "Never signed in"}</div>
         </div>
-        <select aria-label={`Role for ${u.username}`} value={u.role} onChange={e => run(() => editUser(u.id, { role: e.target.value }))} className="rounded-lg border border-white/10 bg-[#0b0e15] px-2 py-1.5 text-xs text-slate-200">
+        <select aria-label={`Role for ${u.username}`} value={u.role} onChange={e => run(() => editUser(u.id, { role: e.target.value }))} className="rounded-lg border border-white/10 bg-[var(--lh-input)] px-2 py-1.5 text-xs text-slate-200">
           <option value="admin">Admin</option><option value="viewer">View only</option>
         </select>
         {!me && <button onClick={() => setMode(mode === "password" ? null : "password")} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/5">Set password</button>}
@@ -2450,13 +2503,13 @@ function UserRow({ u, onChanged, onError }) {
       {mode === "password" && (
         <form onSubmit={e => { e.preventDefault(); run(() => editUser(u.id, { password: pw })); }} className="mt-3 flex gap-2 pl-11">
           <div className="flex-1"><PasswordInput value={pw} onChange={setPw} autoComplete="new-password" placeholder="New password (8+ characters)" /></div>
-          <button type="submit" disabled={pw.length < 8} className="rounded-lg bg-violet-500 px-3 text-sm text-white hover:bg-violet-400 disabled:opacity-50">Save</button>
+          <button type="submit" disabled={pw.length < 8} className="rounded-lg bg-violet-500 px-3 text-sm text-[#fff] hover:bg-violet-400 disabled:opacity-50">Save</button>
         </form>
       )}
       {mode === "remove" && (
         <div className="mt-3 flex flex-wrap items-center gap-2 pl-11 text-sm text-slate-300">
           Remove {u.username}? They'll be signed out right away.
-          <button onClick={() => run(() => deleteUser(u.id))} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-500">Remove</button>
+          <button onClick={() => run(() => deleteUser(u.id))} className="rounded-lg bg-red-500/80 px-2.5 py-1.5 text-xs font-medium text-[#fff] hover:bg-red-500">Remove</button>
           <button onClick={() => setMode(null)} className="rounded-lg px-2.5 py-1.5 text-xs text-slate-400 hover:bg-white/5">Keep</button>
         </div>
       )}
@@ -2507,7 +2560,7 @@ function AccessSection({ onSaved }) {
           <Field label="Access"><select value={adding.role} onChange={e => setAdding(x => ({ ...x, role: e.target.value }))} className={inputClass}><option value="viewer">View only</option><option value="admin">Admin</option></select></Field>
           <div className="flex gap-2">
             <button type="button" onClick={() => setAdding(null)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
-            <button type="submit" disabled={!adding.username || adding.password.length < 8} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">Add</button>
+            <button type="submit" disabled={!adding.username || adding.password.length < 8} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">Add</button>
           </div>
         </form>
       )}
@@ -2566,6 +2619,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <AccessSection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
         </>}
+        <AppearanceSection />
         {session.user?.kind === "user" && <AccountSection />}
         <AboutSection />
       </div>
@@ -2613,7 +2667,7 @@ function DailyBars({ days }) {
     setHover(days[Math.max(0, Math.min(days.length - 1, i))]);
   };
   return (
-    <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+    <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-semibold text-white">Hours printed per day</h3>
         <div className="text-right">
@@ -2625,7 +2679,7 @@ function DailyBars({ days }) {
         <svg width={width} height={H} className="block touch-none select-none" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onTouchMove={onMove} onTouchEnd={() => setHover(null)} role="img" aria-label={`Hours printed per day over the last ${days.length} days`}>
           {[0, top / 2, top].map(v => (
             <g key={v}>
-              <line x1={L} x2={width} y1={y(v)} y2={y(v)} stroke="rgba(255,255,255,.06)" />
+              <line x1={L} x2={width} y1={y(v)} y2={y(v)} style={{ stroke: "var(--lh-grid)" }} />
               <text x={L - 6} y={y(v) + 3.5} textAnchor="end" className="fill-slate-600 text-[10px] tabular-nums">{v}</text>
             </g>
           ))}
@@ -2713,7 +2767,7 @@ function HistoryPage({ printers }) {
         <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric icon={Printer} label="Prints" value={t.jobs.toLocaleString()} sub={t.active ? `${t.active} printing now` : days ? `In the last ${days} days` : "All time"} />
-            <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
+            <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-4">
               <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><CircleCheck size={15} /> Success rate</div>
               <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{t.success_rate == null ? "—" : `${t.success_rate}%`}</div>
               <div className="mt-1 text-xs text-slate-500">{t.completed} completed · {t.failed} failed · {t.cancelled} cancelled</div>
@@ -2724,7 +2778,7 @@ function HistoryPage({ printers }) {
 
           <section className="mt-4"><DailyBars days={stats.daily} /></section>
 
-          <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+          <section className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
             <h2 className="font-semibold text-white">By printer</h2>
             <p className="mt-1 text-xs text-slate-600">Click a printer to see only its prints below.</p>
             <div className="mt-4 overflow-x-auto">
@@ -2756,7 +2810,7 @@ function HistoryPage({ printers }) {
         </>
       )}
 
-      <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+      <section className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
           <div><h2 className="font-semibold text-white">Prints</h2><p className="mt-1 text-xs text-slate-600">{jobs ? `${jobs.total.toLocaleString()} matching` : "Loading…"}</p></div>
           <div className="flex flex-wrap gap-2">
@@ -2790,7 +2844,7 @@ function HistoryPage({ printers }) {
                 <div className="w-24 text-right">
                   {j.status === "printing" ? null : confirm === j.id ? (
                     <span className="flex items-center justify-end gap-1">
-                      <button onClick={() => remove(j.id)} className="rounded-lg bg-red-500/80 px-2 py-1 text-xs text-white hover:bg-red-500">Delete</button>
+                      <button onClick={() => remove(j.id)} className="rounded-lg bg-red-500/80 px-2 py-1 text-xs text-[#fff] hover:bg-red-500">Delete</button>
                       <button onClick={() => setConfirm(null)} className="rounded-lg px-1.5 py-1 text-xs text-slate-400 hover:bg-white/5">Keep</button>
                     </span>
                   ) : (
@@ -2898,7 +2952,7 @@ function Dashboard({ onSignOut, onSignIn }) {
   const title = PAGE_TITLES[page] ?? page;
 
   return (
-    <div className="min-h-screen bg-[#090b12] text-slate-200">
+    <div className="min-h-screen bg-[var(--lh-bg)] text-slate-200">
       <div className="flex min-h-screen">
         <Sidebar page={page} setPage={setPage} open={menu} setOpen={setMenu} usingDemo={usingDemo} summary={summary} onSignOut={onSignOut} onSignIn={onSignIn} />
         <main className="min-w-0 flex-1">
@@ -2978,7 +3032,7 @@ function Dashboard({ onSignOut, onSignIn }) {
                 </section>
 
                 <section className="mt-8 grid gap-4 lg:grid-cols-3">
-                  <div className="lg:col-span-2 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+                  <div className="lg:col-span-2 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0"><h2 className="font-semibold text-white">Server Health</h2><p className="mt-1 truncate text-xs text-slate-600">{system ? `${system.hostname}${system.ip ? ` · ${system.ip}` : ""}` : "Waiting for API"}</p></div>
                       <button onClick={() => setPage("server")} className="flex shrink-0 items-center gap-1 text-xs font-medium text-violet-400 hover:text-violet-300">Details <ChevronRight size={14} /></button>
@@ -3005,7 +3059,7 @@ function Dashboard({ onSignOut, onSignIn }) {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-white/8 bg-[#11151f] p-5">
+                  <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
                     <div className="flex items-center justify-between"><div><h2 className="font-semibold text-white">Services</h2><p className="mt-1 text-xs text-slate-600">Live checks</p></div><button onClick={() => setPage("services")} className="flex items-center gap-1 text-xs font-medium text-violet-400 hover:text-violet-300">Manage <ChevronRight size={14} /></button></div>
                     <div className="mt-4 space-y-3">
                       {services.map(sv => (
@@ -3020,7 +3074,7 @@ function Dashboard({ onSignOut, onSignIn }) {
                   </div>
                 </section>
 
-                <section className="mt-4 rounded-2xl border border-white/8 bg-[#11151f] p-5">
+                <section className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
                   <div className="flex items-center justify-between">
                     <div><h2 className="font-semibold text-white">Alerts</h2><p className="mt-1 text-xs text-slate-600">Printers, internet, devices, services, server temperature, storage and memory</p></div>
                     <AlertTriangle className={alerts.length ? "text-amber-300" : "text-slate-600"} size={18} />
@@ -3049,4 +3103,5 @@ function Dashboard({ onSignOut, onSignIn }) {
   );
 }
 
+applyTheme();
 createRoot(document.getElementById("root")).render(<App />);

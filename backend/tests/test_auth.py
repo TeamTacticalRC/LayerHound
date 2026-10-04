@@ -64,6 +64,7 @@ def test_viewer_is_read_only(client):
     assert v.get("/api/printers").status_code == 200
     assert v.put("/api/settings", json={"temp_unit": "F"}).status_code == 403
     assert v.get("/api/settings/backup").status_code == 403
+    assert v.post("/api/settings/shutdown").status_code == 403
     assert v.get("/api/auth/users").status_code == 403
     # Viewers may still change their own password
     assert v.post("/api/auth/password", json={"current": "viewer pass 1", "new": "viewer pass 2"}).status_code == 200

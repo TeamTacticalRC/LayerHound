@@ -108,6 +108,11 @@ polkit.addRule(function(action, subject) {
   if (unit == "layerhound-updater.service" && verb == "start") return polkit.Result.YES;
   if (unit == "$SERVICE.service" && verb == "restart") return polkit.Result.YES;
 });
+// Settings -> Shut down board (a clean power-off before unplugging)
+polkit.addRule(function(action, subject) {
+  if (subject.user == "$APP_USER" && (action.id == "org.freedesktop.login1.power-off" ||
+      action.id == "org.freedesktop.login1.power-off-multiple-sessions")) return polkit.Result.YES;
+});
 POLKIT_RULE
 sudo chmod 644 /etc/polkit-1/rules.d/50-layerhound-updates.rules
 

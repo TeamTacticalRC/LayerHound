@@ -185,3 +185,15 @@ def test_docker_restart_rejects_bad_ids(client):
     # "../" is collapsed before routing, so this never reaches the restart handler at all
     assert client.post("/api/services/docker/../../etc/restart").status_code >= 400
     assert client.post("/api/services/docker/not-hex/restart").status_code == 400
+
+
+def test_shutdown_only_on_the_board(client, monkeypatch):
+    import settings
+    calls = []
+    monkeypatch.setattr(settings.subprocess, "run", lambda *a, **k: calls.append(a))
+    assert client.post("/api/settings/shutdown").status_code == 409   # not running as the board's service
+    monkeypatch.setattr(settings, "as_service", lambda: True)
+    monkeypatch.setattr(settings.threading, "Timer", lambda delay, fn: type("T", (), {"start": lambda self: fn()})())
+    assert client.post("/api/settings/shutdown").status_code == 200
+    assert calls and calls[0][0] == ["systemctl", "poweroff"]
+    assert client.get("/api/settings/about").json()["can_shutdown"] is True

@@ -150,6 +150,9 @@ It asks for a new password, and signs that account out everywhere. `layerhound u
 **The dashboard looks out of date after an update**
 - Press **Reload** on the banner, or refresh the page.
 
+**Unplugging the board**
+- Use **Settings → About & maintenance → Shut down board** first, then unplug once the activity light stops blinking. Pulling the power while LayerHound is writing can damage the SD card.
+
 **Something else**
 - **Settings → About & maintenance → Restart dashboard** fixes most temporary problems.
 - Then tell us, using **Send feedback**.

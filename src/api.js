@@ -63,3 +63,4 @@ export const getHealth=()=>fetch('/api/health',{cache:'no-store'}).then(r=>{if(!
 export const getUpdates=()=>req('/api/updates');
 export const checkUpdates=()=>req('/api/updates/check',{method:'POST'});
 export const installUpdate=()=>req('/api/updates/install',{method:'POST'});
+export const shutdownBoard=()=>req('/api/settings/shutdown',{method:'POST'});

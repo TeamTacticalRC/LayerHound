@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
   ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
-  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, MessageSquareHeart, Send, KeyRound, LogIn, LogOut, UserRound, Users, Copy
+  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, MessageSquareHeart, Send, Power, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
 
@@ -2508,8 +2508,13 @@ function AboutSection() {
   const [confirm, setConfirm] = useState(false);
   const [msg, setMsg] = useState("");
   useEffect(() => { getAbout().then(setAbout).catch(() => {}); }, []);
+  const [off, setOff] = useState(false);
   const restart = async () => {
     try { await restartDashboard(); setMsg("Restarting. The page reconnects in a few seconds."); setConfirm(false); }
+    catch (e) { setMsg(e.message); }
+  };
+  const shutdown = async () => {
+    try { await shutdownBoard(); setOff(true); setConfirm(false); }
     catch (e) { setMsg(e.message); }
   };
   return (
@@ -2523,14 +2528,29 @@ function AboutSection() {
           <Row label="Files folder" value={about.files_folder} />
           <Row label="Python" value={about.python} />
           <Row label="System" value={about.platform} />
+          {off && (
+            <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-sm text-amber-100">
+              <Power size={16} className="mt-0.5 shrink-0" />
+              <span>The board is shutting down. When its activity light stops blinking (about 30 seconds), it's safe to unplug the power. Plug it back in to start LayerHound again.</span>
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            {confirm ? (
+            {confirm === "restart" ? (
               <>
                 <button onClick={restart} className="rounded-lg bg-amber-500/80 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-amber-500">Restart now</button>
                 <button onClick={() => setConfirm(false)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
               </>
-            ) : (
-              <button data-admin onClick={() => setConfirm(true)} disabled={!about.can_restart} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:cursor-not-allowed disabled:opacity-40"><RotateCw size={15} /> Restart dashboard</button>
+            ) : confirm === "shutdown" ? (
+              <>
+                <span className="text-sm text-slate-300">Shut down the board? LayerHound stops until the power is unplugged and plugged back in. Printers keep printing.</span>
+                <button onClick={shutdown} className="rounded-lg bg-red-500/80 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-red-500">Shut down</button>
+                <button onClick={() => setConfirm(false)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
+              </>
+            ) : !off && (
+              <>
+                <button data-admin onClick={() => setConfirm("restart")} disabled={!about.can_restart} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:cursor-not-allowed disabled:opacity-40"><RotateCw size={15} /> Restart dashboard</button>
+                {about.can_shutdown && <button data-admin onClick={() => setConfirm("shutdown")} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:border-red-500/30 hover:bg-white/[.06] hover:text-red-300"><Power size={15} /> Shut down board</button>}
+              </>
             )}
             {!about.can_restart && <span className="text-xs text-slate-600">{about.restart_note}</span>}
             {msg && <span className="text-xs text-slate-400">{msg}</span>}

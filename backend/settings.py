@@ -1,7 +1,7 @@
 # Settings page: branding/display, alert thresholds, data retention, backups, about/maintenance.
 from datetime import datetime, timezone
 from pathlib import Path
-import json, os, platform, sqlite3, sys, threading, time
+import json, os, platform, sqlite3, subprocess, sys, threading, time
 import psutil
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -200,7 +200,15 @@ def about_info():
  return {'version':APP_VERSION,'python':platform.python_version(),'platform':platform.platform(),
   'database':_about_paths['db'],'database_bytes':db.stat().st_size if db and db.exists() else None,'files_folder':_about_paths['files'],
   'started':datetime.fromtimestamp(me.create_time(),timezone.utc).isoformat(),'memory_mb':round(me.memory_info().rss/2**20,1),
-  'can_restart':as_service(),'restart_note':None if as_service() else 'Restart is available when the dashboard runs as a service on the board. Here, restart it from the terminal.'}
+  'can_restart':as_service(),'can_shutdown':as_service(),'restart_note':None if as_service() else 'Restart is available when the dashboard runs as a service on the board. Here, restart it from the terminal.'}
+
+@router.post('/shutdown')
+def shutdown():
+ # Powers off the whole board cleanly, so the power can be unplugged safely (e.g. to swap the SD
+ # card). setup.sh allows the LayerHound user to power off the board, and nothing more.
+ if not as_service(): raise HTTPException(409,'Shut down is only available on the LayerHound board')
+ threading.Timer(1.0,lambda:subprocess.run(['systemctl','poweroff'],capture_output=True,timeout=30)).start()
+ return {'status':'shutting down'}
 
 @router.post('/restart')
 def restart():

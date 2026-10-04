@@ -4,11 +4,23 @@
 
 **A home hub for your 3D print farm and home lab.** LayerHound watches your printers, server, storage, network and services from one dashboard that runs on a small board on your network (or on any Mac or Linux computer).
 
-By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
+By [Team Tactical RC](https://github.com/TeamTacticalRC).
 
-> LayerHound is not affiliated with or endorsed by Bambu Lab, Klipper, Moonraker, OctoPrint, Creality, Elegoo, Snapmaker or any other printer maker or project it works with.
+> LayerHound is not affiliated with or endorsed by Bambu Lab, Klipper, Moonraker, OctoPrint, Creality, Elegoo, Snapmaker or any other printer maker or project it works with. Bambu Lab has been limiting third-party access in firmware updates, so a future Bambu firmware could stop LayerHound from reading Bambu printers.
 
 ![LayerHound dashboard: five printers with progress, temperatures and time left, plus server health, services and alerts](docs/screenshots/dashboard.png)
+
+## Get started
+
+On a Debian-based board (Debian 12, Armbian, Raspberry Pi OS or Ubuntu), run:
+
+```bash
+curl -fsSL https://github.com/TeamTacticalRC/layerhound-releases/releases/latest/download/install.sh | bash
+```
+
+Then open **http://layerhound.local**. The installer checks that the download is signed by Team Tactical RC before installing.
+
+**The [owner's guide](docs/GUIDE.md)** covers everything else: adding printers, accounts, Wi-Fi, updates, backups, remote access and troubleshooting.
 
 ## What it does
 
@@ -62,7 +74,7 @@ Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its
 
 <sub>Printer data in these screenshots is from a real five-printer farm. The services, containers and files are example entries, and network details such as addresses and serial numbers have been replaced.</sub>
 
-## Quick start (try it on your computer)
+## Develop: run it on your computer
 
 You'll need **Python 3.10+** and **Node.js 20+** on macOS or Linux.
 
@@ -84,7 +96,9 @@ npm run dev
 
 **3.** Open **http://localhost:5173**. The first visit shows a welcome screen where you name your farm and create the admin account. Then go to **Print Farm → Add printer**, or use **Network → Scan network** to find printers automatically.
 
-## Install on a home lab board
+## Develop: deploy to a board from your computer
+
+**To install LayerHound normally, use [Get started](#get-started).** This section is for working on LayerHound itself: it deploys the code in this folder straight to a board.
 
 LayerHound is designed to run around the clock on a small Linux board such as a Radxa ROCK or Raspberry Pi. On the board it runs as a single service: the backend also serves the dashboard, on port 80.
 
@@ -165,7 +179,10 @@ backend/            Python API (FastAPI)
   hotspot.py        LayerHound-Setup hotspot for Wi-Fi setup without a cable
   manage.py         owner tools on the board (reset-password, hotspot)
 src/                Dashboard (React + Tailwind)
-deploy/             deploy.sh (runs on your computer), setup.sh (runs on the board)
+deploy/             install.sh (one-line installer), deploy.sh (developer deploy from your computer), setup.sh (board setup)
+docs/GUIDE.md       Owner's guide
+hardware/case/      Printable case for the ROCK 4D
+scripts/release.py  Publishes a signed release (see RELEASING.md)
 ROADMAP.md          What's planned next
 ```
 

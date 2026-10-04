@@ -5,7 +5,8 @@
 # 1. Sets the version in the code, commits "Release vX.Y.Z", tags it and pushes (private repo).
 # 2. Builds the dashboard and packages backend/, deploy/ and dist/ as layerhound-X.Y.Z.tar.gz.
 # 3. Signs the package with the release key (~/.layerhound/release-signing.key, never committed).
-# 4. After you confirm, publishes it to the public releases repo with the notes and a manifest.
+# 4. After you confirm, publishes it to the public releases repo with the notes, a manifest and
+#    the installer (deploy/install.sh), so ".../releases/latest/download/install.sh" is always current.
 #
 # --needs-setup marks a release that changes the board setup (deploy/setup.sh: system packages,
 # permissions, services). Boards then ask for a full install instead of one-click; the script
@@ -92,7 +93,7 @@ def main():
   sys.exit(f'Not published. The release commit and tag are local only; files are in {out}')
  sh('git','push','-q'); sh('git','push','-q','origin',f'v{version}')
  sh('gh','release','create',f'v{version}','--repo',RELEASES_REPO,'--title',f'LayerHound v{version}','--notes-file',str(out/'notes.md'),
-    str(out/name),str(out/f'{name}.sig'),str(out/'manifest.json'))
+    str(out/name),str(out/f'{name}.sig'),str(out/'manifest.json'),str(ROOT/'deploy/install.sh'))
  print(f'==> Published: https://github.com/{RELEASES_REPO}/releases/tag/v{version}')
 
 if __name__=='__main__': main()

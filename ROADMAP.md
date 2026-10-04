@@ -55,7 +55,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - **SD card image:** skip at first. It needs a separate image per board model and a rebuild for every update.
 
 ### Work needed
-- [ ] **Pre-built releases:** GitHub Actions builds the frontend on each version tag, so buyers don't need Node.js.
+- [x] **Pre-built releases** (2026-10-04): `scripts/release.py` builds, signs and publishes each version (dashboard already built), so owners don't need Node.js. **One-line installer** `deploy/install.sh` (published with every release) downloads the latest release, checks its checksum and signature, installs and runs the board setup. Tested in test mode on the board; the full fresh-board install is still to test.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
 - [x] **Remove hardcoded personal details:** the LayerHound name and logo are fixed product branding (2026-10-02); each install sets its own **farm name** in Settings, shown under the logo, as the main heading and in the browser tab. The first-run welcome screen asks for it (v0.5.0).
 - [x] **Login** (v0.5.0, 2026-10-02): see the Login plan below.
@@ -66,7 +66,7 @@ Goal: make installing as easy as possible for other people, once it's proven on 
   - [ ] **Stage 3: optional automatic updates** overnight, off by default, with a setting to choose.
   - Releases are built and signed on the Mac by `scripts/release.py`, not by GitHub Actions, so the signing key never leaves the Mac.
 - [x] **Licensing** (2026-10-04): **AGPL-3.0** (`LICENSE`); the name, logo and mascot are excluded (`TRADEMARKS.md`). All dependencies are compatible (paho-mqtt is dual-licensed EPL-2.0/EDL-1.0).
-- [ ] **Bambu risk:** Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.
+- [x] **Bambu risk** (noted in the README and owner's guide): Bambu keeps tightening third-party access in firmware updates. Be upfront with customers that Bambu support could stop working.
 
 ### Login plan
 Built in v0.5.0 (2026-10-02), including encrypting the stored printer secrets.
@@ -98,8 +98,8 @@ Open source means anyone can read and fork the code, but only people with write 
 - [ ] **Branch protection on `main`**: require a pull request with passing checks, and block force-pushes and deletion. Free once the repository is public; private repositories need a paid GitHub plan.
 - [ ] **Enable** Dependabot alerts, secret scanning and private vulnerability reporting under the repository's Settings → Code security, as each becomes available.
 - [ ] **Review rules for contributions:** read every pull request, with extra care for the installer, updates, network calls, file paths and anything that runs commands. Ask for small pull requests. Don't hand out write access quickly; for now, only the maintainer merges.
-- [ ] **Official releases built by GitHub Actions** from tagged versions, with checksums (and later signatures) so anyone can verify a download came from this repository.
-- [ ] **Signed updates:** when automatic updates exist, boards only install updates signed with the project's key. Otherwise a compromised download server could take over every board.
+- [x] **Official releases** with checksums and signatures, built and signed on the release Mac by `scripts/release.py` (not GitHub Actions, so the signing key never leaves the Mac).
+- [x] **Signed updates** (2026-10-04, Ed25519): when automatic updates exist, boards only install updates signed with the project's key. Otherwise a compromised download server could take over every board.
 - [ ] **Frontend tests** for key screens, alongside the backend tests.
 
 ## Branding & business
@@ -110,7 +110,7 @@ Plan: free **open-source software**, plus a **pre-built plug-and-play board** so
 - [x] **License:** **AGPL-3.0**, chosen 2026-10-04. Anyone who modifies it and offers it to others, even as a hosted service, must share their changes. All current dependencies (FastAPI, React, paho-mqtt, psutil, lucide) are compatible.
 - [ ] **Trademark: deferred (decided 2026-10-02).** Registering costs about $1,000 in USPTO fees (two classes: 9 and 42, intent-to-use) plus $500–$2,000 for an attorney. Until it's worth it, rely on common-law rights from using the name: mark it **LayerHound™**, keep proof of first-use dates (GitHub history from 2026-10-01, domain registration, first posts and first sale), and revisit filing if sales take off. Risk accepted: someone else could register a similar name first.
 - [ ] **Legal check (optional for now):** if the budget allows before launch, a short attorney consult on the license, the AI-generated logo and trademark risk.
-- [ ] **Disclaimers:** "not affiliated with" Bambu Lab, Klipper, OctoPrint and others. Don't use their logos.
+- [x] **Disclaimers** (README and owner's guide): "not affiliated with" Bambu Lab, Klipper, OctoPrint and others. Don't use their logos.
 
 ### Name shortlist (first-pass check on 2026-10-01)
 Every name below had an unregistered .com (per whois), a free GitHub name, and no matching product found in a web search. This is **not** a trademark search: check the USPTO database (and with the attorney) before committing, and register the domain as soon as you decide.
@@ -140,8 +140,8 @@ Taken or in use when checked: FarmDeck, LayerWatch, Spoolhouse, PrintHQ, PrintHo
 - [ ] **Hardware:** the board (currently ROCK 4D; confirm long-term availability), a 3D-printed enclosure from the farm (with a 40 mm fan: `hardware/case/`, designed 2026-10-02; test print fit confirmed 2026-10-04), a power supply, and the LED status bar as an optional add-on.
 - [ ] **Case fan for production:** order 40 × 40 × 10 mm 5 V fans pre-terminated with a **2-pin 1.25 mm plug** (fits the ROCK 4D's fan header) and a set wire length, so no splicing is needed. For now the prototypes use common 4010 5 V fans with a 1.25 mm pigtail soldered on. Check plug polarity against Radxa's fan header page.
 - [x] **Fan speed by temperature** (2026-10-04, `backend/fan.py`): on the ROCK 4D's fan header, LayerHound runs the fan at a quiet minimum up to 45°C and speeds up evenly to full at 65°C (adjustable in Settings → Cooling fan, or set to always full). The Server page shows the fan speed. If LayerHound stops, crashes or can't read a temperature, the fan goes to full speed.
-- [ ] **First boot:** plug in Ethernet and power, open `http://[product].local`, and a setup screen asks for a name, admin password (see Login plan) and printers. The network scan makes adding printers nearly automatic.
+- [x] **First boot** (welcome screen built in v0.5.0): plug in Ethernet and power, open `http://[product].local`, and a setup screen asks for a name, admin password (see Login plan) and printers. The network scan makes adding printers nearly automatic.
 - [x] **No-cable Wi-Fi setup (setup hotspot)** (built 2026-10-02, needs a real-phone test on the board). When the board has no network for 3 minutes (45 seconds if it was never set up), it creates an open Wi-Fi network, **"LayerHound-Setup"**. Joining it from a phone opens the setup page automatically (captive portal): pick the home Wi-Fi and, on a new board, name the farm and create the admin account. Once accounts exist, changing Wi-Fi there needs an admin sign-in. The board then joins the network and deletes the hotspot profile; a wrong password brings the hotspot back with the error. While on, it retries the saved Wi-Fi every 5 minutes when no phone is connected, and it turns off when a cable is plugged in. `layerhound hotspot start|stop` turns it on by hand (it turns itself off after 30 minutes). Code: `backend/hotspot.py`; DNS redirect and permission in `deploy/setup.sh`.
-- [ ] **Updates** that work for devices in the field (ties into Update checks above).
+- [x] **Updates** that work for devices in the field: one-click signed updates with automatic rollback (see Updates above).
 - [ ] **Compliance:** check FCC requirements for the finished product (using a pre-certified board helps).
 - [ ] **Business:** price (Home Assistant Green is roughly $100–130 for reference), warranty, returns and support.

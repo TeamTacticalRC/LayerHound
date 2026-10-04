@@ -353,7 +353,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
   return (
     <>
       {open && <div className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-white/7 bg-[var(--lh-input)] transition-transform lg:static lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-white/7 bg-[var(--lh-input)] transition-transform lg:sticky lg:top-0 lg:h-screen lg:self-start lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex h-20 items-center justify-between px-5">
           <div className="flex min-w-0 items-center gap-3">
             <img src="/brand/layerhound-mascot.png" alt="" className="h-11 w-11 shrink-0 object-contain" />
@@ -368,7 +368,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
           <span className="text-[11px] text-slate-600">Theme</span>
           <ThemeButtons />
         </div>
-        <nav className="flex-1 px-3 py-3">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {items.map(([label, Icon, key]) => (
             <button key={key} onClick={() => { setPage(key); setOpen(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${page === key ? "bg-violet-500/12 text-white" : "text-slate-500 hover:bg-white/4 hover:text-slate-300"}`}>
               <Icon size={18} className={page === key ? "text-violet-400" : ""} />

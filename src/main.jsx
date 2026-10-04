@@ -364,6 +364,10 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
           </div>
           <button className="lg:hidden text-slate-500" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
         </div>
+        <div className="flex items-center justify-between px-5 pb-1">
+          <span className="text-[11px] text-slate-600">Theme</span>
+          <ThemeButtons />
+        </div>
         <nav className="flex-1 px-3 py-3">
           {items.map(([label, Icon, key]) => (
             <button key={key} onClick={() => { setPage(key); setOpen(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${page === key ? "bg-violet-500/12 text-white" : "text-slate-500 hover:bg-white/4 hover:text-slate-300"}`}>
@@ -374,10 +378,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
         </nav>
         <div className="m-3 rounded-xl border border-white/6 bg-white/[.025] p-3">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-300"><StatusDot tone={summary.tone} /> <span className="truncate">{summary.text}</span></div>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <div className="text-[10px] text-slate-600">LayerHound {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
-            <ThemeButtons />
-          </div>
+          <div className="mt-2 text-[10px] text-slate-600">LayerHound {APP_VERSION}{usingDemo ? " • Demo printers" : " • Live data"}</div>
         </div>
         <AccountBadge onSignOut={onSignOut} onSignIn={onSignIn} />
       </aside>
@@ -2614,12 +2615,14 @@ function SettingsPage({ onSaved, onRestored }) {
       <div className="space-y-4">
         {isAdmin() && <>
           <BrandingSection onSaved={onSaved} />
+          <AppearanceSection />
           <AlertsSection onSaved={onSaved} />
           <FanSection onSaved={onSaved} />
           <AccessSection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
         </>}
-        <AppearanceSection />
+        {/* Everyone can pick their theme; admins see it right under Farm & display */}
+        {!isAdmin() && <AppearanceSection />}
         {session.user?.kind === "user" && <AccountSection />}
         <AboutSection />
       </div>

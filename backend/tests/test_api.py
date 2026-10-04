@@ -9,6 +9,17 @@ UNREACHABLE = "http://127.0.0.1:9"
 def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200 and r.json()["service"] == "layerhound-api"
+    # Open tabs compare this with their own build to offer a reload after an update
+    assert {"version", "build"} <= r.json().keys()
+
+
+def test_build_id(tmp_path, monkeypatch):
+    import main
+    monkeypatch.setattr(main, "DIST", tmp_path)
+    monkeypatch.setattr(main, "_build", {"mtime": None, "id": None})
+    assert main.build_id() is None
+    (tmp_path / "index.html").write_text('<script type="module" crossorigin src="/assets/index-AbC_12-x.js"></script>')
+    assert main.build_id() == "index-AbC_12-x.js"
 
 
 def test_system_and_server(client):

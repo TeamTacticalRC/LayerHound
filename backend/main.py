@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import json, os, platform, socket, sqlite3, ssl, sys, threading, time, urllib.parse, urllib.request
+import json, os, platform, re, socket, sqlite3, ssl, sys, threading, time, urllib.parse, urllib.request
 import paho.mqtt.client as mqtt
 import psutil
 from fastapi import FastAPI, HTTPException
@@ -147,8 +147,20 @@ def snapshot(r,grace=True):
  return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
   'camera_url':r['camera_url'],'has_camera':media.has_camera(r),**x,'updated_at':now()}
 
+# Which build of the dashboard is being served: the hashed name of its main script, which changes
+# with every build. Open tabs compare it with their own to offer a reload after an update.
+_build={'mtime':None,'id':None}
+def build_id():
+ index=DIST/'index.html'
+ try: m=index.stat().st_mtime
+ except OSError: return None
+ if m!=_build['mtime']:
+  found=re.search(r'assets/(index-[\w-]+\.js)',index.read_text())
+  _build.update(mtime=m,id=found.group(1) if found else None)
+ return _build['id']
+
 @app.get('/api/health')
-def health(): return {'status':'ok','service':'layerhound-api','timestamp':now()}
+def health(): return {'status':'ok','service':'layerhound-api','version':settings.APP_VERSION,'build':build_id(),'timestamp':now()}
 # ---- Server monitoring ----------------------------------------------------------
 # Temperature sensors differ per board. Linux thermal zones (e.g. the ROCK 4D's
 # "soc_thermal", "bigcore_thermal") often have blank labels, so match on the group

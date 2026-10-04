@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -578,6 +578,38 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
         </button>
       </form>
     </AuthShell>
+  );
+}
+
+// This page's own build: the hashed name of the main script it loaded (none in development)
+const MY_BUILD = import.meta.env.DEV ? null : (document.querySelector('script[type="module"][src*="/assets/"]')?.getAttribute("src")?.split("/").pop() ?? null);
+const UPDATE_CHECK_EVERY = 60000;
+
+// After LayerHound is updated, an open tab is still running the old version until it reloads.
+// Every minute (and when the window comes back into focus), compare with what the board serves.
+function UpdateBanner() {
+  const [newer, setNewer] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    if (!MY_BUILD) return;
+    let stop = false;
+    const check = async () => { try { const h = await getHealth(); if (!stop && h.build && h.build !== MY_BUILD) setNewer(true); } catch { /* board restarting; try again later */ } };
+    const timer = setInterval(check, UPDATE_CHECK_EVERY);
+    const onFocus = () => check();
+    window.addEventListener("focus", onFocus);
+    check();
+    return () => { stop = true; clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, []);
+  if (!newer || hidden) return null;
+  return (
+    <div role="status" className="fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-3">
+      <div className="flex max-w-full items-center gap-3 rounded-xl border border-violet-400/30 bg-[var(--lh-card)] px-4 py-2.5 text-sm shadow-lg shadow-black/30">
+        <RotateCw size={16} className="shrink-0 text-violet-400" />
+        <span className="text-slate-200">LayerHound has been updated. Reload to get the new version.</span>
+        <button onClick={() => location.reload()} className="shrink-0 rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-medium text-[#fff] hover:bg-violet-400">Reload</button>
+        <button onClick={() => setHidden(true)} className="shrink-0 rounded-lg p-1 text-slate-500 hover:text-white" aria-label="Not now"><X size={15} /></button>
+      </div>
+    </div>
   );
 }
 
@@ -3107,4 +3139,4 @@ function Dashboard({ onSignOut, onSignIn }) {
 }
 
 applyTheme();
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(<><UpdateBanner /><App /></>);

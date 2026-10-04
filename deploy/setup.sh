@@ -67,6 +67,23 @@ if [ ! -s "$APP_DIR/backend/data/oui.csv" ] || [ -n "$(find "$APP_DIR/backend/da
     || echo "   (skipped: couldn't download the list; device manufacturers won't be shown)"
 fi
 
+# Case fan speed (fan.py): let the LayerHound user set the fan's speed (only that), and put the
+# fan back to full speed whenever the service stops, even if it crashed
+APP_GROUP="$(id -gn)"
+sudo tee /etc/udev/rules.d/60-layerhound-fan.rules >/dev/null <<RULE
+SUBSYSTEM=="hwmon", ATTR{name}=="pwmfan", RUN+="/bin/chgrp $APP_GROUP /sys%p/pwm1", RUN+="/bin/chmod g+w /sys%p/pwm1"
+RULE
+sudo udevadm control --reload
+sudo udevadm trigger --subsystem-match=hwmon --attr-match=name=pwmfan --action=change || true
+sudo tee /usr/local/sbin/layerhound-fan-full >/dev/null <<'SCRIPT'
+#!/bin/sh
+for d in /sys/class/hwmon/hwmon*; do
+  [ "$(cat "$d/name" 2>/dev/null)" = pwmfan ] && echo 255 > "$d/pwm1"
+done
+exit 0
+SCRIPT
+sudo chmod 755 /usr/local/sbin/layerhound-fan-full
+
 # Owner tools on the board, e.g. "layerhound reset-password" for a forgotten password,
 # or "layerhound hotspot start" to turn on the setup hotspot
 sudo tee /usr/local/bin/layerhound >/dev/null <<CMD
@@ -90,6 +107,8 @@ Restart=always
 RestartSec=3
 # Tells LayerHound it runs as this service, which enables the Restart button in Settings
 Environment=LAYERHOUND_SERVICE=1
+# Fan to full speed whenever LayerHound stops ("+" runs it as root)
+ExecStopPost=+/usr/local/sbin/layerhound-fan-full
 # Lets a normal user listen on port 80 without running as root
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 

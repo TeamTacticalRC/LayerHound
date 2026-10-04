@@ -35,11 +35,17 @@ SCHEMA={
  'data_usage_days':(90,int,(7,365)),
  # Let devices on the local network view the dashboard without signing in (changes still need an admin)
  'guest_view':(False,bool,None),
+ # Case fan (fan.py): automatic speed from the chip temperature, or always full speed
+ 'fan_mode':('auto',str,('auto','full')),
+ 'fan_quiet_temp':(45,int,(30,70)),
+ 'fan_full_temp':(65,int,(40,85)),
+ 'fan_min_percent':(30,int,(20,100)),
 }
 
 # Names used in error messages, matching the labels on the Settings page
 LABELS={'farm_name':'Farm name','farm_description':'Description','accent':'Accent color','temp_unit':'Temperature unit','time_format':'Time format',
  'temp_warn':'Server running hot','temp_hot':'Server overheating','storage_warn':'Main drive warning','storage_critical':'Main drive critical','memory_warn':'Memory warning',
+ 'fan_mode':'Fan mode','fan_quiet_temp':'Quiet up to','fan_full_temp':'Full speed at','fan_min_percent':'Minimum fan speed',
  'network_history_days':'Uptime history','storage_history_days':'Storage trend','data_usage_days':'Data usage'}
 
 def configure(db):
@@ -92,6 +98,7 @@ def save(changes):
  merged={**all_settings(),**clean}
  # Thresholds must stay in order (warning below hot/critical)
  if merged['temp_warn']>=merged['temp_hot']: raise HTTPException(400,'"Running hot" must be lower than "overheating"')
+ if merged['fan_quiet_temp']>=merged['fan_full_temp']: raise HTTPException(400,'The fan\'s "quiet up to" temperature must be lower than its "full speed at" temperature')
  if merged['storage_warn']>=merged['storage_critical']: raise HTTPException(400,'The main drive warning level must be lower than the critical level')
  c=_db(); c.executemany('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',[(k,json.dumps(v)) for k,v in clean.items()]); c.commit(); c.close()
  _load(); return all_settings()

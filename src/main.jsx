@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
   ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
-  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, KeyRound, LogIn, LogOut, UserRound, Users, Copy
+  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
 
@@ -17,6 +17,7 @@ const prefs = {
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
   network_history_days: 7, storage_history_days: 90, data_usage_days: 90, guest_view: false,
+  fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30,
 };
 
 // Accent colors. The app's styles use Tailwind's violet shades, so switching accent swaps
@@ -1095,6 +1096,7 @@ function ServerPage() {
           {status
             ? <div className={`mt-1 flex items-center gap-1 text-xs ${status.cls}`}><status.Icon size={12} /> {status.label}</div>
             : <div className="mt-1 text-xs text-slate-500">No sensor on this machine</div>}
+          {info.fan?.available && <div className="mt-2 flex items-center gap-1.5 border-t border-white/6 pt-2 text-xs text-slate-400"><Fan size={13} className={info.fan.percent ? "animate-spin [animation-duration:2s]" : ""} /> Fan {info.fan.percent ?? "—"}% · {!info.fan.controlled ? "not controlled" : info.fan.mode === "full" ? "full speed" : "auto"}</div>}
         </div>
         <div className="rounded-2xl border border-white/8 bg-[#11151f] p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-500"><Network size={15} /> Network</div>
@@ -2236,6 +2238,35 @@ function AlertsSection({ onSaved }) {
   );
 }
 
+// Case fan speed (backend/fan.py). Shown when this machine has a speed-controlled fan.
+function FanSection({ onSaved }) {
+  const [fan, setFan] = useState(null);
+  const [f, setF] = useState(() => ({ fan_mode: prefs.fan_mode, fan_quiet_temp: toUnit(prefs.fan_quiet_temp), fan_full_temp: toUnit(prefs.fan_full_temp), fan_min_percent: prefs.fan_min_percent }));
+  const [save, busy, note] = useSaver(onSaved);
+  useEffect(() => { getServer().then(s => setFan(s.fan)).catch(() => setFan({ available: false })); }, []);
+  if (!fan?.available) return null;
+  const unit = `°${prefs.temp_unit}`;
+  const num = k => e => setF(x => ({ ...x, [k]: e.target.value === "" ? "" : Number(e.target.value) }));
+  const submit = () => save({ ...f, fan_quiet_temp: fromUnit(f.fan_quiet_temp), fan_full_temp: fromUnit(f.fan_full_temp) });
+  return (
+    <Section title={<span className="flex items-center gap-2"><Fan size={16} className="text-violet-400" /> Cooling fan</span>} sub={`Now ${fan.percent ?? "—"}%${fan.temp_c != null ? ` at ${fmtTemp(fan.temp_c, 0)}` : ""}. If LayerHound stops, the fan goes to full speed.`}
+      footer={<>{note}<button onClick={submit} disabled={busy || !fan.controlled} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50">{busy ? "Saving…" : "Save"}</button></>}>
+      {!fan.controlled && <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/6 px-3 py-2 text-sm text-amber-100">LayerHound doesn't have permission to set the fan speed yet, so it runs at full speed. Run the board setup again (deploy) to fix this.</div>}
+      <Segmented label="Fan mode" value={f.fan_mode} onChange={v => setF(x => ({ ...x, fan_mode: v }))} options={[["auto", "Automatic"], ["full", "Always full speed"]]} />
+      {f.fan_mode === "auto" && (
+        <>
+          <p className="mt-3 text-xs text-slate-500">Runs at the minimum speed while the chip is cool, then speeds up evenly to full speed.</p>
+          <div className="mt-3 grid gap-4 sm:grid-cols-3">
+            <Field label="Quiet up to"><div className="flex items-center gap-2"><input type="number" className={`${inputClass} w-24`} value={f.fan_quiet_temp} onChange={num("fan_quiet_temp")} /><span className="text-sm text-slate-500">{unit}</span></div></Field>
+            <Field label="Full speed at"><div className="flex items-center gap-2"><input type="number" className={`${inputClass} w-24`} value={f.fan_full_temp} onChange={num("fan_full_temp")} /><span className="text-sm text-slate-500">{unit}</span></div></Field>
+            <Field label="Minimum speed" hint="Some small fans stop below about 25%."><div className="flex items-center gap-2"><input type="number" className={`${inputClass} w-24`} value={f.fan_min_percent} onChange={num("fan_min_percent")} /><span className="text-sm text-slate-500">%</span></div></Field>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
 function DataSection({ onSaved, onRestored }) {
   const [f, setF] = useState(() => ({ network_history_days: prefs.network_history_days ?? 7, storage_history_days: prefs.storage_history_days ?? 90, data_usage_days: prefs.data_usage_days ?? 90 }));
   const [save, busy, note] = useSaver(onSaved);
@@ -2531,6 +2562,7 @@ function SettingsPage({ onSaved, onRestored }) {
         {isAdmin() && <>
           <BrandingSection onSaved={onSaved} />
           <AlertsSection onSaved={onSaved} />
+          <FanSection onSaved={onSaved} />
           <AccessSection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
         </>}

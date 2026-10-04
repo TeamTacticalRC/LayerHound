@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import auth, history, hotspot, vault, media, network, services, settings, storage, wifi
+import auth, fan, history, hotspot, vault, media, network, services, settings, storage, wifi
 from fastapi.responses import Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
@@ -210,7 +210,7 @@ def sampler():
    HISTORY.append({'t':round(t),'cpu':latest['cpu'],'memory':psutil.virtual_memory().percent,'temp':main_temp(temps),'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps'])})
   except Exception as e: print('sampler error:',e,flush=True)
 auth.configure(db); app.include_router(auth.router)
-settings.configure(db); app.include_router(settings.router); settings.after_restore.append(bambu_stop_all); settings.set_paths(DB_PATH,storage.FILES_ROOT)
+settings.configure(db); fan.configure(); app.include_router(settings.router); settings.after_restore.append(bambu_stop_all); settings.set_paths(DB_PATH,storage.FILES_ROOT)
 storage.configure(db,disks); app.include_router(storage.router)
 app.include_router(wifi.router); app.include_router(hotspot.router); hotspot.configure()
 network.configure(db); app.include_router(network.router)
@@ -249,7 +249,7 @@ def server():
   'boot_time':datetime.fromtimestamp(psutil.boot_time(),timezone.utc).isoformat(),'uptime_seconds':round(time.time()-psutil.boot_time()),
   'cpu':{'percent':latest['cpu'],'per_core':latest['per_core'],'cores':psutil.cpu_count(),'physical_cores':psutil.cpu_count(logical=False),'freq_mhz':round(freq.current) if freq else None,'freq_max_mhz':round(freq.max) if freq and freq.max else None,'load_avg':[round(x,2) for x in os.getloadavg()]},
   'memory':{'percent':vm.percent,'used_gb':round((vm.total-vm.available)/2**30,2),'total_gb':round(vm.total/2**30,2),'swap_percent':sw.percent,'swap_used_gb':round(sw.used/2**30,2),'swap_total_gb':round(sw.total/2**30,2)},
-  'temperature_c':main_temp(temps),'sensors':temps,'disks':disks(),
+  'temperature_c':main_temp(temps),'sensors':temps,'disks':disks(),'fan':fan.status(),
   'network':{'rx_bps':round(latest['rx_bps']),'tx_bps':round(latest['tx_bps']),'addresses':ips},
   'app':{'memory_mb':round(me.memory_info().rss/2**20,1),'threads':me.num_threads(),'started':datetime.fromtimestamp(me.create_time(),timezone.utc).isoformat()},
   'sample_seconds':SAMPLE_EVERY,'timestamp':now()}

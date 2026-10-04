@@ -17,7 +17,7 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC). Version 0.4.
 | **Dashboard** | Every printer at a glance (progress, time left, nozzle and bed temperatures), server health, service status and a live alert list. |
 | **Print Farm** | Add, edit and reorder printers so the cards match how they sit on your bench. |
 | **History** | Every print with its result and duration, success rate, hours printed and filament used per printer, and hours printed per day. Klipper printers' own job history is imported, so past prints show up too. |
-| **Server** | CPU, memory, temperature, storage and network for the machine running LayerHound, with an hour of history. |
+| **Server** | CPU, memory, temperature, storage and network for the machine running LayerHound, with an hour of history. On the LayerHound board, the case fan's speed follows the chip temperature. |
 | **Storage** | Drive usage and health (NVMe wear, temperature, hours), a 90-day usage trend, and a shared files folder with uploads, downloads and a trash. |
 | **Network** | Internet uptime and outages, monitored devices with uptime bars, per-connection traffic, and a network scan that finds printers and pre-fills the Add printer form. |
 | **Services** | Health checks and quick-launch tiles for your web apps, Home Assistant and Pi-hole stats, and Docker containers with restart buttons. |
@@ -157,6 +157,7 @@ backend/            Python API (FastAPI)
   settings.py       settings, backups, about/restart
   auth.py           login, accounts, sessions, access keys
   vault.py          encryption for stored access codes and tokens
+  fan.py            case fan speed from the chip temperature
   hotspot.py        LayerHound-Setup hotspot for Wi-Fi setup without a cable
   manage.py         owner tools on the board (reset-password, hotspot)
 src/                Dashboard (React + Tailwind)

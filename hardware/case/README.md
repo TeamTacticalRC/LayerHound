@@ -51,7 +51,7 @@ A two-part printed case with a 40 mm fan that blows across the board, and the La
 
 ## Connecting the fan
 
-**Use the board's fan header (recommended).** The ROCK 4D has a 2-pin, 1.25 mm, 5 V fan header with speed control (PWM), so the fan can run slow and quiet when the board is cool. See [Radxa's fan page](https://docs.radxa.com/en/rock4/rock4d/hardware-use/fan).
+**Use the board's fan header (recommended).** The ROCK 4D has a 2-pin, 1.25 mm, 5 V fan header with speed control (PWM), so the fan can run slow and quiet when the board is cool. LayerHound does this automatically; adjust it in **Settings → Cooling fan**. See [Radxa's fan page](https://docs.radxa.com/en/rock4/rock4d/hardware-use/fan).
 - The plug must be the small **1.25 mm** kind. A standard 3-pin PC fan plug (like Noctua's) won't fit. Splice on a 1.25 mm pigtail if needed.
 - **Check the polarity before plugging in.** Pre-made plugs aren't always wired the same way. Match the fan's red wire to the header's + side shown on Radxa's page.
 

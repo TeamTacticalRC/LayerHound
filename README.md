@@ -140,6 +140,7 @@ Most settings live on the **Settings** page. A few can also be set with environm
   - A DNS lookup once a minute
   - `standards-oui.ieee.org`, during board setup, to download the manufacturer list
   - `api.github.com` once a day, to check for a newer LayerHound (turn off in **Settings → Updates**), and GitHub's download servers when an admin installs an update
+- **Feedback** is sent only when you press **Send** on the **Send feedback** page. It goes to Team Tactical RC through Google Forms, with your message, an optional email, the LayerHound version and (if you leave it on) basic system details shown on the page.
 - **Network scans** only run when you press **Scan network**, and only cover your local network (at most 254 addresses).
 - **Login:** the first visit creates the admin account (there are no default passwords). Admins can add **view-only** accounts and read-only **access keys** for devices in **Settings → Login & users**, and can let anyone on the local network view without signing in. Passwords are stored only as one-way hashes, and 5 wrong passwords pause sign-ins from that device for 5 minutes.
 - **Forgot your password?** On the board, run `layerhound reset-password`.

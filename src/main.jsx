@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
   ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
-  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, KeyRound, LogIn, LogOut, UserRound, Users, Copy
+  Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, MessageSquareHeart, Send, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
 
@@ -119,6 +119,7 @@ const PAGE_TITLES = {
   network: "Network",
   services: "Services",
   settings: "Settings",
+  feedback: "Send Feedback",
 };
 
 // Keys match the backend's printer_type values.
@@ -349,6 +350,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
     ["Network", Network, "network"],
     ["Services", Activity, "services"],
     ["Settings", Settings, "settings"],
+    ["Send feedback", MessageSquareHeart, "feedback"],
   ];
   return (
     <>
@@ -2728,6 +2730,92 @@ function SettingsPage({ onSaved, onRestored }) {
   );
 }
 
+// Feedback goes to Team Tactical RC's Google Form, sent straight from this browser when the person
+// presses Send. Nothing is sent otherwise. To point it at a different form: open the form's
+// "Get pre-filled link", fill every box, and copy the form id and each entry number from that link.
+const FEEDBACK_FORM = {
+  id: "1FAIpQLSeX2TuPXg0FvDs9kieZwtDx3mvu4ZDcI3JDz6EwDouX-OpOcw",
+  fields: { type: "entry.1143753026", message: "entry.871400439", email: "entry.1984542148", version: "entry.550025366", details: "entry.963760724" },
+};
+// Must match the form's multiple-choice options exactly
+const FEEDBACK_TYPES = [["idea", "Idea or feature request"], ["problem", "Something isn't working"], ["question", "Question"], ["other", "Other"]];
+
+function browserName() {
+  const ua = navigator.userAgent;
+  const name = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  const os = /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Mac OS X/.test(ua) ? "macOS" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "";
+  return os ? `${name} on ${os}` : name;
+}
+
+function FeedbackPage({ printers }) {
+  const [type, setType] = useState("idea");
+  const [message, setMessage] = useState("");
+  const [email, setEmail] = useState("");
+  const [includeDetails, setIncludeDetails] = useState(true);
+  const [server, setServer] = useState(null);
+  const [state, setState] = useState(null); // null | "sending" | "sent" | {error}
+  useEffect(() => { getServer().then(setServer).catch(() => {}); }, []);
+  const counts = printers.reduce((acc, p) => ({ ...acc, [p.model || p.type]: (acc[p.model || p.type] || 0) + 1 }), {});
+  const details = [
+    server ? `${server.os} (${server.arch})` : null,
+    printers.length ? `${printers.length} printer${printers.length === 1 ? "" : "s"}: ${Object.entries(counts).map(([k, n]) => `${k} ×${n}`).join(", ")}` : "No printers yet",
+    browserName(),
+  ].filter(Boolean).join(" · ");
+  const version = APP_VERSION.replace(/^v/, "");
+  const send = async e => {
+    e.preventDefault();
+    if (!message.trim()) return;
+    setState("sending");
+    const f = FEEDBACK_FORM.fields;
+    const body = new URLSearchParams({ [f.type]: FEEDBACK_TYPES.find(([k]) => k === type)[1], [f.message]: message.trim(), [f.email]: email.trim(), [f.version]: version, [f.details]: includeDetails ? details : "" });
+    try {
+      // Google doesn't let other sites read its reply, so a sent message can't be confirmed beyond reaching Google
+      await fetch(`https://docs.google.com/forms/d/e/${FEEDBACK_FORM.id}/formResponse`, { method: "POST", mode: "no-cors", body });
+      setState("sent"); setMessage("");
+    } catch { setState({ error: "Couldn't reach Google Forms. Check this device's internet connection and try again." }); }
+  };
+  return (
+    <>
+      <div className="mb-7">
+        <h1 className="text-3xl font-bold tracking-tight text-white">Send feedback</h1>
+        <p className="mt-2 text-sm text-slate-500">Ideas, problems, questions: it all helps make LayerHound better. It goes straight to Team Tactical RC.</p>
+      </div>
+      <div className="max-w-2xl">
+        {!FEEDBACK_FORM ? (
+          <Section title="Not set up yet"><p className="text-sm text-slate-400">The feedback form hasn't been connected in this version of LayerHound.</p></Section>
+        ) : state === "sent" ? (
+          <Section title={<span className="flex items-center gap-2"><CircleCheck size={17} className="text-emerald-300" /> Thank you!</span>}>
+            <p className="text-sm text-slate-300">Your feedback was sent to Team Tactical RC.{email.trim() ? " If a reply is needed, it will go to " + email.trim() + "." : ""}</p>
+            <button onClick={() => setState(null)} className="mt-4 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">Send more feedback</button>
+          </Section>
+        ) : (
+          <form onSubmit={send}>
+            <Section title="What's on your mind?" footer={<>
+              {state?.error && <span className="text-xs text-red-300">{state.error}</span>}
+              <button type="submit" disabled={state === "sending" || !message.trim()} className="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
+                {state === "sending" ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} {state === "sending" ? "Sending…" : "Send"}
+              </button>
+            </>}>
+              <Segmented label="Kind of feedback" value={type} onChange={setType} options={FEEDBACK_TYPES.map(([k, label]) => [k, k === "idea" ? "Idea" : k === "problem" ? "Problem" : label])} />
+              <div className="mt-4 space-y-4">
+                <Field label={type === "problem" ? "What happened, and what did you expect?" : type === "idea" ? "What would you like LayerHound to do?" : "Your feedback"}>
+                  <textarea className={`${inputClass} min-h-[9rem] resize-y`} maxLength={4000} value={message} onChange={e => setMessage(e.target.value)} required />
+                </Field>
+                <Field label="Your email (optional)" hint="Only if you'd like a reply."><input type="email" className={inputClass} maxLength={200} value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></Field>
+              </div>
+              <div className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs">
+                <Toggle checked={includeDetails} onChange={setIncludeDetails} label="Include system details" hint="Helps track down problems. No names, addresses or passwords." />
+                <div className="mt-1 text-slate-500">Sent with your message: <span className="text-slate-300">LayerHound {version}{includeDetails ? ` · ${details}` : ""}</span></div>
+              </div>
+              <p className="mt-3 text-xs text-slate-600">Sent through Google Forms. Nothing is sent unless you press Send.</p>
+            </Section>
+          </form>
+        )}
+      </div>
+    </>
+  );
+}
+
 function formatDuration(sec) {
   const s = Math.max(0, Math.round(Number(sec) || 0));
   const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
@@ -3049,7 +3137,7 @@ function Dashboard({ onSignOut, onSignIn }) {
   ];
   const extraServices = Math.max(0, (system?.services?.services?.length ?? 0) - 5);
 
-  const placeholder = !['dashboard', 'printers', 'history', 'server', 'storage', 'network', 'services', 'settings'].includes(page);
+  const placeholder = !['dashboard', 'printers', 'history', 'server', 'storage', 'network', 'services', 'settings', 'feedback'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
 
   return (
@@ -3082,6 +3170,8 @@ function Dashboard({ onSignOut, onSignIn }) {
               <SettingsPage onSaved={applySettings} onRestored={() => { reloadSettings(); refreshPrinters(); }} />
             ) : page === "services" ? (
               <ServicesPage printers={livePrinters ?? []} />
+            ) : page === "feedback" ? (
+              <FeedbackPage printers={livePrinters ?? []} />
             ) : page === "network" ? (
               <NetworkPage printers={livePrinters ?? []} onAddPrinter={p => setAdding(p)} />
             ) : page === "printers" ? (

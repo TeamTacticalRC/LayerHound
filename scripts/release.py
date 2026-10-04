@@ -18,7 +18,8 @@ from cryptography.hazmat.primitives import serialization
 ROOT=Path(__file__).resolve().parent.parent
 RELEASES_REPO='TeamTacticalRC/layerhound-releases'
 KEY=Path.home()/'.layerhound'/'release-signing.key'
-PACKAGED=('backend','deploy')          # tracked files from these folders, plus the built dist/
+# Tracked files from these folders and files, plus the built dist/. The license must ship with the software.
+PACKAGED=('backend','deploy','LICENSE','TRADEMARKS.md','README.md')
 
 def sh(*args,capture=False,cwd=ROOT):
  r=subprocess.run(args,cwd=cwd,text=True,capture_output=capture)

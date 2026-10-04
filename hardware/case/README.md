@@ -35,19 +35,27 @@ A two-part printed case with a 40 mm fan that blows across the board, and the La
 
 | Part | Qty | Notes |
 |---|---|---|
-| 40 × 40 × 10 mm fan, **5 V** | 1 | For example Noctua NF-A4x10 5V (quiet) or any 4010 5 V fan. |
-| M3 × 14 screws (or the fan's own screws) | 4 | From outside the back wall into the fan. |
-| M2.5 × 12 screws | 4 | Up through the base and the board into the shell's posts. |
+| 40 × 40 × 10 mm fan, **5 V**, 2-wire | 1 | Ideally with a **2-pin 1.25 mm plug** (often sold as "JST 1.25" or "PH1.25" for single-board computers), to fit the board's fan header. See Connecting the fan. |
+| M3 × 12 screws (or the fan's own screws) | 4 | From outside the back wall into the fan's corner holes. Longer than 12 mm pokes out past the fan frame; with nuts instead, use M3 × 16. |
+| M2.5 × 12 screws, button or pan head | 4 | Up through the base and the board into the shell's posts (10–14 mm also works). They cut their own threads in the plastic. |
 | Rubber feet, 8 mm | 4 | Optional; there are shallow pockets for them. |
-| 2 female-to-female jumper wires | — | If the fan has a 3-pin plug instead of separate wires. |
+| 2-pin 1.25 mm pigtail | — | Only if your fan has a different plug: splice it on. |
 
 ## Putting it together
 
 1. Screw the fan to the inside of the back wall, with the **label facing into the case**. Fans blow out of the label side.
-2. Connect the fan to the 40-pin header: red to **pin 4 (5 V)**, black to **pin 6 (ground)**. On Raspberry Pi-style headers these are on the outer row, at the end nearest the corner mounting hole. Check Radxa's ROCK 4D pinout before plugging in.
+2. Plug the fan into the board's fan header (see Connecting the fan).
 3. Set the board on the base's standoffs.
 4. Lower the shell straight down over the board. The port openings are open at the bottom, so it slides over the connectors.
 5. Turn it over and drive the four M2.5 screws up through the base and the board into the shell. They hold everything together.
+
+## Connecting the fan
+
+**Use the board's fan header (recommended).** The ROCK 4D has a 2-pin, 1.25 mm, 5 V fan header with speed control (PWM), so the fan can run slow and quiet when the board is cool. See [Radxa's fan page](https://docs.radxa.com/en/rock4/rock4d/hardware-use/fan).
+- The plug must be the small **1.25 mm** kind. A standard 3-pin PC fan plug (like Noctua's) won't fit. Splice on a 1.25 mm pigtail if needed.
+- **Check the polarity before plugging in.** Pre-made plugs aren't always wired the same way. Match the fan's red wire to the header's + side shown on Radxa's page.
+
+**Or use the 40-pin header.** Red to pin 4 (5 V), black to pin 6 (ground), using female jumper wires. The fan then always runs at full speed. Check Radxa's ROCK 4D pinout first.
 
 ## Wi-Fi antenna
 

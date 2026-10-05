@@ -17,12 +17,15 @@ fi
 
 echo "==> Installing system packages"
 # Answer Debian's prompts automatically (e.g. "which services should be restarted?")
-APT="sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get"
+# NEEDRESTART_SUSPEND skips the long "outdated binaries" report after installing packages
+APT="sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 apt-get"
 $APT update -qq
 # avahi-daemon lets you reach the board as http://<hostname>.local
 # smartmontools (smartctl) reads drive health for the Storage page
 # iputils-ping and iproute2 are used by the Network page (ping checks, router address, scan)
 $APT install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools iputils-ping iproute2 curl >/dev/null
+# Announce the board's current name (it may have just been renamed) as <hostname>.local
+sudo systemctl restart avahi-daemon
 
 # Drive health needs root, so allow exactly the read-only health command and nothing else
 SUDOERS=/etc/sudoers.d/layerhound
@@ -151,8 +154,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --quiet $SERVICE
 sudo systemctl restart $SERVICE
 
-# Startup takes a few seconds on the board (database upgrades, loading Python), so keep checking for up to 20 seconds
-for _ in $(seq 20); do
+# Startup takes a few seconds (database upgrades, loading Python). The very first start on a new
+# board is slower (Python prepares its libraries, LayerHound creates its keys), so allow a minute.
+echo "==> Waiting for LayerHound to start (the first start can take up to a minute)"
+for _ in $(seq 60); do
   if curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null; then
     URL="http://$(hostname).local"; [ "$PORT" = 80 ] || URL="$URL:$PORT"
     echo "==> Dashboard is running: $URL"
@@ -165,5 +170,5 @@ for _ in $(seq 20); do
   fi
   sleep 1
 done
-echo "!! Service did not answer within 20 seconds. Check the logs with: journalctl -u $SERVICE -n 50" >&2
+echo "!! Service did not answer within 60 seconds. Check the logs with: journalctl -u $SERVICE -n 50" >&2
 exit 1

@@ -49,9 +49,9 @@ main() {
   fi
 
   if [ -z "$TEST" ]; then
-    say "Installing tools the installer needs"
+    say "Installing tools the installer needs (on a new board this can take a few minutes)"
     sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
-    sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -qq curl ca-certificates openssl tar python3 >/dev/null
+    sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 apt-get install -y -qq curl ca-certificates openssl tar python3 >/dev/null
   fi
 
   work="$(mktemp -d)"   # global, so the cleanup below can still see it after main() returns

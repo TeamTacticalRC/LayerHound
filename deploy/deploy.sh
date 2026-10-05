@@ -71,14 +71,14 @@ if ! cmp -s requirements.txt .venv/.installed-requirements; then
 fi
 # Allowed without a password by the rule setup.sh installs for updates
 systemctl restart layerhound.service
-for _ in $(seq 20); do
+for _ in $(seq 40); do
   if curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null; then
     URL="http://$(hostname).local"; [ "$PORT" = 80 ] || URL="$URL:$PORT"
     echo "==> Dashboard is running: $URL"; exit 0
   fi
   sleep 1
 done
-echo "!! Service did not answer within 20 seconds. Check the logs with: journalctl -u layerhound -n 50" >&2
+echo "!! Service did not answer within 40 seconds. Check the logs with: journalctl -u layerhound -n 50" >&2
 exit 1
 QUICK
   code=$?

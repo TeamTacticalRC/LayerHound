@@ -197,3 +197,16 @@ def test_shutdown_only_on_the_board(client, monkeypatch):
     assert client.post("/api/settings/shutdown").status_code == 200
     assert calls and calls[0][0] == ["systemctl", "poweroff"]
     assert client.get("/api/settings/about").json()["can_shutdown"] is True
+
+
+def test_small_system_partitions_are_hidden(monkeypatch):
+    import main
+    from collections import namedtuple
+    Part = namedtuple("Part", "device mountpoint fstype opts")
+    Usage = namedtuple("Usage", "total used free percent")
+    parts = [Part("/dev/a", "/", "ext4", ""), Part("/dev/b", "/config", "vfat", ""), Part("/dev/c", "/mnt/usb", "exfat", "")]
+    sizes = {"/": 120 * 2**30, "/config": 16 * 2**20, "/mnt/usb": 64 * 2**30}
+    monkeypatch.setattr(main.psutil, "disk_partitions", lambda: parts)
+    monkeypatch.setattr(main.psutil, "disk_usage", lambda m: Usage(sizes[m], 1, 1, 1.0))
+    monkeypatch.setattr(main.sys, "platform", "linux")
+    assert [d["mount"] for d in main.disks()] == ["/", "/mnt/usb"]

@@ -192,6 +192,8 @@ def disks():
   if mac and m=='/': continue
   try: u=psutil.disk_usage(m)
   except OSError: continue
+  # Small system partitions (e.g. the board image's /config) aren't drives anyone stores things on
+  if m not in ('/','/System/Volumes/Data') and u.total<2**30: continue
   out.append({'mount':'/' if m=='/System/Volumes/Data' else m,'mountpoint':m,'device':p.device,'fstype':p.fstype,'total_gb':round(u.total/2**30,1),'used_gb':round(u.used/2**30,1),'percent':u.percent})
  return sorted(out,key=lambda d:(d['mount']!='/',d['mount']))
 

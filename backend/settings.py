@@ -8,7 +8,7 @@ from fastapi.responses import Response
 import vault
 
 router=APIRouter(prefix='/api/settings')
-APP_VERSION='0.5.0'
+APP_VERSION='1.0.0'
 _db=None; _cache={}; _lock=threading.Lock()
 # Functions to run after a restore (main.py uses this to drop Bambu connections tied to old printer ids)
 after_restore=[]

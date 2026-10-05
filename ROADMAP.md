@@ -58,11 +58,11 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 The main repo goes public at v1.0 (it provides the AGPL source). In order:
 - [ ] Finish Kyle's own testing; fix what comes up.
 - [x] Fresh screenshots for the README (2026-10-04: dark and light dashboard, History, Server, Network, Services, Settings; private details replaced).
-- [ ] **Scrub the home Wi-Fi name from git history** before going public: it was in `backend/tests/test_wifi.py` (replaced in current files 2026-10-04, still in old commits). Use `git filter-repo --replace-text` and force-push; every commit gets a new ID. A pre-public audit on 2026-10-04 found nothing else: no database, keys, tokens, access codes or personal email in any commit.
+- [x] **Scrubbed the home Wi-Fi name from git history** (2026-10-04): rewritten with `git filter-repo --replace-text` (52 commits, latest files unchanged), force-pushed, and Dependabot asked to recreate its PRs on the new history. A backup of the old history is in `~/.layerhound/backups/` on the Mac. A pre-public audit found nothing else: no database, keys, tokens, access codes or personal email in any commit.
 - [ ] Set the version to 1.0.0 and publish with `scripts/release.py` (RELEASING.md); keep it quiet until tested.
 - [ ] Re-flash the spare SD card and install with the real one-liner (`.../releases/latest/download/install.sh`).
 - [ ] Publish v1.0.1 and update the main board with **Update now** (first real one-click update).
-- [ ] Make TeamTacticalRC/LayerHound public; then turn on branch protection, secret scanning, Dependabot alerts and private vulnerability reporting (CodeQL starts running on its own).
+- [ ] **Go public with a fresh repository**, not by switching this one: GitHub still holds references to the old history (old pull request timelines, Actions run history, orphaned commits viewable by ID). Rename the current repo to `LayerHound-archive` (keep it private), create a new public `TeamTacticalRC/LayerHound`, push the clean `main`, and point the local folder's `origin` at it. Then turn on branch protection, secret scanning, Dependabot alerts and private vulnerability reporting (CodeQL starts on its own). Before announcing, re-check the new repo's history for the old Wi-Fi name (search for the real name locally; never write it into the repo).
 - [ ] Update the releases repo README ("development happens elsewhere" → link to the public repo), then announce.
 
 ### Work needed

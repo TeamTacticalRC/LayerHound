@@ -83,7 +83,9 @@ def bambu_frame(host,code):
  # Bambu P1 and A1 series camera: TLS on port 6000, an 80-byte login (user "bblp" + access code),
  # then frames of a 16-byte header (little-endian payload size first) followed by a JPEG
  auth=struct.pack('<IIII',0x40,0x3000,0,0)+b'bblp'.ljust(32,b'\0')+str(code).encode().ljust(32,b'\0')
- with socket.create_connection((host,6000),timeout=TIMEOUT) as s, INSECURE.wrap_socket(s,server_hostname=host) as t:
+ # The camera's certificate is self-signed, so it can't be verified; still require TLS 1.2 or newer
+ ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); ctx.minimum_version=ssl.TLSVersion.TLSv1_2; ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+ with socket.create_connection((host,6000),timeout=TIMEOUT) as s, ctx.wrap_socket(s,server_hostname=host) as t:
   t.sendall(auth)
   size=struct.unpack('<I',_recv(t,16)[:4])[0]
   if not 0<size<5_000_000: raise ValueError('Unexpected camera response; check the access code')

@@ -8,7 +8,7 @@ By [Team Tactical RC](https://github.com/TeamTacticalRC).
 
 > LayerHound is not affiliated with or endorsed by Bambu Lab, Klipper, Moonraker, OctoPrint, Creality, Elegoo, Snapmaker or any other printer maker or project it works with. Bambu Lab has been limiting third-party access in firmware updates, so a future Bambu firmware could stop LayerHound from reading Bambu printers.
 
-![LayerHound dashboard: five printers with progress, temperatures and time left, plus server health, services and alerts](docs/screenshots/dashboard.png)
+![LayerHound dashboard: five printers with progress, layers, temperatures and time left, plus server health, services and alerts](docs/screenshots/dashboard.png)
 
 ## Get started
 
@@ -57,22 +57,25 @@ Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its
 
 ## Screenshots
 
-**Network:** internet health, monitored devices, traffic and a scan that recognizes printers.
-![Network page](docs/screenshots/network.png)
+**Light or dark:** each screen picks its own.
+![Dashboard in light mode](docs/screenshots/dashboard-light.png)
 
-**Services:** health checks, quick-launch tiles, Home Assistant and Pi-hole stats, and Docker containers.
-![Services page](docs/screenshots/services.png)
+**History:** every print, success rate, hours printed per day and per-printer stats.
+![History page](docs/screenshots/history.png)
 
-**Storage:** drive usage and health, usage trend, and the shared files folder.
-![Storage page](docs/screenshots/storage.png)
-
-**Server:** CPU, memory, temperature and storage for the machine running LayerHound.
+**Server:** CPU, memory, temperature, fan speed and storage for the board running LayerHound.
 ![Server page](docs/screenshots/server.png)
 
-**Settings:** farm name, accent color, units, alert thresholds and backups.
+**Network:** internet health, Wi-Fi, monitored devices, traffic and a scan that recognizes printers.
+![Network page](docs/screenshots/network.png)
+
+**Services:** health checks and quick-launch tiles for your other apps, with Home Assistant and Pi-hole stats.
+![Services page](docs/screenshots/services.png)
+
+**Settings:** farm name, accent color, light or dark, units, alerts, fan, accounts, backups and updates.
 ![Settings page](docs/screenshots/settings.png)
 
-<sub>Printer data in these screenshots is from a real five-printer farm. The services, containers and files are example entries, and network details such as addresses and serial numbers have been replaced.</sub>
+<sub>Screenshots are from a real five-printer farm running LayerHound on a Radxa ROCK 4D. The public IP address, hardware addresses, Wi-Fi name and account names have been replaced.</sub>
 
 ## Develop: run it on your computer
 

@@ -54,6 +54,17 @@ Goal: make installing as easy as possible for other people, once it's proven on 
 - **Docker image:** a multi-architecture image (arm64 and amd64) plus a `docker compose` file for home lab users.
 - **SD card image:** skip at first. It needs a separate image per board model and a rebuild for every update.
 
+### v1.0 release checklist (decided 2026-10-04)
+The main repo goes public at v1.0 (it provides the AGPL source). In order:
+- [ ] Finish Kyle's own testing; fix what comes up.
+- [ ] Fresh screenshots for the README (current ones show v0.4, the old purple accent and old Settings).
+- [ ] **Scrub the home Wi-Fi name from git history** before going public: it was in `backend/tests/test_wifi.py` (replaced in current files 2026-10-04, still in old commits). Use `git filter-repo --replace-text` and force-push; every commit gets a new ID. A pre-public audit on 2026-10-04 found nothing else: no database, keys, tokens, access codes or personal email in any commit.
+- [ ] Set the version to 1.0.0 and publish with `scripts/release.py` (RELEASING.md); keep it quiet until tested.
+- [ ] Re-flash the spare SD card and install with the real one-liner (`.../releases/latest/download/install.sh`).
+- [ ] Publish v1.0.1 and update the main board with **Update now** (first real one-click update).
+- [ ] Make TeamTacticalRC/LayerHound public; then turn on branch protection, secret scanning, Dependabot alerts and private vulnerability reporting (CodeQL starts running on its own).
+- [ ] Update the releases repo README ("development happens elsewhere" → link to the public repo), then announce.
+
 ### Work needed
 - [x] **Pre-built releases** (2026-10-04): `scripts/release.py` builds, signs and publishes each version (dashboard already built), so owners don't need Node.js. **One-line installer** `deploy/install.sh` (published with every release) downloads the latest release, checks its checksum and signature, installs and runs the board setup. Fresh-board install tested end to end on 2026-10-04 (new SD card: install, rename, setup, setup hotspot from a phone).
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.

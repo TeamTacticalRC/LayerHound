@@ -77,6 +77,7 @@ def main():
  set_version(version)
  print('==> Building the dashboard'); sh('npm','run','build')
  print('==> Running the backend tests'); sh(str(ROOT/'backend/.venv/bin/python'),'-m','pytest','-q','tests',cwd=ROOT/'backend')
+ print('==> Running the frontend tests (browser)'); sh(str(ROOT/'backend/.venv/bin/python'),'-m','pytest','-q','tests/ui','-p','no:warnings')
  sh('git','add','backend/settings.py','src/main.jsx')
  sh('git','commit','-q','-m',f'Release v{version}'); sh('git','tag','-a',f'v{version}','-m',f'LayerHound v{version}')
 

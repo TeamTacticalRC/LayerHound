@@ -197,7 +197,15 @@ cd backend
 .venv/bin/python -m pytest -q tests
 ```
 
-The tests use their own temporary database and files folder, so they never touch your real data. GitHub runs them, plus a frontend build, on every pull request. Security issues: see [SECURITY.md](SECURITY.md).
+**Frontend tests** drive the dashboard in a real browser: first-run setup, every page in dark and light at desktop and phone sizes, adding and removing a printer, and checking that view-only accounts see no admin controls. They use your installed Google Chrome:
+
+```bash
+npm run build
+backend/.venv/bin/pip install -r tests/ui/requirements.txt
+backend/.venv/bin/python -m pytest -q tests/ui
+```
+
+The tests use their own temporary database and files folder, so they never touch your real data. GitHub runs both, plus a frontend build, on every pull request. Security issues: see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 

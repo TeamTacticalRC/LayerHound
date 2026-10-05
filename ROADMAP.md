@@ -111,7 +111,7 @@ Open source means anyone can read and fork the code, but only people with write 
 - [ ] **Review rules for contributions:** read every pull request, with extra care for the installer, updates, network calls, file paths and anything that runs commands. Ask for small pull requests. Don't hand out write access quickly; for now, only the maintainer merges.
 - [x] **Official releases** with checksums and signatures, built and signed on the release Mac by `scripts/release.py` (not GitHub Actions, so the signing key never leaves the Mac).
 - [x] **Signed updates** (2026-10-04, Ed25519): when automatic updates exist, boards only install updates signed with the project's key. Otherwise a compromised download server could take over every board.
-- [ ] **Frontend tests** for key screens, alongside the backend tests.
+- [x] **Frontend tests** (2026-10-04, `tests/ui/`): a real browser checks first-run setup, every page in dark/light at desktop/phone sizes, adding and removing a printer, the theme choice, sign-out, and that view-only accounts see no admin controls. Run on every push and by `scripts/release.py`.
 
 ## Branding & business
 Plan: free **open-source software**, plus a **pre-built plug-and-play board** sold by Team Tactical RC. This is the Home Assistant model (open software, with Home Assistant Green hardware for people who want it ready to go).

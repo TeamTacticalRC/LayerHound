@@ -12,7 +12,8 @@ CHECK_EVERY=60; STATS_EVERY=300; DOCKER_TTL=15
 INTEGRATIONS=('none','homeassistant','pihole')
 _db=None; state={}; stats={}; lock=threading.Lock()
 # Home lab services often use self-signed certificates; a health check shouldn't fail on that
-INSECURE=ssl.create_default_context(); INSECURE.check_hostname=False; INSECURE.verify_mode=ssl.CERT_NONE
+# Home-lab apps often use self-signed certificates, so they can't be verified; still require modern TLS
+INSECURE=ssl.create_default_context(); INSECURE.minimum_version=ssl.TLSVersion.TLSv1_2; INSECURE.check_hostname=False; INSECURE.verify_mode=ssl.CERT_NONE
 
 def configure(db):
  global _db; _db=db
@@ -171,7 +172,10 @@ def docker_info():
   data={'available':True,'containers':sorted(out,key=lambda x:(x['state']!='running',x['name']))}
  # installed=False hides the Docker section; Docker that's there but unreachable still shows, with the reason
  except FileNotFoundError: data={'available':False,'installed':False,'reason':'Docker is not installed on this server'}
- except Exception as e: data={'available':False,'installed':True,'reason':str(e)}
+ except PermissionError: data={'available':False,'installed':True,'reason':"LayerHound doesn't have permission to use Docker. See \"Docker containers\" in the README"}
+ except Exception as e:
+  print(f'[docker] {type(e).__name__}: {e}',flush=True)
+  data={'available':False,'installed':True,'reason':"Docker is installed but isn't answering. See the service log"}
  _docker_cache.update(at=time.time(),data=data); return data
 
 # ---- API --------------------------------------------------------------------------------
@@ -234,6 +238,8 @@ def remove(sid:int):
 def restart(cid:str):
  if not re.fullmatch(r'[0-9a-f]{12,64}',cid): raise HTTPException(400,'Invalid container id')
  try: docker('POST',f'/containers/{cid}/restart?t=10')
- except FileNotFoundError as e: raise HTTPException(404,str(e))
- except Exception as e: raise HTTPException(502,str(e))
+ except FileNotFoundError: raise HTTPException(404,'Docker is not installed on this server')
+ except Exception as e:
+  print(f'[docker] restart {cid}: {type(e).__name__}: {e}',flush=True)
+  raise HTTPException(502,"Docker couldn't restart that container. See the service log.")
  _docker_cache['at']=0; _count_cache['at']=0; return {'status':'restarted','id':cid}

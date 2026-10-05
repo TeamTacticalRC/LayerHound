@@ -269,7 +269,7 @@ def bambu_cert(host,port=8883):
  # Bambu printers use a certificate issued by "BBL" with the serial number as its subject name.
  # It's self-signed, so read the raw bytes and pull out the last common name (the subject's).
  try:
-  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+  ctx=ssl.create_default_context(); ctx.minimum_version=ssl.TLSVersion.TLSv1_2; ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
   with socket.create_connection((host,port),timeout=1.5) as s, ctx.wrap_socket(s) as t: der=t.getpeercert(binary_form=True)
   if b'BBL' not in der: return None
   found=None; i=der.find(b'\x06\x03\x55\x04\x03')

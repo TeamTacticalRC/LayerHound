@@ -88,7 +88,8 @@ class BambuWatcher:
   s.key=(host,port,serial,code); s.serial=serial; s.data={}; s.firmware=None; s.error=None; s.ready=threading.Event()
   c=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=f'layerhound-{serial}-{os.getpid()}'); c.username_pw_set('bblp',code)
   # The printer uses a self-signed certificate, so it can't be verified
-  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE; c.tls_set_context(ctx)
+  # Bambu printers use self-signed certificates, so they can't be verified; still require modern TLS
+  ctx=ssl.create_default_context(); ctx.minimum_version=ssl.TLSVersion.TLSv1_2; ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE; c.tls_set_context(ctx)
   c.on_connect=s._connected; c.on_connect_fail=s._failed; c.on_disconnect=s._disconnected; c.on_message=s._message
   c.reconnect_delay_set(2,30); s.client=c; c.connect_async(host,port,keepalive=30); c.loop_start()
  def _connected(s,c,u,flags,rc,props=None):
@@ -266,7 +267,9 @@ def primary_ip():
 def database_check():
  try:
   c=db(); n=c.execute('SELECT COUNT(*) FROM printers').fetchone()[0]; c.close(); return {'ok':True,'printers':n}
- except Exception as e: return {'ok':False,'error':f'{type(e).__name__}: {e}'}
+ except Exception as e:
+  print(f'[database] check failed: {type(e).__name__}: {e}',flush=True)
+  return {'ok':False,'error':"The database couldn't be read. See the service log."}
 
 @app.get('/api/system')
 def system():
@@ -376,7 +379,10 @@ def camera(pid:int):
  # One current camera frame; the dashboard refreshes it every couple of seconds
  r=printer_row(pid)
  try: img=media.camera_frame(r)
- except Exception as e: raise HTTPException(502,f'Camera unavailable: {e}')
+ except Exception as e:
+  detail=f'{type(e).__name__}: {e}'
+  if _logged_errors.get(('camera',pid))!=detail: _logged_errors[('camera',pid)]=detail; print(f'[camera] printer {pid}: {detail}',flush=True)
+  raise HTTPException(502,'Camera unavailable. Check that the printer is on and its camera is enabled.')
  if img is None: raise HTTPException(404,'No camera configured for this printer')
  return Response(img,media_type='image/jpeg',headers={'Cache-Control':'no-store'})
 

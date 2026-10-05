@@ -4,7 +4,8 @@ import vault
 
 TIMEOUT=6; META_TTL=3600; FAIL_TTL=300; WEBCAM_TTL=600; CAMERA_TTL=1.5
 _meta={}; _thumbs={}; _webcams={}; _frames={}; lock=threading.Lock()
-INSECURE=ssl.create_default_context(); INSECURE.check_hostname=False; INSECURE.verify_mode=ssl.CERT_NONE
+# Printers and cameras use self-signed certificates, so they can't be verified; still require modern TLS
+INSECURE=ssl.create_default_context(); INSECURE.minimum_version=ssl.TLSVersion.TLSv1_2; INSECURE.check_hostname=False; INSECURE.verify_mode=ssl.CERT_NONE
 
 def _get(url,timeout=TIMEOUT):
  with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'LayerHound'}),timeout=timeout,context=INSECURE) as r:

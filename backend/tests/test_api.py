@@ -210,3 +210,20 @@ def test_small_system_partitions_are_hidden(monkeypatch):
     monkeypatch.setattr(main.psutil, "disk_usage", lambda m: Usage(sizes[m], 1, 1, 1.0))
     monkeypatch.setattr(main.sys, "platform", "linux")
     assert [d["mount"] for d in main.disks()] == ["/", "/mnt/usb"]
+
+
+def test_printer_errors_are_plain_language():
+    import urllib.error, socket, main
+    assert "refused" in main.printer_error(urllib.error.URLError(ConnectionRefusedError(61, "Connection refused")))
+    assert "didn't answer" in main.printer_error(socket.timeout("timed out"))
+    assert "name" in main.printer_error(urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided")))
+    assert "API key" in main.printer_error(urllib.error.HTTPError("http://x", 403, "Forbidden", {}, None))
+    assert main.printer_error(ConnectionError("Check the serial number.")) == "Check the serial number."
+    assert "Errno" not in main.printer_error(OSError(65, "No route to host"))
+
+
+def test_unreachable_printer_shows_plain_reason(client):
+    r = client.post("/api/printers", json={"name": "Nowhere", "printer_type": "moonraker", "base_url": UNREACHABLE})
+    err = r.json()["error"]
+    assert "Errno" not in err and "URLError" not in err and "refused" in err
+    client.delete(f"/api/printers/{r.json()['id']}")

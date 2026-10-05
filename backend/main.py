@@ -135,6 +135,23 @@ def bambu(pid,base,serial,code):
 # Some printers (e.g. the Elegoo Neptune 4's Moonraker) occasionally answer slowly under load.
 # Ride out a brief hiccup by showing the last good reading; report offline only after this long.
 OFFLINE_GRACE=45; last_good={}
+_logged_errors={}
+def printer_error(e):
+ # Plain-language reason a printer can't be read; the technical detail goes to the service log
+ if type(e) in (ValueError,ConnectionError): return str(e)   # already worded for owners (e.g. Bambu checks)
+ text=f'{type(e).__name__}: {e}'.lower()
+ code=getattr(e,'code',None)
+ if code in (401,403): return 'The printer rejected the API key. Check it in Edit printer.'
+ if code==404 or 'jsondecodeerror' in text or 'expecting value' in text:
+  return "Something answered at that address, but it isn't the printer's interface. Check the address and port."
+ if 'refused' in text: return 'The printer refused the connection. Check the address and port (Klipper usually uses :7125; some printers use port 80).'
+ if 'timed out' in text or 'timeout' in text: return "The printer didn't answer in time. Check that it's on and connected to the network."
+ if 'nodename' in text or 'name or service' in text or 'getaddrinfo' in text or 'name resolution' in text:
+  return "Couldn't find that printer name on the network. Try its IP address instead."
+ if 'unreachable' in text or 'no route' in text: return "Can't reach that address. Check the printer's IP address."
+ if 'ssl' in text or 'certificate' in text: return 'A secure connection to the printer failed. Try http:// instead of https://.'
+ return "Couldn't read the printer. Check the address and that it's on."
+
 def snapshot(r,grace=True):
  t=r['printer_type']; base=clean_url(r['base_url']); key=(r['id'],base)
  try:
@@ -143,7 +160,10 @@ def snapshot(r,grace=True):
  except Exception as e:
   prev=last_good.get(key)
   if grace and prev and time.time()-prev[0]<OFFLINE_GRACE: x=prev[1]
-  else: x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=f'{type(e).__name__}: {e}')
+  else:
+   detail=f'{type(e).__name__}: {e}'
+   if _logged_errors.get(key)!=detail: _logged_errors[key]=detail; print(f"[printer] {r['name']}: {detail}",flush=True)
+   x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=printer_error(e))
  return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
   'camera_url':r['camera_url'],'has_camera':media.has_camera(r),**x,'updated_at':now()}
 

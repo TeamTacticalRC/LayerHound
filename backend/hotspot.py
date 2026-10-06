@@ -8,7 +8,7 @@
 # - While on, it retries the saved Wi-Fi every few minutes (when no phone is connected),
 #   so a router that was only rebooting doesn't leave the board stuck in setup mode.
 # - setup.sh points all DNS on the hotspot at the board, which makes phones show the setup page.
-import ipaddress, socket, subprocess, threading, time
+import ipaddress, os, socket, subprocess, threading, time
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -21,6 +21,23 @@ CHECK_EVERY=15; OFFLINE_WAIT=180; FIRST_WAIT=45; RETRY_EVERY=300; MANUAL_LIMIT=3
 REQUEST_FILE=Path(__file__).with_name('data')/'hotspot-request'
 state={'active':False,'reason':None,'since':None,'networks':[],'last_error':None,'joining':None,'joined':None}
 _lock=threading.Lock()
+
+PORT=os.environ.get('LAYERHOUND_PORT') or os.environ.get('TTRC_PORT') or '80'
+MODEL_FILE=Path('/proc/device-tree/model')
+
+def board_model():
+ # Single-board computers (ROCK 4D, Raspberry Pi, ...) describe themselves here; PCs and laptops don't
+ try: return MODEL_FILE.read_text().strip('\x00 \n') or None
+ except OSError: return None
+
+def enabled():
+ # Settings -> Setup hotspot: "auto" means on for small boards, off for PCs and laptops,
+ # where losing the network shouldn't turn the computer's Wi-Fi into a hotspot
+ choice=settings.get('setup_hotspot')
+ return choice=='on' or (choice=='auto' and board_model() is not None)
+
+def capable():
+ return settings.as_service() and wifi.available()
 
 def on_hotspot(host):
  try: return ipaddress.ip_address(host or '') in SUBNET
@@ -78,6 +95,8 @@ def tick(now,offline_since):
   if r=='manual':
    if now-state['since']>MANUAL_LIMIT: stop()
    return None
+  # Turned off in Settings: stop
+  if not enabled(): stop(); return None
   # Started because the board was offline: a cable plugged in means it's reachable again
   if any(d['type']=='ethernet' and d['state']=='connected' for d in wifi.devices()): stop(); return None
   if now-state['since']>RETRY_EVERY and wifi.saved_wifi()-{CON} and not clients():
@@ -85,6 +104,7 @@ def tick(now,offline_since):
    # If that fails, the hotspot comes back about a minute later.
    stop(); return now-OFFLINE_WAIT+60
   return None
+ if not enabled(): return None
  devs=wifi.devices()
  # No answer from NetworkManager means we don't know; never start the hotspot on a guess
  if not devs or online(): return None
@@ -122,14 +142,16 @@ async def middleware(request:Request,call_next):
  # which makes the phone pop it up automatically. Devices reaching the board another way are left alone.
  if state['active'] and on_hotspot(request.client.host if request.client else ''):
   host=(request.headers.get('host') or '').split(':')[0].lower()
-  if host and host not in allowed_hosts(): return RedirectResponse(f'http://{GATEWAY}/',status_code=302)
+  if host and host not in allowed_hosts(): return RedirectResponse(f"http://{GATEWAY}{'' if PORT=='80' else ':'+PORT}/",status_code=302)
  return await call_next(request)
 
 # ---- API ----------------------------------------------------------------------------------
 @router.get('')
 def info(request:Request):
  # Only phones on the hotspot get the details (network list, last error)
- if not on_hotspot(request.client.host if request.client else ''): return {'active':state['active'],'on_hotspot':False}
+ if not on_hotspot(request.client.host if request.client else ''):
+  # Settings uses these to show the Setup hotspot choice only where a hotspot is possible
+  return {'active':state['active'],'on_hotspot':False,'capable':capable(),'enabled':enabled(),'board':board_model()}
  return {'active':state['active'],'on_hotspot':True,'networks':state['networks'],'last_error':state['last_error'],
   'joining':state['joining'],'hostname':local_name(),'setup_required':not auth.has_users()}
 

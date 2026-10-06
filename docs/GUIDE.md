@@ -41,6 +41,7 @@ curl -fsSL https://github.com/TeamTacticalRC/layerhound-releases/releases/latest
 
 The installer:
 - downloads the latest LayerHound and checks it's genuinely from Team Tactical RC
+- uses port 80 unless you choose another: add `-s -- --port 8080` after `bash` if another program already uses port 80
 - asks for your password (for `sudo`)
 - offers to rename the board to `layerhound`
 
@@ -101,6 +102,7 @@ All of this is in **Settings → Login & users**:
 ## Wi-Fi and the setup hotspot
 
 - **Change Wi-Fi:** **Network → Wi-Fi**.
+- **Setup hotspot** (**Settings → Setup hotspot**): **Auto** turns it on for small boards and off for PCs and laptops, so a laptop never turns its Wi-Fi into a hotspot. You can also choose **On** or **Off**.
 - **When the board can't reach any network for a few minutes:** it starts the **LayerHound-Setup** Wi-Fi network so you can reconnect it from your phone. If LayerHound is already set up, you'll be asked to sign in as an admin first. The hotspot turns itself off once the board is back online.
 
 ## Updates

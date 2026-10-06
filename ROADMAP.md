@@ -68,6 +68,9 @@ The main repo goes public at v1.0 (it provides the AGPL source). In order:
 
 ### Work needed
 - [x] **Pre-built releases** (2026-10-04): `scripts/release.py` builds, signs and publishes each version (dashboard already built), so owners don't need Node.js. **One-line installer** `deploy/install.sh` (published with every release) downloads the latest release, checks its checksum and signature, installs and runs the board setup. Fresh-board install tested end to end on 2026-10-04 (new SD card: install, rename, setup, setup hotspot from a phone).
+- [x] **Runs on any Debian-based PC too** (2026-10-05): `install.sh --port N` for machines where port 80 is taken (setup stops with a clear message if the port is in use), and the setup hotspot is board-only by default (Settings → Setup hotspot: Auto/On/Off; Auto = on when Linux reports a single-board computer model).
+- [ ] **Docker image** for other Linux systems, NAS boxes (Unraid, Synology, TrueNAS) and Windows via Docker Desktop. Needs host networking for network scans and ping monitoring.
+- [ ] **Native Windows version** only if people ask (Send feedback): a Windows service and updater, a Windows installer, and Windows versions of the ping, device-table and route lookups. WSL2 with mirrored networking runs the Linux installer meanwhile.
 - [ ] **Proper install location:** install to `/opt` under a dedicated system user, with a standard service setup. Updates must keep the buyer's printer list and upgrade the database.
 - [x] **Remove hardcoded personal details:** the LayerHound name and logo are fixed product branding (2026-10-02); each install sets its own **farm name** in Settings, shown under the logo, as the main heading and in the browser tab. The first-run welcome screen asks for it (v0.5.0).
 - [x] **Login** (v0.5.0, 2026-10-02): see the Login plan below.
@@ -107,8 +110,8 @@ Open source means anyone can read and fork the code, but only people with write 
 ### To do
 - [x] **2FA and a passkey** on the TeamTacticalRC GitHub account (2026-10-02). Keep the recovery codes somewhere safe off the computer.
 - [ ] **2FA on the email account** connected to GitHub, since it can be used to reset access.
-- [ ] **Branch protection on `main`**: require a pull request with passing checks, and block force-pushes and deletion. Free once the repository is public; private repositories need a paid GitHub plan.
-- [ ] **Enable** Dependabot alerts, secret scanning and private vulnerability reporting under the repository's Settings → Code security, as each becomes available.
+- [x] **Branch protection on `main`** (2026-10-05): require a pull request with passing checks, and block force-pushes and deletion. Free once the repository is public; private repositories need a paid GitHub plan.
+- [x] **Enabled** (2026-10-05) Dependabot alerts, secret scanning and private vulnerability reporting under the repository's Settings → Code security, as each becomes available.
 - [ ] **Review rules for contributions:** read every pull request, with extra care for the installer, updates, network calls, file paths and anything that runs commands. Ask for small pull requests. Don't hand out write access quickly; for now, only the maintainer merges.
 - [x] **Official releases** with checksums and signatures, built and signed on the release Mac by `scripts/release.py` (not GitHub Actions, so the signing key never leaves the Mac).
 - [x] **Signed updates** (2026-10-04, Ed25519): when automatic updates exist, boards only install updates signed with the project's key. Otherwise a compromised download server could take over every board.
@@ -143,7 +146,7 @@ Taken or in use when checked: FarmDeck, LayerWatch, Spoolhouse, PrintHQ, PrintHo
 - [ ] **USPTO trademark filing:** deferred (see Decisions). If revisited: search first, file the plain-text name LAYERHOUND, and use the USPTO's pre-approved wording to avoid surcharges.
 - [x] Rename in the code (done 2026-10-01): LayerHound is the default branding, the files folder is `~/LayerHound Files`, settings use `LAYERHOUND_*` (old `TTRC_*` names still work), the service and install folder are `layerhound`, and backups are `layerhound-backup-*.json` (old backups still restore). This install keeps Team Tactical RC branding in Settings.
 - [x] Project folder renamed to `~/Downloads/layerhound` (2026-10-01).
-- [ ] GitHub: the repository is at [TeamTacticalRC/LayerHound](https://github.com/TeamTacticalRC/LayerHound) (private). Optionally also claim a `layerhound` organization name to protect it.
+- [ ] GitHub: the repository is at [TeamTacticalRC/LayerHound](https://github.com/TeamTacticalRC/LayerHound) (public since 2026-10-05). Optionally also claim a `layerhound` organization name to protect it.
 - [x] Add `LICENSE` (AGPL-3.0) and a trademark policy (`TRADEMARKS.md`), 2026-10-04.
 - [ ] Contributing guide. If outside contributions are accepted, use a contributor agreement so Team Tactical RC can still offer other licenses later.
 - [ ] Logo and simple brand guide (name usage, colors; the accent color system already exists).

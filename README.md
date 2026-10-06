@@ -20,6 +20,8 @@ curl -fsSL https://github.com/TeamTacticalRC/layerhound-releases/releases/latest
 
 Then open **http://layerhound.local**. The installer checks that the download is signed by Team Tactical RC before installing.
 
+It also works on any always-on Debian-based PC or mini PC. If another program already uses port 80, pick another port: `curl -fsSL …/install.sh | bash -s -- --port 8080`. The setup hotspot is on for small boards and off for PCs and laptops; change it in **Settings → Setup hotspot**.
+
 **The [owner's guide](docs/GUIDE.md)** covers everything else: adding printers, accounts, Wi-Fi, updates, backups, remote access and troubleshooting.
 
 ## What it does

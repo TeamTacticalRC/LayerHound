@@ -17,7 +17,7 @@ const prefs = {
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
   network_history_days: 7, storage_history_days: 90, data_usage_days: 90, guest_view: false, update_check: true,
-  fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30,
+  fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30, setup_hotspot: "auto",
 };
 
 // Accent colors. The app's styles use Tailwind's violet shades, so switching accent swaps
@@ -2347,6 +2347,29 @@ function FanSection({ onSaved }) {
   );
 }
 
+// Setup hotspot (backend/hotspot.py). Shown only on machines that can run one.
+function HotspotSection({ onSaved }) {
+  const [info, setInfo] = useState(null);
+  const [choice, setChoice] = useState(prefs.setup_hotspot || "auto");
+  const [error, setError] = useState("");
+  const load = useCallback(() => getHotspot().then(setInfo).catch(() => setInfo(null)), []);
+  useEffect(() => { load(); }, [load]);
+  if (!info?.capable) return null;
+  const choose = async v => {
+    setChoice(v); setError("");
+    try { onSaved(await saveSettings({ setup_hotspot: v })); load(); } catch (e) { setError(e.message); setChoice(prefs.setup_hotspot); }
+  };
+  const machine = info.board ? `This is a board (${info.board}), so Auto turns it on.` : "This is a computer rather than a board, so Auto leaves it off.";
+  return (
+    <Section title={<span className="flex items-center gap-2"><Wifi size={16} className="text-violet-400" /> Setup hotspot</span>}
+      sub="When this machine can't reach any network for a few minutes, it creates a Wi-Fi network called LayerHound-Setup, so you can reconnect it from your phone.">
+      <Segmented label="Setup hotspot" value={choice} onChange={choose} options={[["auto", "Auto"], ["on", "On"], ["off", "Off"]]} />
+      <p className="mt-3 text-xs text-slate-500">Auto: on for small boards like the LayerHound board or a Raspberry Pi, off for PCs and laptops. {machine} Right now it's <span className="text-slate-300">{info.enabled ? "on" : "off"}</span>.</p>
+      {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+    </Section>
+  );
+}
+
 function DataSection({ onSaved, onRestored }) {
   const [f, setF] = useState(() => ({ network_history_days: prefs.network_history_days ?? 7, storage_history_days: prefs.storage_history_days ?? 90, data_usage_days: prefs.data_usage_days ?? 90 }));
   const [save, busy, note] = useSaver(onSaved);
@@ -2737,6 +2760,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <AppearanceSection />
           <AlertsSection onSaved={onSaved} />
           <FanSection onSaved={onSaved} />
+          <HotspotSection onSaved={onSaved} />
           <AccessSection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
         </>}

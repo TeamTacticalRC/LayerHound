@@ -12,6 +12,7 @@
 #                     whether to rename a board that still has a default name)
 #   --keep-hostname   never rename the board
 #   --package FILE    install from a downloaded package (FILE.sig must be next to it)
+#   --port N          serve LayerHound on port N instead of 80 (when another program already uses 80)
 #
 # LAYERHOUND_INSTALL_TEST=1 checks and unpacks the package, then stops before anything needs sudo
 # (no packages, renaming or board setup). Used to test the installer on a board that already runs LayerHound.
@@ -32,16 +33,18 @@ fail() { printf '!! %s\n' "$*" >&2; exit 1; }
 ask() { local reply=""; if [ -r /dev/tty ]; then read -r -p "$1 " reply </dev/tty || true; fi; printf '%s' "$reply"; }
 
 main() {
-  local hostname_opt="" keep_hostname="" package=""
+  local hostname_opt="" keep_hostname="" package="" port="80"
   while [ $# -gt 0 ]; do
     case "$1" in
       --hostname) hostname_opt="${2:-}"; shift 2 ;;
       --keep-hostname) keep_hostname=1; shift ;;
       --package) package="${2:-}"; shift 2 ;;
+      --port) port="${2:-}"; shift 2 ;;
       *) fail "Unknown option: $1" ;;
     esac
   done
 
+  [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || fail "--port needs a number from 1 to 65535."
   [ "$(id -u)" != 0 ] || fail "Run this as your normal user, not root. It asks for sudo when needed."
   command -v apt-get >/dev/null && command -v systemctl >/dev/null || fail "This installer needs a Debian-based Linux with systemd (Debian 12, Armbian, Raspberry Pi OS, Ubuntu)."
   if [ -e "$APP_DIR/backend/main.py" ]; then
@@ -110,13 +113,14 @@ main() {
   fi
 
   say "Setting up the board (this takes a few minutes)"
-  bash "$APP_DIR/deploy/setup.sh"
+  LAYERHOUND_PORT="$port" bash "$APP_DIR/deploy/setup.sh"
   # Announce the (new) name on the network right away
   sudo systemctl restart avahi-daemon 2>/dev/null || true
 
   echo
   say "LayerHound $version is installed."
-  echo "    Open http://$(hostname).local in a browser on the same network to create your admin account."
+  local url="http://$(hostname).local"; [ "$port" = 80 ] || url="$url:$port"
+  echo "    Open $url in a browser on the same network to create your admin account."
   echo "    Forgot your password later? Run: layerhound reset-password"
 }
 

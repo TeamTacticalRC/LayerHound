@@ -42,12 +42,14 @@ SCHEMA={
  'fan_min_percent':(30,int,(20,100)),
  # Check once a day for a newer LayerHound (updates.py); installing always needs an admin
  'update_check':(True,bool,None),
+ # Setup hotspot when offline (hotspot.py): auto = on for single-board computers, off for PCs
+ 'setup_hotspot':('auto',str,('auto','on','off')),
 }
 
 # Names used in error messages, matching the labels on the Settings page
 LABELS={'farm_name':'Farm name','farm_description':'Description','accent':'Accent color','temp_unit':'Temperature unit','time_format':'Time format',
  'temp_warn':'Server running hot','temp_hot':'Server overheating','storage_warn':'Main drive warning','storage_critical':'Main drive critical','memory_warn':'Memory warning',
- 'fan_mode':'Fan mode','fan_quiet_temp':'Quiet up to','fan_full_temp':'Full speed at','fan_min_percent':'Minimum fan speed',
+ 'fan_mode':'Fan mode','setup_hotspot':'Setup hotspot','fan_quiet_temp':'Quiet up to','fan_full_temp':'Full speed at','fan_min_percent':'Minimum fan speed',
  'network_history_days':'Uptime history','storage_history_days':'Storage trend','data_usage_days':'Data usage'}
 
 def configure(db):

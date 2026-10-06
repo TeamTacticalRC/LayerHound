@@ -18,6 +18,7 @@ def fake_nm(monkeypatch):
     monkeypatch.setattr(wifi, "saved_wifi", lambda: set(net["saved"]))
     monkeypatch.setattr(wifi, "scan", lambda rescan=False: [{"ssid": "Home", "signal": 80, "saved": True}])
     monkeypatch.setattr(hotspot, "clients", lambda: net["clients"])
+    monkeypatch.setattr(hotspot, "board_model", lambda: "Radxa ROCK 4D")   # act like a board
     monkeypatch.setattr(hotspot, "REQUEST_FILE", hotspot.Path(__file__).with_name("no-such-request-file"))
     hotspot.state.update(active=False, reason=None, since=None, joining=None, last_error=None)
     yield calls, net
@@ -116,3 +117,39 @@ def test_never_starts_when_network_status_is_unknown(fake_nm):
     _, net = fake_nm
     net["devices"] = []
     assert hotspot.tick(1000, 1000 - hotspot.OFFLINE_WAIT - 1) is None and not hotspot.state["active"]
+
+
+def test_auto_is_off_on_pcs_and_laptops(fake_nm, monkeypatch):
+    monkeypatch.setattr(hotspot, "board_model", lambda: None)   # no device-tree model: a PC
+    assert not hotspot.enabled()
+    assert hotspot.tick(1000, 1000 - hotspot.OFFLINE_WAIT - 1) is None and not hotspot.state["active"]
+
+
+def test_setting_on_and_off(fake_nm, monkeypatch):
+    import settings
+    real = settings.get
+    monkeypatch.setattr(hotspot, "board_model", lambda: None)
+    monkeypatch.setattr(settings, "get", lambda k: "on" if k == "setup_hotspot" else real(k))
+    assert hotspot.enabled()
+    monkeypatch.setattr(hotspot, "board_model", lambda: "Radxa ROCK 4D")
+    monkeypatch.setattr(settings, "get", lambda k: "off" if k == "setup_hotspot" else real(k))
+    assert not hotspot.enabled()
+    # Turning it off stops a hotspot started because the board was offline
+    hotspot.state.update(active=True, reason="offline", since=1000)
+    hotspot.tick(1010, None)
+    assert not hotspot.state["active"]
+
+
+def test_manual_start_works_even_when_off(fake_nm, monkeypatch):
+    import settings
+    real = settings.get
+    monkeypatch.setattr(settings, "get", lambda k: "off" if k == "setup_hotspot" else real(k))
+    monkeypatch.setattr(hotspot, "take_request", lambda: "start")
+    hotspot.tick(1000, None)
+    assert hotspot.state["active"] and hotspot.state["reason"] == "manual"
+
+
+def test_settings_page_learns_what_this_machine_can_do(client):
+    r = client.get("/api/hotspot").json()
+    assert {"capable", "enabled", "board"} <= r.keys() and r["capable"] is False   # this test machine isn't the board's service
+    assert client.put("/api/settings", json={"setup_hotspot": "sometimes"}).status_code == 400

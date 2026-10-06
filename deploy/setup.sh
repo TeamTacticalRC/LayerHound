@@ -127,6 +127,14 @@ exec "$APP_DIR/backend/.venv/bin/python" "$APP_DIR/backend/manage.py" "\$@"
 CMD
 sudo chmod 755 /usr/local/bin/layerhound
 
+# Another program (a web server, another app) may already use the port. LayerHound itself is fine:
+# that's a reinstall or update.
+if ! systemctl is-active --quiet "$SERVICE" && ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
+  echo "!! Port $PORT is already used by another program on this machine." >&2
+  echo "   Choose another port: run the installer again with --port 8080 (or deploy with LAYERHOUND_PORT=8080)." >&2
+  exit 1
+fi
+
 echo "==> systemd service ($SERVICE, port $PORT)"
 sudo tee /etc/systemd/system/$SERVICE.service >/dev/null <<EOF
 [Unit]
@@ -142,6 +150,7 @@ Restart=always
 RestartSec=3
 # Tells LayerHound it runs as this service, which enables the Restart button in Settings
 Environment=LAYERHOUND_SERVICE=1
+Environment=LAYERHOUND_PORT=$PORT
 # Fan to full speed whenever LayerHound stops ("+" runs it as root)
 ExecStopPost=+/usr/local/sbin/layerhound-fan-full
 # Lets a normal user listen on port 80 without running as root

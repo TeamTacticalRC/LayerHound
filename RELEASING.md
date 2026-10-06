@@ -40,4 +40,4 @@ Use `MAJOR.MINOR.PATCH`:
 
 Pushing the release tag (the script does this) makes GitHub build the Docker image for Intel/AMD and ARM, and publish it as `ghcr.io/teamtacticalrc/layerhound` with the version, `MAJOR.MINOR` and `latest` tags. Check the **Docker image** run under the repository's Actions tab.
 
-**After the first image is published, once:** open the package on GitHub (the organization's **Packages** tab, then **layerhound**, then **Package settings**), and change its visibility to **Public**. New packages start private, so nobody could pull it until then.
+The package is public: GitHub linked it to the public LayerHound repository automatically when v1.1.0 was published. Anyone can pull it without signing in. If a future image ever can't be pulled, check its visibility under the package's **Package settings** on GitHub.

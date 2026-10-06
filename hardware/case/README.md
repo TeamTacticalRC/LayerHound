@@ -2,9 +2,9 @@
 
 A two-part printed case with a 40 mm fan that blows across the board, and the LayerHound emblem and wordmark inlaid in the lid.
 
-**Status: design draft, not test-printed yet.** Port positions come from Radxa's official 2D drawing (v1.11). Print the shell once and check the fit before printing more.
+**Status: version 2** (2026-10-05). The first test print fit the board and ports. Version 2 moves the fan 6.5 mm to the left and adds 4 mm behind the board, so the fan can be held with bolts and nuts: they used to hit a board post and the 40-pin header. Port positions come from Radxa's official 2D drawing (v1.11). [Before and after](fan-move.png).
 
-- Outside size: **91 × 73 × 49 mm**
+- Outside size: **91 × 77 × 49 mm**
 - The fan sits on the back (the 40-pin header side). It pulls air in through the grill and blows it across the processor and memory, out through the vents in the front and right side.
 - All ports are open: USB, Ethernet and the antenna on the right, power, HDMI and audio on the front, microSD on the left.
 
@@ -36,14 +36,14 @@ A two-part printed case with a 40 mm fan that blows across the board, and the La
 | Part | Qty | Notes |
 |---|---|---|
 | 40 × 40 × 10 mm fan, **5 V**, 2-wire | 1 | Ideally with a **2-pin 1.25 mm plug** (often sold as "JST 1.25" or "PH1.25" for single-board computers), to fit the board's fan header. See Connecting the fan. |
-| M3 × 12 screws (or the fan's own screws) | 4 | From outside the back wall into the fan's corner holes. Longer than 12 mm pokes out past the fan frame; with nuts instead, use M3 × 16. |
+| M3 × 16 bolts and M3 nuts | 4 each | From outside the back wall, through the fan's corner holes, with the nut on the inside. There's room behind the board for the nuts; `build_case.py` checks it. |
 | M2.5 × 12 screws, button or pan head | 4 | Up through the base and the board into the shell's posts (10–14 mm also works). They cut their own threads in the plastic. |
 | Rubber feet, 8 mm | 4 | Optional; there are shallow pockets for them. |
 | 2-pin 1.25 mm pigtail | — | Only if your fan has a different plug: splice it on. |
 
 ## Putting it together
 
-1. Screw the fan to the inside of the back wall, with the **label facing into the case**. Fans blow out of the label side.
+1. Bolt the fan to the inside of the back wall with the **label facing into the case** (fans blow out of the label side): M3 × 16 bolts from outside, nuts on the inside. Fit the fan before the board, while there's room for your fingers.
 2. Plug the fan into the board's fan header (see Connecting the fan).
 3. Set the board on the base's standoffs.
 4. Lower the shell straight down over the board. The port openings are open at the bottom, so it slides over the connectors.

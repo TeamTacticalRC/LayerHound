@@ -27,8 +27,15 @@ WALL=2.4; ROOF=2.4; FLOOR=2.0
 STANDOFF=4.0                      # board bottom above the floor
 PCB=1.6
 HOLES=[(3.5,3.5),(61.5,3.5),(3.5,52.5),(61.5,52.5)]
-FAN=40.0; FAN_DEPTH=10.0; FAN_HOLES=32.0; FAN_CENTER_X=42.5   # over the processor and memory
-INNER=dict(x0=-1.0,x1=85.6,y0=-0.6,y1=56+1.5+FAN_DEPTH+0.5,z1=45.0)
+FAN=40.0; FAN_DEPTH=10.0; FAN_HOLES=32.0
+# Fan center, left of the board's middle so the bolts and nuts on its right-hand holes clear the
+# back-right board post (it hit the post at 42.5). Still over the memory and most of the processor.
+FAN_CENTER_X=36.0
+NUT_CORNERS=6.4; NUT_CLEARANCE=2.0   # M3 nut across its corners, and room to get it on
+# Fan bolts are M3 x 16 with nuts on the inside. NUT_SPACE leaves room behind the board for the nuts
+# and bolt ends: the lower bolts sit at the height of the board and its 40-pin header.
+NUT=2.4; BOLT=16.0; NUT_SPACE=4.0
+INNER=dict(x0=-1.0,x1=85.6,y0=-0.6,y1=56+1.5+NUT_SPACE+FAN_DEPTH+0.5,z1=45.0)
 FIT=0.3                           # gap between the base plate and the shell walls
 CORNER=3.0                        # outside corner radius
 SCREW_CLEAR=2.9; SCREW_HEAD=5.4; SCREW_PILOT=2.2; POST_D=5.2   # M2.5 screws
@@ -190,7 +197,28 @@ def roof_down(m):
  # Print the shell upside down: roof on the bed, so the logo is crisp and nothing needs supports
  return m.rotate([180,0,0]).translate([0,0,TOP])
 
+def check_fan_bolts():
+ # The bolt ends (inside the case) must stay behind the board's back edge (y=56), clear of the
+ # board, its 40-pin header and the posts
+ fan_face=INNER['y1']-FAN_DEPTH; bolt_end=INNER['y1']+WALL-BOLT
+ if fan_face-NUT<56.5: sys.exit('No room behind the board for the fan nuts; raise NUT_SPACE')
+ if bolt_end>fan_face-NUT: sys.exit(f'M3 x {BOLT:g} bolts are too short to go through the nuts; use longer bolts')
+ if bolt_end<56.5: sys.exit(f'M3 x {BOLT:g} bolt ends reach the board; raise NUT_SPACE or use shorter bolts')
+ print(f'fan bolts: nuts sit {fan_face-NUT-56:.1f} mm behind the board; M3 x {BOLT:g} bolt ends stop {bolt_end-56:.1f} mm short of it')
+ # Each fan bolt's nut must also clear the board posts sideways (the posts run nearly the full height)
+ for dx in (-FAN_HOLES/2,FAN_HOLES/2):
+  bx=FAN_CENTER_X+dx
+  for px,py in HOLES:
+   gap=abs(bx-px)-POST_D/2-NUT_CORNERS/2
+   if py>40 and gap<NUT_CLEARANCE:
+    sys.exit(f'Fan bolt at x={bx} leaves only {gap:.1f} mm beside its nut before the post at x={px}; move FAN_CENTER_X')
+ # And the fan itself must fit between the side walls
+ if FAN_CENTER_X-FAN/2<INNER['x0'] or FAN_CENTER_X+FAN/2>INNER['x1']: sys.exit('The fan no longer fits between the walls')
+ gaps=[abs(FAN_CENTER_X+dx-px)-POST_D/2-NUT_CORNERS/2 for dx in (-FAN_HOLES/2,FAN_HOLES/2) for px,py in HOLES if py>40]
+ print(f'fan bolts: smallest space beside a nut before a post = {min(gaps):.1f} mm')
+
 def main():
+ check_fan_bolts()
  out=HERE/'stl'; out.mkdir(exist_ok=True)
  solids,cut=logo()
  sh=shell(cut); bs=base()

@@ -2923,25 +2923,28 @@ function SettingsPage({ onSaved, onRestored }) {
     <>
       <div className="mb-7">
         <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
-        <p className="mt-2 text-sm text-slate-500">{isAdmin() ? "Branding, alerts, accounts, data and maintenance." : "Your account. Other settings can be changed by an admin."}</p>
+        <p className="mt-2 text-sm text-slate-500">{isAdmin() ? "Your farm, alerts, updates, accounts, backups and maintenance." : "Your account. Other settings can be changed by an admin."}</p>
       </div>
       <div className="space-y-4">
-        {isAdmin() && <>
+        {/* Ordered by how often owners need each section: everyday choices first, set-once ones later */}
+        {isAdmin() ? <>
           <BrandingSection onSaved={onSaved} />
           <AppearanceSection />
           <AlertsSection onSaved={onSaved} />
+          <UpdatesSection onSaved={onSaved} />
+          <AccessSection onSaved={onSaved} />
+          {session.user?.kind === "user" && <AccountSection />}
+          <DiscoverySection onSaved={onSaved} />
+          <DataSection onSaved={onSaved} onRestored={onRestored} />
           <FanSection onSaved={onSaved} />
           <HotspotSection onSaved={onSaved} />
-          <DiscoverySection onSaved={onSaved} />
+          <AboutSection />
           <UsageStatsSection onSaved={onSaved} />
-          <AccessSection onSaved={onSaved} />
-          <DataSection onSaved={onSaved} onRestored={onRestored} />
+        </> : <>
+          <AppearanceSection />
+          {session.user?.kind === "user" && <AccountSection />}
+          <AboutSection />
         </>}
-        {/* Everyone can pick their theme; admins see it right under Farm & display */}
-        {!isAdmin() && <AppearanceSection />}
-        {session.user?.kind === "user" && <AccountSection />}
-        {isAdmin() && <UpdatesSection onSaved={onSaved} />}
-        <AboutSection />
       </div>
     </>
   );

@@ -310,6 +310,8 @@ def scan_subnet():
  if net.prefixlen<24: net=ipaddress.ip_network(f"{iface['ipv4']}/24",strict=False)
  return net,iface['ipv4']
 
+after_scan=[]
+
 def run_scan(known):
  try:
   net,me=scan_subnet(); hosts=[str(h) for h in net.hosts()]; scan.update(subnet=str(net)); done=[0]
@@ -330,6 +332,10 @@ def run_scan(known):
    return {'ip':ip,'ms':alive[ip],'hostname':ident.get('hostname') or name,'mac':mac,'vendor':vendor(mac),'kind':ident.get('kind'),'label':ident.get('label') or ('This server' if ip==me else 'Router' if ip==gateway() else None),'printer':ident.get('printer'),'known':known.get(ip)}
   with ThreadPoolExecutor(max_workers=24) as ex: scan['results']=list(ex.map(details,ips))
   scan['progress']=100
+  # e.g. discovery.py remembers printers that aren't on the dashboard yet
+  for fn in after_scan:
+   try: fn(scan['results'])
+   except Exception as e: print(f'[network] after-scan hook failed: {e}',flush=True)
  except Exception as e: scan['error']=str(e)
  finally: scan.update(running=False,finished=now())
 

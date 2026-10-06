@@ -29,7 +29,7 @@ It also works on any always-on Debian-based PC or mini PC. If another program al
 | Page | What you get |
 |---|---|
 | **Dashboard** | Every printer at a glance (progress, time left, nozzle and bed temperatures), server health, service status and a live alert list. |
-| **Print Farm** | Add, edit and reorder printers so the cards match how they sit on your bench. |
+| **Print Farm** | Printers found on your network are suggested automatically: one click for Klipper, the access code for Bambu, "Allow" for OctoPrint. Add, edit and reorder printers so the cards match how they sit on your bench. |
 | **History** | Every print with its result and duration, success rate, hours printed and filament used per printer, and hours printed per day. Klipper printers' own job history is imported, so past prints show up too. |
 | **Server** | CPU, memory, temperature, storage and network for the machine running LayerHound, with an hour of history. On the LayerHound board, the case fan's speed follows the chip temperature. |
 | **Storage** | Drive usage and health (NVMe wear, temperature, hours), a 90-day usage trend, and a shared files folder with uploads, downloads and a trash. |

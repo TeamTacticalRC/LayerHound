@@ -44,6 +44,9 @@ SCHEMA={
  'update_check':(True,bool,None),
  # Setup hotspot when offline (hotspot.py): auto = on for single-board computers, off for PCs
  'setup_hotspot':('auto',str,('auto','on','off')),
+ # Printer suggestions (discovery.py): scan once a day; optionally add Klipper printers without asking
+ 'printer_discovery':(True,bool,None),
+ 'auto_add_klipper':(False,bool,None),
 }
 
 # Names used in error messages, matching the labels on the Settings page

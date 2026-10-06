@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -17,7 +17,7 @@ const prefs = {
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
   network_history_days: 7, storage_history_days: 90, data_usage_days: 90, guest_view: false, update_check: true,
-  fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30, setup_hotspot: "auto",
+  fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30, setup_hotspot: "auto", printer_discovery: true, auto_add_klipper: false,
 };
 
 // Accent colors. The app's styles use Tailwind's violet shades, so switching accent swaps
@@ -905,7 +905,90 @@ function ReorderRow({ printer, index, count, move, dragging, setDragging }) {
   );
 }
 
-function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onSaveOrder }) {
+// Printers found on the network that aren't on the dashboard yet (backend/discovery.py).
+// Admins add them here: one click for Klipper, the access code for Bambu, "Allow" for OctoPrint.
+function PrinterSuggestions({ onAdded, noPrinters }) {
+  const [d, setD] = useState(null);
+  const [names, setNames] = useState({});
+  const [codes, setCodes] = useState({});
+  const [busy, setBusy] = useState("");
+  const [errors, setErrors] = useState({});
+  const load = useCallback(() => getDiscovery().then(setD).catch(() => {}), []);
+  const list = d?.suggestions ?? [];
+  const waiting = list.filter(s => s.awaiting_approval);
+  useEffect(() => { load(); }, [load]);
+  // Check often while a scan runs or OctoPrint is waiting for "Allow", otherwise now and then
+  useEffect(() => {
+    const t = setInterval(async () => {
+      for (const s of waiting) {
+        try { const r = await checkOctoPrint(s.key); if (r.status === "added") onAdded(); if (r.status === "denied") setErrors(e => ({ ...e, [s.key]: "Not allowed in OctoPrint. Try again, and click Allow there." })); } catch { /* try again */ }
+      }
+      load();
+    }, d?.scanning || waiting.length ? 3000 : 30000);
+    return () => clearInterval(t);
+  }, [d?.scanning, waiting.length, load, onAdded]);
+  if (!isAdmin() || !d) return null;
+  if (!list.length) {
+    return d.scanning && noPrinters ? <div className="mb-5 flex items-center gap-2 rounded-xl border border-white/8 bg-white/[.02] px-4 py-3 text-sm text-slate-400"><Loader2 size={15} className="animate-spin text-violet-400" /> Looking for printers on your network…</div> : null;
+  }
+  const run = async (key, fn) => {
+    setBusy(key); setErrors(e => ({ ...e, [key]: "" }));
+    try { await fn(); await load(); onAdded(); } catch (e) { setErrors(x => ({ ...x, [key]: e.message })); }
+    setBusy("");
+  };
+  const klipper = list.filter(s => s.type === "moonraker");
+  return (
+    <section className="mb-6 rounded-2xl border border-violet-400/25 bg-violet-500/[.06] p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold text-white"><Radar size={17} className="text-violet-400" /> {list.length} printer{list.length === 1 ? "" : "s"} found on your network</h2>
+          <p className="mt-1 text-xs text-slate-500">Not on your dashboard yet. Add the ones that are yours.</p>
+        </div>
+        <div className="flex gap-2">
+          {klipper.length > 1 && <button onClick={() => run("all", addAllKlipper)} disabled={!!busy} className="rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">Add all Klipper ({klipper.length})</button>}
+          <button onClick={() => run("scan", scanForPrinters)} disabled={!!busy || d.scanning} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">{d.scanning ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />} {d.scanning ? "Scanning…" : "Scan again"}</button>
+        </div>
+      </div>
+      <ul className="mt-4 space-y-2">
+        {list.map(s => {
+          const name = names[s.key] ?? s.suggested_name;
+          const where = `${s.label}${s.model ? ` ${s.model}` : ""} · ${s.host}${s.port && ![80, 8883].includes(s.port) ? `:${s.port}` : ""}`;
+          return (
+            <li key={s.key} className="rounded-xl border border-white/8 bg-[var(--lh-card)] p-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-slate-400"><Printer size={17} /></div>
+                <div className="min-w-[10rem] flex-1">
+                  <input aria-label="Printer name" className={`${inputClass} py-1.5`} maxLength={80} value={name} onChange={e => setNames(n => ({ ...n, [s.key]: e.target.value }))} />
+                  <div className="mt-1 truncate text-xs text-slate-500">{where}{s.serial ? ` · ${s.serial}` : ""}</div>
+                </div>
+                {s.type === "bambu" && (
+                  <input aria-label={`Access code for ${name}`} className={`${inputClass} w-36 py-1.5 font-mono`} maxLength={8} placeholder="Access code" autoComplete="off" spellCheck={false}
+                    value={codes[s.key] ?? ""} onChange={e => setCodes(c => ({ ...c, [s.key]: e.target.value.trim() }))} />
+                )}
+                {s.type === "octoprint" ? (
+                  s.awaiting_approval
+                    ? <span className="flex items-center gap-2 text-xs text-slate-300"><Loader2 size={14} className="animate-spin text-violet-400" /> Click <b>Allow</b> in OctoPrint…</span>
+                    : <button onClick={() => run(s.key, () => allowOctoPrint(s.key, name))} disabled={!!busy} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">Allow in OctoPrint</button>
+                ) : (
+                  <button onClick={() => run(s.key, () => addFoundPrinter(s.key, { name, access_code: codes[s.key] }))} disabled={!!busy || (s.type === "bambu" && (codes[s.key] ?? "").length !== 8)}
+                    className="flex items-center gap-1.5 rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{busy === s.key ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add</button>
+                )}
+                <button onClick={() => run(s.key, () => dismissFoundPrinter(s.key))} disabled={!!busy} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label={`Not mine: hide ${name}`} title="Not mine: hide it"><X size={15} /></button>
+              </div>
+              {s.type === "bambu" && <p className="mt-2 pl-12 text-xs text-slate-500">The access code is on the printer's screen, under the network or WLAN settings.</p>}
+              {s.type === "octoprint" && !s.awaiting_approval && <p className="mt-2 pl-12 text-xs text-slate-500">OctoPrint will ask you to allow LayerHound. No API key to copy.</p>}
+              {errors[s.key] && <p className="mt-2 pl-12 text-xs text-red-300">{errors[s.key]}</p>}
+            </li>
+          );
+        })}
+      </ul>
+      {errors.all && <p className="mt-2 text-xs text-red-300">{errors.all}</p>}
+      {errors.scan && <p className="mt-2 text-xs text-red-300">{errors.scan}</p>}
+    </section>
+  );
+}
+
+function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onSaveOrder, onAdded }) {
   // While reordering, keep our own list of ids so the 10s printer poll doesn't undo moves.
   const [order, setOrder] = useState(null);
   const [dragging, setDragging] = useState(null);
@@ -954,6 +1037,8 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
           </div>
         )}
       </div>
+
+      <PrinterSuggestions onAdded={onAdded} noPrinters={!printers.length} />
 
       {usingDemo && (
         <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-sm text-amber-200">
@@ -2370,6 +2455,22 @@ function HotspotSection({ onSaved }) {
   );
 }
 
+function DiscoverySection({ onSaved }) {
+  const [f, setF] = useState(() => ({ printer_discovery: prefs.printer_discovery, auto_add_klipper: prefs.auto_add_klipper }));
+  const [error, setError] = useState("");
+  const set = async (k, v) => {
+    setF(x => ({ ...x, [k]: v })); setError("");
+    try { onSaved(await saveSettings({ [k]: v })); } catch (e) { setError(e.message); setF(x => ({ ...x, [k]: !v })); }
+  };
+  return (
+    <Section title={<span className="flex items-center gap-2"><Radar size={16} className="text-violet-400" /> Printer discovery</span>} sub="Finds printers on your network that aren't on the dashboard yet, and suggests them on the Dashboard and Print Farm pages.">
+      <Toggle checked={f.printer_discovery} onChange={v => set("printer_discovery", v)} label="Look for new printers once a day" hint="A quick, local scan of your own network. You can also scan any time from the suggestions or the Network page." />
+      <Toggle checked={f.auto_add_klipper} onChange={v => set("auto_add_klipper", v)} label="Add Klipper printers without asking" hint="Leave off on shared networks (a makerspace, an apartment), where the scan also finds other people's printers. Bambu and OctoPrint always need you." />
+      {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+    </Section>
+  );
+}
+
 function DataSection({ onSaved, onRestored }) {
   const [f, setF] = useState(() => ({ network_history_days: prefs.network_history_days ?? 7, storage_history_days: prefs.storage_history_days ?? 90, data_usage_days: prefs.data_usage_days ?? 90 }));
   const [save, busy, note] = useSaver(onSaved);
@@ -2761,6 +2862,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <AlertsSection onSaved={onSaved} />
           <FanSection onSaved={onSaved} />
           <HotspotSection onSaved={onSaved} />
+          <DiscoverySection onSaved={onSaved} />
           <AccessSection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
         </>}
@@ -3219,7 +3321,7 @@ function Dashboard({ onSignOut, onSignIn }) {
             ) : page === "network" ? (
               <NetworkPage printers={livePrinters ?? []} onAddPrinter={p => setAdding(p)} />
             ) : page === "printers" ? (
-              <PrintFarmPage printers={printers} usingDemo={usingDemo} printerError={printerError} onSelect={setSelected} onAdd={() => setAdding(true)} onSaveOrder={saveOrder} />
+              <PrintFarmPage printers={printers} usingDemo={usingDemo} printerError={printerError} onSelect={setSelected} onAdd={() => setAdding(true)} onSaveOrder={saveOrder} onAdded={refreshPrinters} />
             ) : placeholder ? (
               <div className="flex min-h-[60vh] items-center justify-center">
                 <div className="text-center">
@@ -3247,7 +3349,9 @@ function Dashboard({ onSignOut, onSignIn }) {
                   <Metric icon={HardDrive} label="Storage" value={system ? `${Math.round(system.storage_percent)}%` : "—"} sub={system ? `${system.storage_used_gb} GB / ${system.storage_total_gb} GB` : "Waiting for API"} progress={system?.storage_percent ?? 0} />
                 </section>
 
-                <section className="mt-8">
+                <div className="mt-8"><PrinterSuggestions onAdded={refreshPrinters} noPrinters={printers.length === 0} /></div>
+
+                <section className="mt-2">
                   <div className="mb-4 flex items-center justify-between">
                     <div>
                       <h2 className="font-semibold text-white">Print Farm</h2>

@@ -18,6 +18,7 @@ SESSION_SHORT=24*3600; SESSION_LONG=30*86400
 MAX_FAILS=5; FAIL_WINDOW=15*60; LOCKOUT=5*60
 _db=None; _fails={}; _lock=threading.Lock()
 ROLES=('admin','viewer')
+after_setup=[]
 
 def configure(db):
  global _db; _db=db
@@ -159,6 +160,9 @@ def setup(b:Setup,request:Request,response:Response):
   uid=c.execute("INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,'admin',?)",(username,hash_password(b.password),time.time())).lastrowid; c.commit()
  except sqlite3.IntegrityError: c.close(); raise HTTPException(409,'Setup is already done. Sign in instead.')
  c.close(); start_session(response,uid,True)
+ for fn in after_setup:   # e.g. start looking for printers right away
+  try: fn()
+  except Exception as e: print(f'[auth] after-setup hook failed: {e}',flush=True)
  return {'status':'ok','user':{'username':username,'role':'admin'}}
 
 class Login(BaseModel):

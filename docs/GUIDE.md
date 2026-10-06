@@ -56,7 +56,13 @@ The first time you open LayerHound, it asks you to:
 
 ## Adding printers
 
-Go to **Print Farm → Add printer**, or **Network → Scan network** to find printers automatically and fill in the form for you.
+**LayerHound looks for printers on its own:** right after first-run setup, and then once a day. Printers it finds show up as **"printers found on your network"** on the Dashboard and Print Farm pages:
+- **Klipper:** press **Add**.
+- **Bambu Lab:** type the printer's 8-character access code (on its screen, under the network or WLAN settings) and press **Add**.
+- **OctoPrint:** press **Allow in OctoPrint**, then click **Allow** in OctoPrint. No API key to copy.
+- **Not yours?** Press **×** and it won't be suggested again. On a shared network, like a makerspace, the scan can find other people's printers too.
+
+You can also add a printer by hand with **Print Farm → Add printer**, or scan any time with **Scan again** or **Network → Scan network**. In **Settings → Printer discovery** you can turn the daily scan off, or let LayerHound add Klipper printers without asking.
 
 | Printer | What to enter |
 |---|---|

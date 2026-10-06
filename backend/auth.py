@@ -147,6 +147,7 @@ def status(request:Request):
 
 class Setup(BaseModel):
  farm_name:str=Field(min_length=1,max_length=40); username:str; password:str
+ usage_stats:str|None=None   # the owner's answer to sharing anonymous stats: 'yes' or 'no'
 
 @router.post('/setup')
 def setup(b:Setup,request:Request,response:Response):
@@ -154,7 +155,7 @@ def setup(b:Setup,request:Request,response:Response):
  if has_users(): raise HTTPException(409,'Setup is already done. Sign in instead.')
  if not is_local(request.client.host if request.client else ''): raise HTTPException(403,'Set up LayerHound from a device on the same network')
  username=validate_username(b.username); validate_password(b.password)
- settings.save({'farm_name':b.farm_name})
+ settings.save({'farm_name':b.farm_name,**({'usage_stats':b.usage_stats} if b.usage_stats in ('yes','no') else {})})
  c=_db()
  try:
   uid=c.execute("INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,'admin',?)",(username,hash_password(b.password),time.time())).lastrowid; c.commit()

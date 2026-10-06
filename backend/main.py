@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import auth, discovery, fan, history, hotspot, updates, vault, media, network, services, settings, storage, wifi
+import auth, discovery, fan, history, hotspot, stats, updates, vault, media, network, services, settings, storage, wifi
 from fastapi.responses import Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
@@ -400,6 +400,9 @@ history.configure(db,printer_rows); app.include_router(history.router)
 # Printer suggestions: found on the network, not on the dashboard yet
 discovery.configure(db,lambda d: add(PrinterIn(**d)),printer_rows); app.include_router(discovery.router)
 auth.after_setup.append(discovery.after_setup)
+# Optional anonymous usage stats (off until the owner says yes)
+stats.configure(db,printer_rows,DB_PATH.parent/'data'); app.include_router(stats.router)
+settings.after_save.append(lambda changed: 'usage_stats' in changed and stats.chosen(changed['usage_stats']))
 threading.Thread(target=printer_poller,daemon=True,name='layerhound-printers').start()
 
 # Must stay last: a mount at / would otherwise shadow the /api routes above

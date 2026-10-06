@@ -180,6 +180,7 @@ Use **Send feedback** in the menu for ideas, problems or questions. It goes stra
 
 ## Good to know
 
+- **Usage stats are your choice.** First-run setup asks whether to send anonymous stats once a day (install count, printer counts by type, country, version). Nothing is sent unless you say yes; **Settings → Usage stats** shows exactly what's sent and lets you change your mind.
 - **Your data stays home.** Printer access codes, passwords and history stay on your board. Access codes and tokens are stored encrypted. The only outside connections are internet-health checks, the daily update check, and anything you send yourself; see the [privacy details](../README.md#privacy-and-security).
 - **LayerHound is not affiliated with** Bambu Lab, Klipper, Moonraker, OctoPrint, Creality, Elegoo, Snapmaker, Radxa or Raspberry Pi. Their names are used only to say what LayerHound works with.
 - **Bambu Lab support may change.** Bambu has been limiting third-party access in firmware updates. A future Bambu firmware could stop LayerHound from reading Bambu printers; we'll adapt where we can.

@@ -94,6 +94,9 @@ def admin_state(browser, base_url):
     page.get_by_placeholder("My Print Farm").fill("UI Test Farm")
     passwords = page.locator("input[type=password]")
     passwords.nth(0).fill(ADMIN["password"]); passwords.nth(1).fill(ADMIN["password"])
+    # Setup can't finish until the owner answers the usage-stats question; tests never share
+    assert page.get_by_role("button", name="Finish setup").is_disabled()
+    page.get_by_role("radio", name="No thanks").click()
     page.get_by_role("button", name="Finish setup").click()
     page.get_by_role("heading", name="UI Test Farm").wait_for()
     assert not page.problems.items, page.problems.items

@@ -16,7 +16,7 @@ INTERNET_TARGETS=('1.1.1.1','8.8.8.8'); DNS_NAME='one.one.one.one'
 OUI_PATH=Path(__file__).with_name('data')/'oui.csv'
 KINDS=('router','printer','computer','server','nas','camera','phone','other')
 MAC=sys.platform=='darwin'
-_db=None; state={'internet':{},'devices':{},'public_ip':None,'public_ip_at':0}
+_db=None; state={'internet':{},'devices':{},'public_ip':None,'public_ip_at':0,'country':None}
 lock=threading.Lock()
 
 def configure(db):
@@ -72,7 +72,10 @@ def public_ip():
  if time.time()-state['public_ip_at']<900 and state['public_ip']: return state['public_ip']
  try:
   with urllib.request.urlopen('https://1.1.1.1/cdn-cgi/trace',timeout=4) as r:
-   m=re.search(r'^ip=(\S+)$',r.read().decode(),re.M); state['public_ip']=m.group(1) if m else None
+   text=r.read().decode()
+   m=re.search(r'^ip=(\S+)$',text,re.M); state['public_ip']=m.group(1) if m else None
+   # The same answer includes the country (two letters), used by the optional usage stats
+   m=re.search(r'^loc=([A-Z]{2})$',text,re.M); state['country']=m.group(1) if m else state.get('country')
  except Exception: pass
  state['public_ip_at']=time.time(); return state['public_ip']
 

@@ -72,3 +72,4 @@ export const addAllKlipper=()=>req('/api/discovery/add-klipper',{method:'POST'})
 export const dismissFoundPrinter=key=>req(`/api/discovery/${dk(key)}/dismiss`,{method:'POST'});
 export const allowOctoPrint=(key,name)=>req(`/api/discovery/${dk(key)}/octoprint`,{method:'POST',body:JSON.stringify({name})});
 export const checkOctoPrint=key=>req(`/api/discovery/${dk(key)}/octoprint/check`,{method:'POST'});
+export const getStats=()=>req('/api/stats');

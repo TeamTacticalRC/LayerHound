@@ -12,6 +12,8 @@ APP_VERSION='1.1.0'
 _db=None; _cache={}; _lock=threading.Lock()
 # Functions to run after a restore (main.py uses this to drop Bambu connections tied to old printer ids)
 after_restore=[]
+# Functions to run after settings are saved, with the changed values (e.g. stats.py reacts to a yes)
+after_save=[]
 
 # Every setting with its default and allowed values. Anything not listed here is rejected.
 SCHEMA={
@@ -47,6 +49,8 @@ SCHEMA={
  # Printer suggestions (discovery.py): scan once a day; optionally add Klipper printers without asking
  'printer_discovery':(True,bool,None),
  'auto_add_klipper':(False,bool,None),
+ # Anonymous usage stats (stats.py): 'ask' until the owner chooses; nothing is sent unless 'yes'
+ 'usage_stats':('ask',str,('ask','yes','no')),
 }
 
 # Names used in error messages, matching the labels on the Settings page
@@ -108,7 +112,11 @@ def save(changes):
  if merged['fan_quiet_temp']>=merged['fan_full_temp']: raise HTTPException(400,'The fan\'s "quiet up to" temperature must be lower than its "full speed at" temperature')
  if merged['storage_warn']>=merged['storage_critical']: raise HTTPException(400,'The main drive warning level must be lower than the critical level')
  c=_db(); c.executemany('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',[(k,json.dumps(v)) for k,v in clean.items()]); c.commit(); c.close()
- _load(); return all_settings()
+ _load()
+ for fn in after_save:
+  try: fn(clean)
+  except Exception as e: print(f'[settings] after-save hook failed: {e}',flush=True)
+ return all_settings()
 
 @router.get('')
 def read(): return all_settings()

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -17,7 +17,7 @@ const prefs = {
   temp_unit: "C", time_format: "12", temp_warn: 75, temp_hot: 85, storage_warn: 90, storage_critical: 97, memory_warn: 92,
   alert_printers: true, alert_devices: true, alert_services: true, alert_internet: true,
   network_history_days: 7, storage_history_days: 90, data_usage_days: 90, guest_view: false, update_check: true,
-  fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30, setup_hotspot: "auto", printer_discovery: true, auto_add_klipper: false,
+  fan_mode: "auto", fan_quiet_temp: 45, fan_full_temp: 65, fan_min_percent: 30, setup_hotspot: "auto", printer_discovery: true, auto_add_klipper: false, usage_stats: "ask",
 };
 
 // Accent colors. The app's styles use Tailwind's violet shades, so switching accent swaps
@@ -434,9 +434,31 @@ function PasswordInput({ value, onChange, autoComplete, placeholder, id }) {
   );
 }
 
+// What the optional usage stats contain (backend/stats.py), in plain words
+const STATS_WHAT = "A random install ID made on this machine, the LayerHound version, how it's installed, the board model, how many printers of each type, and your country (two letters). Never names, addresses, serial numbers, access codes or print history.";
+
+// Yes/No question about anonymous usage stats; neither answer is chosen for the owner
+function StatsChoice({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2 border-t border-white/6 pt-4">
+      <div className="text-sm text-slate-200">Help Team Tactical RC improve LayerHound?</div>
+      <div className="text-xs text-slate-500">Send anonymous usage stats once a day, so we know how many farms and printers use LayerHound. <button type="button" onClick={() => setOpen(v => !v)} className="text-violet-300 hover:text-violet-200">{open ? "Hide details" : "What's sent?"}</button></div>
+      {open && <div className="rounded-lg bg-white/[.03] p-2 text-xs text-slate-400">{STATS_WHAT}</div>}
+      <div className="flex gap-2" role="radiogroup" aria-label="Usage stats">
+        {[["yes", "Yes, share stats"], ["no", "No thanks"]].map(([v, label]) => (
+          <button key={v} type="button" role="radio" aria-checked={value === v} onClick={() => onChange(v)}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm ${value === v ? "border-violet-400 bg-violet-500/15 text-white" : "border-white/10 text-slate-400 hover:text-white"}`}>{label}</button>
+        ))}
+      </div>
+      <div className="text-[11px] text-slate-600">You can change this any time in Settings.</div>
+    </div>
+  );
+}
+
 // First run: no accounts exist yet. Name the farm and create the admin account.
 function WelcomeScreen({ farmName, onDone }) {
-  const [f, setF] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "" });
+  const [f, setF] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "", usage_stats: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const set = k => v => setF(x => ({ ...x, [k]: v }));
@@ -444,8 +466,9 @@ function WelcomeScreen({ farmName, onDone }) {
     e.preventDefault(); setError("");
     if (f.password.length < 8) return setError("Passwords need at least 8 characters.");
     if (f.password !== f.confirm) return setError("The passwords don't match.");
+    if (!f.usage_stats) return setError("Choose whether to share anonymous usage stats.");
     setBusy(true);
-    try { await setupLayerHound({ farm_name: f.farm_name.trim() || "My Print Farm", username: f.username.trim(), password: f.password }); onDone(); }
+    try { await setupLayerHound({ farm_name: f.farm_name.trim() || "My Print Farm", username: f.username.trim(), password: f.password, usage_stats: f.usage_stats }); onDone(); }
     catch (err) { setError(err.message); setBusy(false); }
   };
   return (
@@ -460,8 +483,9 @@ function WelcomeScreen({ farmName, onDone }) {
             <Field label="Type it again"><PasswordInput value={f.confirm} onChange={set("confirm")} autoComplete="new-password" /></Field>
           </div>
         </div>
+        <StatsChoice value={f.usage_stats} onChange={set("usage_stats")} />
         {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
-        <button type="submit" disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
+        <button type="submit" disabled={busy || !f.usage_stats} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
           {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Setting up…" : "Finish setup"}
         </button>
       </form>
@@ -507,7 +531,7 @@ function LoginScreen({ farmName, onDone, onCancel }) {
 function HotspotScreen({ setupRequired, farmName, onDone }) {
   const [info, setInfo] = useState(null);
   const [net, setNet] = useState({ ssid: "", other: false, password: "" });
-  const [acct, setAcct] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "" });
+  const [acct, setAcct] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "", usage_stats: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(null);
@@ -521,10 +545,11 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
     if (setupRequired) {
       if (acct.password.length < 8) return setError("The admin password needs at least 8 characters.");
       if (acct.password !== acct.confirm) return setError("The admin passwords don't match.");
+      if (!acct.usage_stats) return setError("Choose whether to share anonymous usage stats.");
     }
     setBusy(true);
     try {
-      if (setupRequired) await setupLayerHound({ farm_name: acct.farm_name.trim() || "My Print Farm", username: acct.username.trim(), password: acct.password });
+      if (setupRequired) await setupLayerHound({ farm_name: acct.farm_name.trim() || "My Print Farm", username: acct.username.trim(), password: acct.password, usage_stats: acct.usage_stats });
       setJoining(await joinWifi(net.ssid.trim(), net.password));
     } catch (err) { setError(err.message); setBusy(false); if (setupRequired) onDone(); }
   };
@@ -572,6 +597,7 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
             <Field label="Username"><input className={inputClass} maxLength={40} value={acct.username} onChange={e => setAcct(x => ({ ...x, username: e.target.value }))} autoComplete="username" autoCapitalize="none" /></Field>
             <Field label="Password" hint="At least 8 characters."><PasswordInput value={acct.password} onChange={v => setAcct(x => ({ ...x, password: v }))} autoComplete="new-password" /></Field>
             <Field label="Type it again"><PasswordInput value={acct.confirm} onChange={v => setAcct(x => ({ ...x, confirm: v }))} autoComplete="new-password" /></Field>
+            <StatsChoice value={acct.usage_stats} onChange={v => setAcct(x => ({ ...x, usage_stats: v }))} />
           </div>
         )}
         {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
@@ -2471,6 +2497,50 @@ function DiscoverySection({ onSaved }) {
   );
 }
 
+// Existing installs: ask once (admins only), until the owner answers
+function StatsPrompt({ onSaved }) {
+  const [s, setS] = useState(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (isAdmin()) getStats().then(setS).catch(() => {}); }, []);
+  if (!s?.ready || s.choice !== "ask" || prefs.usage_stats !== "ask") return null;
+  const answer = async v => { try { onSaved(await saveSettings({ usage_stats: v })); } catch { /* stays asked */ } };
+  return (
+    <section className="mb-6 rounded-2xl border border-violet-400/25 bg-violet-500/[.06] p-5">
+      <h2 className="flex items-center gap-2 font-semibold text-white"><MessageSquareHeart size={17} className="text-violet-400" /> Help improve LayerHound?</h2>
+      <p className="mt-1 text-sm text-slate-400">Send anonymous usage stats once a day, so Team Tactical RC knows how many farms and printers use LayerHound. <button onClick={() => setOpen(v => !v)} className="text-violet-300 hover:text-violet-200">{open ? "Hide details" : "What's sent?"}</button></p>
+      {open && <p className="mt-2 rounded-lg bg-white/[.03] p-2 text-xs text-slate-400">{STATS_WHAT}</p>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button onClick={() => answer("yes")} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400">Yes, share stats</button>
+        <button onClick={() => answer("no")} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/5">No thanks</button>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">You can change this any time in Settings → Usage stats.</p>
+    </section>
+  );
+}
+
+function UsageStatsSection({ onSaved }) {
+  const [s, setS] = useState(null);
+  const [error, setError] = useState("");
+  const load = useCallback(() => getStats().then(setS).catch(() => {}), []);
+  useEffect(() => { load(); }, [load]);
+  if (!s) return null;
+  const choose = async v => { setError(""); try { onSaved(await saveSettings({ usage_stats: v })); load(); } catch (e) { setError(e.message); } };
+  const labels = { install_id: "Install ID (random)", version: "Version", install_type: "Installed as", board: "Board", klipper: "Klipper printers", bambu: "Bambu printers", octoprint: "OctoPrint printers", country: "Country" };
+  return (
+    <Section title={<span className="flex items-center gap-2"><MessageSquareHeart size={16} className="text-violet-400" /> Usage stats</span>} sub="Anonymous counts sent to Team Tactical RC once a day, only if you say yes.">
+      <Segmented label="Usage stats" value={s.choice === "yes" ? "yes" : "no"} onChange={choose} options={[["yes", "Share stats"], ["no", "Don't share"]]} />
+      {s.choice === "ask" && <p className="mt-2 text-xs text-amber-200">You haven't chosen yet, so nothing is sent.</p>}
+      <div className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs">
+        <div className="mb-2 text-slate-400">Exactly what's sent{s.choice === "yes" ? "" : " if you say yes"}:</div>
+        {Object.entries(s.preview).map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-0.5"><span className="text-slate-500">{labels[k] ?? k}</span><span className="font-mono text-slate-300">{String(v || "—")}</span></div>)}
+        <div className="mt-2 text-slate-600">Never: names, addresses, serial numbers, access codes or print history.{s.last_sent ? ` Last sent ${fmtDate(s.last_sent * 1000, { dateStyle: "medium", timeStyle: "short" })}.` : ""}</div>
+      </div>
+      {!s.ready && <p className="mt-2 text-xs text-slate-600">Stats aren't set up in this version, so nothing is sent either way.</p>}
+      {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+    </Section>
+  );
+}
+
 function DataSection({ onSaved, onRestored }) {
   const [f, setF] = useState(() => ({ network_history_days: prefs.network_history_days ?? 7, storage_history_days: prefs.storage_history_days ?? 90, data_usage_days: prefs.data_usage_days ?? 90 }));
   const [save, busy, note] = useSaver(onSaved);
@@ -2863,6 +2933,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <FanSection onSaved={onSaved} />
           <HotspotSection onSaved={onSaved} />
           <DiscoverySection onSaved={onSaved} />
+          <UsageStatsSection onSaved={onSaved} />
           <AccessSection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
         </>}
@@ -3349,7 +3420,7 @@ function Dashboard({ onSignOut, onSignIn }) {
                   <Metric icon={HardDrive} label="Storage" value={system ? `${Math.round(system.storage_percent)}%` : "—"} sub={system ? `${system.storage_used_gb} GB / ${system.storage_total_gb} GB` : "Waiting for API"} progress={system?.storage_percent ?? 0} />
                 </section>
 
-                <div className="mt-8"><PrinterSuggestions onAdded={refreshPrinters} noPrinters={printers.length === 0} /></div>
+                <div className="mt-8"><StatsPrompt onSaved={applySettings} /><PrinterSuggestions onAdded={refreshPrinters} noPrinters={printers.length === 0} /></div>
 
                 <section className="mt-2">
                   <div className="mb-4 flex items-center justify-between">

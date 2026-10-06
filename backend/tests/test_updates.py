@@ -126,3 +126,15 @@ def test_unsafe_package_is_refused(app, tmp_path):
 def test_kept_paths():
     assert updater.kept("backend/.venv/bin/python") and updater.kept("backend/layerhound.db") and updater.kept("backend/data/x")
     assert not updater.kept("backend/main.py") and not updater.kept("dist/index.html")
+
+
+def test_docker_mode(client, monkeypatch):
+    # In the Docker image: restart works (Docker restarts the container), shut down doesn't,
+    # and updates are installed by pulling the new image
+    monkeypatch.setenv("LAYERHOUND_DOCKER", "1")
+    about = client.get("/api/settings/about").json()
+    assert about["runtime"] == "docker" and about["can_restart"] is True and about["can_shutdown"] is False
+    monkeypatch.setitem(updates.state, "latest", {"version": "99.0.0", "notes": "", "assets": {}, "manifest": {"sha256": "x"}})
+    s = client.get("/api/updates").json()
+    assert s["available"] and not s["can_install"] and "docker compose pull" in s["reason"]
+    assert client.post("/api/settings/shutdown").status_code == 409

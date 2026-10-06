@@ -1,0 +1,20 @@
+# Never send local data, secrets or build leftovers into the image
+.git
+node_modules
+dist
+**/__pycache__
+**/*.pyc
+backend/.venv
+backend/*.db*
+backend/data
+backend/tests
+tests
+hardware
+docs
+release-notes
+scripts
+deploy
+.claude
+.github
+.env
+.env.*

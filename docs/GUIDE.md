@@ -27,6 +27,15 @@ LayerHound watches your 3D printers and the small server it runs on, all in one 
 
 **No cable handy?** After a minute or so, the board creates its own Wi-Fi network called **LayerHound-Setup**. Join it from your phone, and a setup page opens. Pick your home Wi-Fi, enter its password, name your farm and create your admin account. The board then joins your Wi-Fi. Reconnect your phone to your Wi-Fi and open **http://layerhound.local**.
 
+### Running it with Docker
+
+If you already use Docker (on a Linux PC, a NAS, or Docker Desktop), download [docker-compose.yml](../docker-compose.yml), put it in a folder, and run `docker compose up -d` there. Then open **http://THIS-MACHINE:8080**.
+
+- **Keep `network_mode: host`** on Linux, so network scans, device monitoring and printer suggestions see your real network. On Docker Desktop for Mac or Windows, use the `ports` lines instead; printers still work, but scans only see Docker's own network.
+- **Your data** (database, encryption key, LayerHound Files) lives in the `layerhound-data` volume, and survives updates.
+- **Updating:** Settings → Updates tells you when there's a new version. Run `docker compose pull && docker compose up -d` to install it.
+- **Not in Docker:** Wi-Fi settings, the setup hotspot, the case fan and Shut down board, which are all for the LayerHound board.
+
 ### Installing on your own board
 
 LayerHound runs on small Linux boards such as a Radxa ROCK or Raspberry Pi, or any always-on Debian-based computer.

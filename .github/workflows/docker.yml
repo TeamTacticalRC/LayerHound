@@ -1,0 +1,84 @@
+# The Docker image: tested on every push, published to GitHub's container registry for each release.
+name: Docker image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test the image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t layerhound:test .
+      - name: Start it
+        run: |
+          docker volume create lh-data
+          docker run -d --name layerhound -p 8080:8080 -v lh-data:/data layerhound:test
+          for i in $(seq 60); do curl -fs http://127.0.0.1:8080/api/health && break; sleep 2; done
+          curl -fs http://127.0.0.1:8080/api/auth/status | grep -q '"setup_required":true'
+      - name: Runs as a normal user, and ping works
+        run: |
+          test "$(docker exec layerhound id -u)" != 0
+          docker exec layerhound ping -c 1 -W 3 127.0.0.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the browser tests
+        run: |
+          pip install -r tests/ui/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Browser tests against the container
+        env:
+          LAYERHOUND_UI_URL: http://127.0.0.1:8080
+        run: python -m pytest -q tests/ui -p no:warnings
+      - name: Data survives a restart
+        run: |
+          docker restart layerhound
+          for i in $(seq 60); do curl -fs http://127.0.0.1:8080/api/health >/dev/null && break; sleep 2; done
+          curl -fs http://127.0.0.1:8080/api/auth/status | grep -q '"setup_required":false'
+          docker exec layerhound test -s /data/data/secret.key
+      - name: Logs if something failed
+        if: failure()
+        run: docker logs layerhound
+
+  publish:
+    name: Publish (releases only)
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/teamtacticalrc/layerhound
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

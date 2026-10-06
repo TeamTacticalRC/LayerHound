@@ -1,0 +1,24 @@
+# LayerHound with Docker Compose:   docker compose up -d     then open http://THIS-MACHINE:8080
+# Update to the newest version:     docker compose pull && docker compose up -d
+services:
+  layerhound:
+    image: ghcr.io/teamtacticalrc/layerhound:latest
+    container_name: layerhound
+    restart: unless-stopped
+    # Host networking lets the network scan, device monitoring and printer discovery see your
+    # real network (and hear Bambu printers announce themselves). Recommended on Linux.
+    # On Docker Desktop (Mac/Windows), remove this line and use the "ports" lines below instead;
+    # printer monitoring works, but scans only see Docker's own network.
+    network_mode: host
+    # ports:
+    #   - "8080:8080"
+    environment:
+      LAYERHOUND_PORT: "8080"      # change if 8080 is taken
+      # TZ: "America/Chicago"      # your time zone, for print history and dates
+    volumes:
+      - layerhound-data:/data      # database, encryption key and LayerHound Files
+      # Optional: show and restart your other containers on the Services page.
+      # Docker access is effectively admin access to this machine; only on a network you trust.
+      # - /var/run/docker.sock:/var/run/docker.sock
+volumes:
+  layerhound-data:

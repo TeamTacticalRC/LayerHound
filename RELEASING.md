@@ -35,3 +35,9 @@ Use `MAJOR.MINOR.PATCH`:
 - **patch** (0.6.1) for fixes
 - **minor** (0.7.0) for new features
 - **major** once there are compatibility promises to keep
+
+## The Docker image
+
+Pushing the release tag (the script does this) makes GitHub build the Docker image for Intel/AMD and ARM, and publish it as `ghcr.io/teamtacticalrc/layerhound` with the version, `MAJOR.MINOR` and `latest` tags. Check the **Docker image** run under the repository's Actions tab.
+
+**After the first image is published, once:** open the package on GitHub (the organization's **Packages** tab, then **layerhound**, then **Package settings**), and change its visibility to **Public**. New packages start private, so nobody could pull it until then.

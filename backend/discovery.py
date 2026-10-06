@@ -30,7 +30,7 @@ def configure(db,add_printer,printer_rows):
   port INTEGER,serial TEXT,name TEXT,model TEXT,first_seen REAL NOT NULL,last_seen REAL NOT NULL,dismissed INTEGER NOT NULL DEFAULT 0)''')
  c.commit(); c.close()
  network.after_scan.append(record_scan)
- if settings.as_service():
+ if settings.unattended():
   threading.Thread(target=_loop,daemon=True,name='printer-discovery').start()
   threading.Thread(target=_listen_bambu,daemon=True,name='bambu-announce').start()
 

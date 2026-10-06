@@ -2,6 +2,7 @@
 #   npm run build
 #   backend/.venv/bin/pip install -r tests/ui/requirements.txt
 #   backend/.venv/bin/python -m pytest -q tests/ui
+# Set LAYERHOUND_UI_URL to test an already-running LayerHound that hasn't been set up yet.
 # On a Mac this uses your installed Google Chrome. On CI (or with LAYERHOUND_UI_BUNDLED=1) it uses
 # Playwright's own Chromium: run "python -m playwright install chromium" once first.
 import os, secrets, socket, subprocess, sys, tempfile, time, urllib.request
@@ -22,6 +23,10 @@ def free_port():
 
 @pytest.fixture(scope="session")
 def base_url():
+    # LAYERHOUND_UI_URL: test an already-running, freshly installed LayerHound (e.g. the Docker image in CI)
+    if os.environ.get("LAYERHOUND_UI_URL"):
+        yield os.environ["LAYERHOUND_UI_URL"].rstrip("/")
+        return
     if not (ROOT / "dist" / "index.html").exists():
         pytest.exit("Build the dashboard first: npm run build", returncode=1)
     tmp = Path(tempfile.mkdtemp(prefix="layerhound-ui-"))

@@ -31,7 +31,7 @@ _lock=threading.Lock(); DIR=None
 def configure(data_dir):
  global DIR
  DIR=Path(data_dir)/'updates'; DIR.mkdir(parents=True,exist_ok=True)
- if settings.as_service(): threading.Thread(target=_loop,daemon=True,name='update-check').start()
+ if settings.unattended(): threading.Thread(target=_loop,daemon=True,name='update-check').start()
 
 # ---- Versions and signatures --------------------------------------------------------------
 def parse_version(v):
@@ -94,7 +94,8 @@ def status():
  available=bool(latest and newer(latest['version'],cur))
  manifest=(latest or {}).get('manifest') or {}
  reason=None
- if not settings.as_service(): reason='Updates install on the LayerHound board. On this computer, update with git.'
+ if settings.in_docker(): reason='LayerHound runs in Docker here: update by pulling the new image (docker compose pull, then docker compose up -d).'
+ elif not settings.as_service(): reason='Updates install on the LayerHound board. On this computer, update with git.'
  elif available and not manifest: reason='This release is missing its manifest, so it cannot be installed automatically.'
  elif available and manifest.get('requires_setup'): reason='This update changes the board setup, so it needs a full install (deploy) instead of one-click.'
  elif job and job.get('phase') in BUSY: reason='An update is already in progress.'

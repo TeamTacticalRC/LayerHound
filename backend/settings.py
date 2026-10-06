@@ -195,6 +195,10 @@ def restore(data:dict):
 # Set only in the layerhound systemd unit (deploy/setup.sh). Checking systemd's own INVOCATION_ID
 # isn't enough: other systemd-managed processes (e.g. CI runners) have it too.
 def as_service(): return os.environ.get('LAYERHOUND_SERVICE')=='1'
+# Set in the Docker image (Dockerfile). Docker restarts the container, but there's no board to manage.
+def in_docker(): return os.environ.get('LAYERHOUND_DOCKER')=='1'
+# Running unattended (board service or container): background jobs like the daily update check run
+def unattended(): return as_service() or in_docker()
 
 _about_paths={'db':None,'files':None}
 def set_paths(db_path,files_root): _about_paths.update(db=str(db_path),files=str(files_root))
@@ -205,7 +209,8 @@ def about_info():
  return {'version':APP_VERSION,'python':platform.python_version(),'platform':platform.platform(),
   'database':_about_paths['db'],'database_bytes':db.stat().st_size if db and db.exists() else None,'files_folder':_about_paths['files'],
   'started':datetime.fromtimestamp(me.create_time(),timezone.utc).isoformat(),'memory_mb':round(me.memory_info().rss/2**20,1),
-  'can_restart':as_service(),'can_shutdown':as_service(),'restart_note':None if as_service() else 'Restart is available when the dashboard runs as a service on the board. Here, restart it from the terminal.'}
+  'runtime':'board' if as_service() else 'docker' if in_docker() else 'manual',
+  'can_restart':unattended(),'can_shutdown':as_service(),'restart_note':None if unattended() else 'Restart is available when the dashboard runs as a service on the board. Here, restart it from the terminal.'}
 
 @router.post('/shutdown')
 def shutdown():
@@ -217,6 +222,6 @@ def shutdown():
 
 @router.post('/restart')
 def restart():
- if not as_service(): raise HTTPException(409,'Restart is only available when the dashboard runs as a service on the board')
+ if not unattended(): raise HTTPException(409,'Restart is only available when the dashboard runs as a service on the board')
  # Exit shortly after replying; systemd (Restart=always) starts it again within a few seconds
  threading.Timer(0.5,lambda:os._exit(0)).start(); return {'status':'restarting'}

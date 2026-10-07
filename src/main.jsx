@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import "./index.css";
 
-const APP_VERSION = "v1.1.0";
+const APP_VERSION = "v1.2.0";
 
 // Display preferences from the Settings page. A plain object so helpers outside components can
 // read it; the Dashboard re-renders the whole app whenever settings change.

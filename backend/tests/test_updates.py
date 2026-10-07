@@ -138,3 +138,49 @@ def test_docker_mode(client, monkeypatch):
     s = client.get("/api/updates").json()
     assert s["available"] and not s["can_install"] and "docker compose pull" in s["reason"]
     assert client.post("/api/settings/shutdown").status_code == 409
+
+
+def test_automatic_updates(client, monkeypatch, tmp_path):
+    from datetime import datetime
+    monkeypatch.setattr(updates, "DIR", tmp_path)
+    monkeypatch.setattr(settings, "as_service", lambda: True)
+    at3 = datetime(2026, 10, 8, 3, 15); at4 = datetime(2026, 10, 8, 4, 15)
+    # Off by default
+    assert client.get("/api/settings").json()["auto_update"] is False and not updates.auto_due(at3)
+    assert client.put("/api/settings", json={"auto_update": True, "auto_update_hour": 3, "time_zone": "America/Chicago"}).status_code == 200
+    assert client.put("/api/settings", json={"time_zone": "Not/AZone"}).status_code == 400
+    assert updates.auto_due(at3) and not updates.auto_due(at4)
+    s = client.get("/api/updates").json()
+    assert s["auto_update"] and s["auto_update_hour"] == 3 and s["can_auto"]
+
+    latest = {"version": "99.0.0", "notes": "", "assets": {}, "manifest": {"sha256": "x"}}
+    monkeypatch.setattr(updates, "check", lambda: (updates.state.update(latest=latest), updates.status())[1])
+    installed = []
+    monkeypatch.setattr(updates, "_install", lambda rel, auto=False: installed.append((rel["version"], auto)))
+    assert updates.auto_update(at3) == "99.0.0" and installed == [("99.0.0", True)]
+    # Only once a day, even after the restart that follows an update
+    assert not updates.auto_due(at3) and updates.auto_due(datetime(2026, 10, 9, 3, 5))
+    # A version that failed and rolled back isn't retried automatically
+    updates.write_job(version="99.0.0", from_version="1.1.0", started=0, phase="failed", error="x", auto=True)
+    assert updates.auto_update(datetime(2026, 10, 9, 3, 5)) is None and len(installed) == 1
+    # Never in Docker (updates there come from pulling the image)
+    monkeypatch.setenv("LAYERHOUND_DOCKER", "1")
+    assert not updates.auto_due(datetime(2026, 10, 10, 3, 5)) and not client.get("/api/updates").json()["can_auto"]
+    client.put("/api/settings", json={"auto_update": False, "time_zone": ""})   # the test client is shared
+
+
+def test_owner_time_zone(monkeypatch):
+    monkeypatch.setattr(settings, "get", lambda k: {"time_zone": "Asia/Tokyo"}.get(k))
+    assert updates.local_now().utcoffset().total_seconds() == 9 * 3600
+    monkeypatch.setattr(settings, "get", lambda k: {"time_zone": ""}.get(k))
+    assert updates.local_now().tzinfo is not None
+
+
+def test_updater_keeps_the_automatic_flag(app, monkeypatch, tmp_path):
+    appdir, _, _ = app
+    pkg = tmp_path / "p.tar.gz"
+    make_package(pkg, {"backend/main.py": "new", "backend/requirements.txt": "a==2"})
+    monkeypatch.setattr(updater, "wait_for", lambda v, timeout=0: True)
+    updater.run({**job(appdir, pkg), "auto": True})
+    state = json.loads((appdir / "backend/data/updates/state.json").read_text())
+    assert state["phase"] == "done" and state["auto"] is True

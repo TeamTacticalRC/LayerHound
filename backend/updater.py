@@ -103,7 +103,7 @@ def wait_for(version,timeout=HEALTH_WAIT):
  return False
 
 def run(job):
- version,old=job['version'],job['from_version']; base={k:job[k] for k in ('version','from_version','started')}
+ version,old=job['version'],job['from_version']; base={k:job[k] for k in ('version','from_version','started','auto') if k in job}
  write_state(**base,phase='installing')
  backup=backup_db(old); log(f'database backed up to {backup}')
  snapshot(); log('current version saved for rollback')

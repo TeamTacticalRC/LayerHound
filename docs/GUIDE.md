@@ -131,6 +131,8 @@ LayerHound checks for a new version once a day.
 
 Only updates signed by Team Tactical RC are installed. You can turn off the daily check in the same place.
 
+**Automatic updates (optional, off by default).** Turn on **Install updates automatically** in Settings → Updates and pick a time, for example 3:00 AM. The time is in your own time zone, taken from the browser you set it in. Once a day at that time, LayerHound installs a new version by itself, with the same backup and automatic rollback as Update now. A version that didn't work isn't tried again automatically, and an update that needs a full install waits for you. Settings → Updates shows when it last updated itself. Not available in Docker, where updates come from pulling the new image.
+
 ## Backups
 
 **Settings → Data & backups → Download backup** saves your printers, monitored devices, services and settings to a file. **Restore** loads one back, for example onto a new board.

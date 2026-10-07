@@ -2633,6 +2633,9 @@ function DataSection({ onSaved, onRestored }) {
   );
 }
 
+// Automatic updates run at an hour of the owner's day; the board's clock is often on UTC, so save the browser's time zone too
+const browserTimeZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } };
+const hourLabel = h => fmtDate(new Date(2000, 0, 1, h), { hour: "numeric", minute: "2-digit" });
 const UPDATE_PHASES = { downloading: "Downloading", verifying: "Checking the signature", installing: "Installing", restarting: "Restarting LayerHound" };
 
 // Settings: is there a newer LayerHound, and one-click install (backend/updates.py, updater.py)
@@ -2651,7 +2654,9 @@ function UpdatesSection({ onSaved }) {
   // While an update runs, keep checking; LayerHound restarts partway through
   useEffect(() => { if (!working) return; const t = setInterval(load, 3000); return () => clearInterval(t); }, [working, load]);
   const run = async (what, fn) => { setBusy(what); setError(""); try { await fn(); await load(); } catch (e) { setError(e.message); } setBusy(""); };
-  const toggle = async v => { try { onSaved(await saveSettings({ update_check: v })); load(); } catch (e) { setError(e.message); } };
+  const save = async changes => { try { onSaved(await saveSettings(changes)); load(); } catch (e) { setError(e.message); } };
+  const toggle = v => save({ update_check: v });
+  const setAuto = changes => save({ ...changes, time_zone: browserTimeZone() });
   if (!u) return null;
   const latest = u.latest;
   return (
@@ -2684,15 +2689,29 @@ function UpdatesSection({ onSaved }) {
       ) : (
         <div className="flex items-center gap-2 text-sm text-slate-300">{u.error ? <><AlertTriangle size={15} className="text-amber-300" /> {u.error}</> : <><CircleCheck size={15} className="text-emerald-300" /> {u.checked_at ? "LayerHound is up to date." : "Not checked yet."}</>}</div>
       )}
-      {job?.phase === "done" && !working && <p className="mt-3 text-xs text-emerald-300">Updated from v{job.from_version} to v{job.version} {job.finished ? fmtDate(job.finished * 1000, { dateStyle: "medium", timeStyle: "short" }) : ""}.</p>}
+      {job?.phase === "done" && !working && <p className="mt-3 text-xs text-emerald-300">Updated{job.auto ? " automatically" : ""} from v{job.from_version} to v{job.version} {job.finished ? fmtDate(job.finished * 1000, { dateStyle: "medium", timeStyle: "short" }) : ""}.</p>}
       {job?.phase === "failed" && <p className="mt-3 text-xs text-red-300">The update to v{job.version} didn't work: {job.error}{job.rolled_back ? ` LayerHound is back on v${job.from_version}.` : ""}</p>}
       {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/6 pt-3">
-        <div className="min-w-0 flex-1"><Toggle checked={u.auto_check} onChange={toggle} label="Check for updates once a day" hint="Asks GitHub for the latest LayerHound release. Installing always needs an admin." /></div>
+        <div className="min-w-0 flex-1"><Toggle checked={u.auto_check} onChange={toggle} label="Check for updates once a day" hint={u.auto_update ? "Asks GitHub for the latest LayerHound release." : "Asks GitHub for the latest LayerHound release. Installing needs an admin, unless automatic updates are on."} /></div>
         <button onClick={() => run("check", checkUpdates)} disabled={!!busy || !!working} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
           {busy === "check" ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />} Check now
         </button>
       </div>
+      {u.can_auto && (
+        <div className="border-t border-white/6 pt-1">
+          <Toggle checked={u.auto_update} onChange={v => setAuto({ auto_update: v })} label="Install updates automatically"
+            hint="Once a day at the time below, LayerHound installs a new version by itself, the same way as Update now: the database is backed up first, and if the new version doesn't start, the previous one comes back. Printers keep printing." />
+          {u.auto_update && (
+            <label className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm text-slate-200">
+              <span>Install at<span className="block text-xs text-slate-600">Your time{browserTimeZone() ? ` (${browserTimeZone().replace(/_/g, " ")})` : ""}. Pick a time the farm is usually quiet.</span></span>
+              <select aria-label="Automatic update time" value={u.auto_update_hour} onChange={e => setAuto({ auto_update_hour: Number(e.target.value) })} className="rounded-lg border border-white/10 bg-[var(--lh-input)] px-2 py-1.5 text-sm text-slate-200">
+                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
     </Section>
   );
 }

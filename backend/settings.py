@@ -1,6 +1,7 @@
 # Settings page: branding/display, alert thresholds, data retention, backups, about/maintenance.
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import json, os, platform, sqlite3, subprocess, sys, threading, time
 import psutil
 from fastapi import APIRouter, HTTPException
@@ -44,6 +45,11 @@ SCHEMA={
  'fan_min_percent':(30,int,(20,100)),
  # Check once a day for a newer LayerHound (updates.py); installing always needs an admin
  'update_check':(True,bool,None),
+ # Automatic updates (updates.py): off by default; installs at this hour in the owner's time zone.
+ # The board's clock usually runs on UTC, so the Settings page saves the browser's time zone.
+ 'auto_update':(False,bool,None),
+ 'auto_update_hour':(3,int,(0,23)),
+ 'time_zone':('',str,(0,64)),
  # Setup hotspot when offline (hotspot.py): auto = on for single-board computers, off for PCs
  'setup_hotspot':('auto',str,('auto','on','off')),
  # Printer suggestions (discovery.py): scan once a day; optionally add Klipper printers without asking
@@ -57,7 +63,7 @@ SCHEMA={
 LABELS={'farm_name':'Farm name','farm_description':'Description','accent':'Accent color','temp_unit':'Temperature unit','time_format':'Time format',
  'temp_warn':'Server running hot','temp_hot':'Server overheating','storage_warn':'Main drive warning','storage_critical':'Main drive critical','memory_warn':'Memory warning',
  'fan_mode':'Fan mode','setup_hotspot':'Setup hotspot','fan_quiet_temp':'Quiet up to','fan_full_temp':'Full speed at','fan_min_percent':'Minimum fan speed',
- 'network_history_days':'Uptime history','storage_history_days':'Storage trend','data_usage_days':'Data usage'}
+ 'network_history_days':'Uptime history','auto_update_hour':'Update time','time_zone':'Time zone','storage_history_days':'Storage trend','data_usage_days':'Data usage'}
 
 def configure(db):
  global _db; _db=db
@@ -104,6 +110,10 @@ def validate(key,value):
  elif not rule[0]<=len(value)<=rule[1]: raise HTTPException(400,f'{name} is required' if rule[0] and not value else f'{name} must be at most {rule[1]} characters')
  return value
 
+def valid_time_zone(name):
+ try: ZoneInfo(name); return True
+ except Exception: return False
+
 def save(changes):
  clean={k:validate(k,v) for k,v in changes.items()}
  merged={**all_settings(),**clean}
@@ -111,6 +121,7 @@ def save(changes):
  if merged['temp_warn']>=merged['temp_hot']: raise HTTPException(400,'"Running hot" must be lower than "overheating"')
  if merged['fan_quiet_temp']>=merged['fan_full_temp']: raise HTTPException(400,'The fan\'s "quiet up to" temperature must be lower than its "full speed at" temperature')
  if merged['storage_warn']>=merged['storage_critical']: raise HTTPException(400,'The main drive warning level must be lower than the critical level')
+ if clean.get('time_zone') and not valid_time_zone(clean['time_zone']): raise HTTPException(400,'Unknown time zone')
  c=_db(); c.executemany('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',[(k,json.dumps(v)) for k,v in clean.items()]); c.commit(); c.close()
  _load()
  for fn in after_save:

@@ -8,8 +8,12 @@
 #   layerhound-updater.service (updater.py), which backs up, installs, restarts LayerHound and
 #   rolls back automatically if the new version doesn't come up. LayerHound can't do that part
 #   itself: restarting would stop it halfway through.
+# - Automatic updates (off by default): once a day at the owner's chosen hour, check and install
+#   the same way. A version that failed and rolled back isn't tried again automatically, and a
+#   release that needs a full setup is left for the owner.
 import base64, hashlib, json, os, re, subprocess, threading, time, urllib.request
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -21,6 +25,7 @@ RELEASES_REPO='TeamTacticalRC/layerhound-releases'
 LATEST_URL=f'https://api.github.com/repos/{RELEASES_REPO}/releases/latest'
 PUBLIC_KEY='qTr3P5crD7RJzCkzsuZdTwBzZ2WKyRp3rPiePQIjt6E='
 CHECK_EVERY=24*3600; FIRST_CHECK=120; TIMEOUT=20; MAX_PACKAGE=200*2**20
+AUTO_EVERY=10*60   # how often to see whether it's time for an automatic update
 STALE_JOB=30*60   # an install that hasn't finished after this long is reported as failed
 UPDATER_UNIT='layerhound-updater.service'
 BUSY=('downloading','verifying','installing','restarting')
@@ -31,7 +36,9 @@ _lock=threading.Lock(); DIR=None
 def configure(data_dir):
  global DIR
  DIR=Path(data_dir)/'updates'; DIR.mkdir(parents=True,exist_ok=True)
- if settings.unattended(): threading.Thread(target=_loop,daemon=True,name='update-check').start()
+ if settings.unattended():
+  threading.Thread(target=_loop,daemon=True,name='update-check').start()
+  threading.Thread(target=_auto_loop,daemon=True,name='auto-update').start()
 
 # ---- Versions and signatures --------------------------------------------------------------
 def parse_version(v):
@@ -78,6 +85,44 @@ def _loop():
   if settings.get('update_check'): check()
   time.sleep(CHECK_EVERY)
 
+# ---- Automatic updates ---------------------------------------------------------------------
+def local_now():
+ # The owner's time zone (saved from their browser), else the board's own clock
+ try: return datetime.now(ZoneInfo(settings.get('time_zone'))) if settings.get('time_zone') else datetime.now().astimezone()
+ except Exception: return datetime.now().astimezone()
+
+def _auto_file(): return DIR/'auto.json'
+
+def last_auto_day():
+ try: return json.loads(_auto_file().read_text()).get('day')
+ except (OSError,ValueError,AttributeError): return None
+
+def auto_due(now=None):
+ # Once a day, during the chosen hour. The day is saved to a file, so the restart after an
+ # update (or a crash) doesn't make it try again in the same hour.
+ if not settings.get('auto_update') or not settings.as_service() or settings.in_docker(): return False
+ now=now or local_now()
+ return now.hour==settings.get('auto_update_hour') and last_auto_day()!=now.date().isoformat()
+
+def auto_update(now=None):
+ now=now or local_now()
+ tmp=DIR/'auto.json.tmp'; tmp.write_text(json.dumps({'day':now.date().isoformat()})); tmp.replace(_auto_file())
+ s=check()
+ if not s['can_install']: return None
+ version=state['latest']['version']; job=read_job()
+ # Don't keep retrying a version that already failed and rolled back; the owner can still install it
+ if job and job.get('phase')=='failed' and job.get('version')==version: return None
+ _install(state['latest'],auto=True)
+ return version
+
+def _auto_loop():
+ time.sleep(FIRST_CHECK)
+ while True:
+  try:
+   if auto_due(): auto_update()
+  except Exception as e: print(f'[updates] automatic update failed: {e}',flush=True)
+  time.sleep(AUTO_EVERY)
+
 # ---- Job state (shared with updater.py through a file) -------------------------------------
 def read_job():
  try: job=json.loads((DIR/'state.json').read_text())
@@ -101,12 +146,14 @@ def status():
  elif job and job.get('phase') in BUSY: reason='An update is already in progress.'
  return {'current':cur,'latest':latest and {k:v for k,v in latest.items() if k!='assets'},'available':available,
   'checked_at':state['checked_at'],'error':state['error'],'auto_check':settings.get('update_check'),
+  'auto_update':settings.get('auto_update'),'auto_update_hour':settings.get('auto_update_hour'),
+  'can_auto':settings.as_service() and not settings.in_docker(),
   'can_install':available and reason is None,'reason':reason if available else None,'job':job}
 
 # ---- Installing ----------------------------------------------------------------------------
-def _install(latest):
+def _install(latest,auto=False):
  version=latest['version']; manifest=latest.get('manifest') or {}
- base=dict(version=version,from_version=settings.APP_VERSION,started=time.time())
+ base=dict(version=version,from_version=settings.APP_VERSION,started=time.time(),auto=auto)
  try:
   write_job(**base,phase='downloading')
   name=manifest.get('file') or f'layerhound-{version}.tar.gz'

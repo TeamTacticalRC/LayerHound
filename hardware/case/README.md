@@ -2,7 +2,7 @@
 
 A two-part printed case with a 40 mm fan that blows across the board, and the LayerHound emblem and wordmark inlaid in the lid.
 
-**Status: version 2** (2026-10-05). The first test print fit the board and ports. Version 2 moves the fan 6.5 mm to the left and adds 4 mm behind the board, so the fan can be held with bolts and nuts: they used to hit a board post and the 40-pin header. Port positions come from Radxa's official 2D drawing (v1.11). [Before and after](fan-move.png).
+**Status: version 3** (2026-10-06). The first test print fit the board and ports. Version 2 moved the fan 6.5 mm to the left and added 4 mm behind the board, so the fan can be held with bolts and nuts: they used to hit a board post and the 40-pin header. Version 3 makes the base cover the whole bottom: the shell sits on it, a lip locates the shell, and short blocks fill the bottom of the port openings. The thin strips of wall between the USB and Ethernet ports (2.3 mm wide) and beside the microSD slot are now held at the bottom as well as the top. Version 3 is test printed and fits, with the M2.5 screws threading firmly into the posts. Port positions come from Radxa's official 2D drawing (v1.11). [Before and after](fan-move.png).
 
 - Outside size: **91 × 77 × 49 mm**
 - The fan sits on the back (the 40-pin header side). It pulls air in through the grill and blows it across the processor and memory, out through the vents in the front and right side.
@@ -14,7 +14,7 @@ A two-part printed case with a 40 mm fan that blows across the board, and the La
 |---|---|
 | `stl/case-shell.stl` | Walls and lid, already upside down for printing (lid on the bed). |
 | `stl/case-logo-blue.stl`, `-white.stl`, `-gray.stl` | Logo inlays for a multicolor print. They fill the recesses in the lid's top surface. |
-| `stl/case-base.stl` | Floor plate with the board standoffs. |
+| `stl/case-base.stl` | Base: covers the whole bottom, with the board standoffs, a lip that locates the shell, and blocks that fill the bottom of the port openings. |
 | `viewer.html` | 3D viewer: assembled, exploded and inside views. |
 | `build_case.py`, `emblem.py` | The design itself. Every size is a setting at the top of `build_case.py`. |
 
@@ -38,7 +38,7 @@ A two-part printed case with a 40 mm fan that blows across the board, and the La
 | 40 × 40 × 10 mm fan, **5 V**, 2-wire | 1 | Ideally with a **2-pin 1.25 mm plug** (often sold as "JST 1.25" or "PH1.25" for single-board computers), to fit the board's fan header. See Connecting the fan. |
 | M3 × 16 bolts and M3 nuts | 4 each | From outside the back wall, through the fan's corner holes, with the nut on the inside. There's room behind the board for the nuts; `build_case.py` checks it. |
 | M2.5 × 12 screws, button or pan head | 4 | Up through the base and the board into the shell's posts (10–14 mm also works). They cut their own threads in the plastic. |
-| Rubber feet, 8 mm | 4 | Optional; there are shallow pockets for them. |
+| Stick-on feet: 3M Bumpon SJ5302 (7.9 mm, clear) | 4 | Optional. They sit in shallow pockets under the base. Any stick-on foot up to 8 mm across and at least 2 mm tall fits. |
 | 2-pin 1.25 mm pigtail | — | Only if your fan has a different plug: splice it on. |
 
 ## Putting it together
@@ -46,7 +46,7 @@ A two-part printed case with a 40 mm fan that blows across the board, and the La
 1. Bolt the fan to the inside of the back wall with the **label facing into the case** (fans blow out of the label side): M3 × 16 bolts from outside, nuts on the inside. Fit the fan before the board, while there's room for your fingers.
 2. Plug the fan into the board's fan header (see Connecting the fan).
 3. Set the board on the base's standoffs.
-4. Lower the shell straight down over the board. The port openings are open at the bottom, so it slides over the connectors.
+4. Lower the shell straight down over the board. The port openings are open at the bottom, so it slides over the connectors. It sits on the base, inside the lip, with the base's blocks filling the bottom of the port openings.
 5. Turn it over and drive the four M2.5 screws up through the base and the board into the shell. They hold everything together.
 
 ## Connecting the fan

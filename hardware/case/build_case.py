@@ -36,27 +36,37 @@ NUT_CORNERS=6.4; NUT_CLEARANCE=2.0   # M3 nut across its corners, and room to ge
 # and bolt ends: the lower bolts sit at the height of the board and its 40-pin header.
 NUT=2.4; BOLT=16.0; NUT_SPACE=4.0
 INNER=dict(x0=-1.0,x1=85.6,y0=-0.6,y1=56+1.5+NUT_SPACE+FAN_DEPTH+0.5,z1=45.0)
-FIT=0.3                           # gap between the base plate and the shell walls
+FIT=0.3                           # gap between the base's lip and fillers and the shell
+# The base covers the whole bottom and the shell sits on it. A lip just inside the walls locates
+# the shell, and fillers rise into the bottom of the port openings, so the thin strips of wall
+# between the ports are held at the bottom as well as the top.
+LIP=1.5; LIP_W=1.6
+FILL_TOP=STANDOFF                 # fillers stop at the board's underside, below every jack
+# Stick-on feet: 3M Bumpon SJ5302 (7.9 mm across, 2.2 mm tall). The shallow pockets locate them
+# and leave them standing 1.4 mm proud. The front-left one sits right of the corner so it misses
+# that corner's screw head.
+FOOT_POCKET=8.6; FOOT_DEPTH=0.8
 CORNER=3.0                        # outside corner radius
-SCREW_CLEAR=2.9; SCREW_HEAD=5.4; SCREW_PILOT=2.2; POST_D=5.2   # M2.5 screws
+SCREW_CLEAR=2.9; SCREW_HEAD=5.4; SCREW_PILOT=2.4; POST_D=5.2   # M2.5 screws; the pilot holes in the shell posts were too tight at 2.2
 FAN_SCREW=3.3
 SMA_HOLE=True; SMA=(50.0,34.0); SMA_D=6.6                       # Wi-Fi antenna (left side, y, z)
 LOGO_DEPTH=0.6                    # 3 layers at 0.2 mm
 PCB_TOP=STANDOFF+PCB
 
 # Port openings: open at the bottom edge of the shell so it lowers straight over the board.
-# (wall, center along the wall, width, top height above the floor)
+# (wall, center along the wall, width, top height above the floor, filler from the base?)
+# The microSD opening gets no filler: the card goes in under the board.
 PORTS=[
- ('right',47.5,16.0,PCB_TOP+17.0,'USB 3.0 pair'),
- ('right',29.2,16.0,PCB_TOP+17.0,'USB 2.0 pair'),
- ('right',10.1,17.0,PCB_TOP+14.5,'Ethernet'),
- ('front',11.3,12.0,PCB_TOP+6.5,'USB-C power'),
- ('front',32.0,20.0,PCB_TOP+10.0,'HDMI'),
- ('front',53.6,9.0,PCB_TOP+7.5,'Audio'),
- ('left',29.2,15.0,PCB_TOP+2.5,'microSD'),
+ ('right',47.5,16.0,PCB_TOP+17.0,True,'USB 3.0 pair'),
+ ('right',29.2,16.0,PCB_TOP+17.0,True,'USB 2.0 pair'),
+ ('right',10.1,17.0,PCB_TOP+14.5,True,'Ethernet'),
+ ('front',11.3,12.0,PCB_TOP+6.5,True,'USB-C power'),
+ ('front',32.0,20.0,PCB_TOP+10.0,True,'HDMI'),
+ ('front',53.6,9.0,PCB_TOP+7.5,True,'Audio'),
+ ('left',29.2,15.0,PCB_TOP+2.5,False,'microSD'),
  # Small parts at the left edge on the drawing (likely buttons or LEDs)
- ('left',15.6,7.0,PCB_TOP+3.0,'left-edge part'),
- ('left',43.2,8.0,PCB_TOP+3.0,'left-edge parts'),
+ ('left',15.6,7.0,PCB_TOP+3.0,True,'left-edge part'),
+ ('left',43.2,8.0,PCB_TOP+3.0,True,'left-edge parts'),
 ]
 
 # ---- Helpers ------------------------------------------------------------------------------
@@ -85,16 +95,26 @@ OUT=dict(x0=INNER['x0']-WALL,x1=INNER['x1']+WALL,y0=INNER['y0']-WALL,y1=INNER['y
 TOP=INNER['z1']+ROOF
 FAN_Z=FAN/2+3.0               # fan center height; the fan sits just above the base plate
 FAN_Y=INNER['y1']             # fan presses against the inside of the back wall
+FEET=[(14.0,OUT['y0']+7.0),(OUT['x1']-7.0,OUT['y0']+7.0),(OUT['x0']+7.0,OUT['y1']-7.0),(OUT['x1']-7.0,OUT['y1']-7.0)]
 
-# ---- Base: floor plate with standoffs ------------------------------------------------------
+# ---- Base: floor plate with standoffs, locating lip and port fillers ----------------------
+def port_filler(wall,center,width):
+ # Fills the bottom of a port opening, flush with the outside of the wall
+ w=width/2-FIT; z1=FILL_TOP
+ if wall=='right': return box(INNER['x1']-FIT,center-w,-0.5,OUT['x1'],center+w,z1)
+ if wall=='left': return box(OUT['x0'],center-w,-0.5,INNER['x0']+FIT,center+w,z1)
+ return box(center-w,OUT['y0'],-0.5,center+w,INNER['y0']+FIT,z1)
+
 def base():
- plate=rbox(INNER['x0']+FIT,INNER['y0']+FIT,-FLOOR,INNER['x1']-FIT,INNER['y1']-FIT,0,1.0)
- b=plate+union(cyl(x,y,0,STANDOFF,6.0) for x,y in HOLES)
+ plate=rbox(OUT['x0'],OUT['y0'],-FLOOR,OUT['x1'],OUT['y1'],0,CORNER)
+ lip=rbox(INNER['x0']+FIT,INNER['y0']+FIT,-0.5,INNER['x1']-FIT,INNER['y1']-FIT,LIP,1.0)
+ lip=lip-box(INNER['x0']+FIT+LIP_W,INNER['y0']+FIT+LIP_W,-1,INNER['x1']-FIT-LIP_W,INNER['y1']-FIT-LIP_W,LIP+1)
+ b=plate+lip+union(port_filler(w,c,wd) for w,c,wd,_,f,_ in PORTS if f)
+ b=b+union(cyl(x,y,0,STANDOFF,6.0) for x,y in HOLES)
  for x,y in HOLES:
   b=b-cyl(x,y,-FLOOR-1,FLOOR+STANDOFF+2,SCREW_CLEAR)-cyl(x,y,-FLOOR-1,1+1.6,SCREW_HEAD)
- # Shallow pockets for stick-on rubber feet (8 mm)
- for x in (INNER['x0']+8,INNER['x1']-8):
-  for y in (INNER['y0']+8,INNER['y1']-8): b=b-cyl(x,y,-FLOOR-1,1.5,8.6)
+ # Shallow pockets for the stick-on feet
+ for x,y in FEET: b=b-cyl(x,y,-FLOOR-1,1+FOOT_DEPTH,FOOT_POCKET)
  return b
 
 # ---- Shell: walls, roof, posts, fan mount, vents ------------------------------------------
@@ -129,13 +149,13 @@ def vents():
  return union(cuts)
 
 def shell(logo_cut):
- body=rbox(OUT['x0'],OUT['y0'],-FLOOR+0.2,OUT['x1'],OUT['y1'],TOP,CORNER)
+ body=rbox(OUT['x0'],OUT['y0'],0,OUT['x1'],OUT['y1'],TOP,CORNER)
  body=body-box(INNER['x0'],INNER['y0'],-FLOOR-1,INNER['x1'],INNER['y1'],INNER['z1'])
  # Posts from the roof down to the board's top face; screws come up through the base and board
  for x,y in HOLES:
   body=body+cyl(x,y,PCB_TOP,INNER['z1']-PCB_TOP+0.5,POST_D)
   body=body-cyl(x,y,PCB_TOP-1,10,SCREW_PILOT)
- for wall,center,width,top,_ in PORTS: body=body-port_cut(wall,center,width,top)
+ for wall,center,width,top,_,_ in PORTS: body=body-port_cut(wall,center,width,top)
  body=body-fan_grill()
  for dx in (-FAN_HOLES/2,FAN_HOLES/2):
   for dz in (-FAN_HOLES/2,FAN_HOLES/2):
@@ -217,8 +237,24 @@ def check_fan_bolts():
  gaps=[abs(FAN_CENTER_X+dx-px)-POST_D/2-NUT_CORNERS/2 for dx in (-FAN_HOLES/2,FAN_HOLES/2) for px,py in HOLES if py>40]
  print(f'fan bolts: smallest space beside a nut before a post = {min(gaps):.1f} mm')
 
+def check_base():
+ # Fillers and lip must stay below the board and every jack, and fit inside their openings
+ if FILL_TOP>STANDOFF: sys.exit('Port fillers would reach the board; lower FILL_TOP')
+ if FILL_TOP>PCB_TOP-1.0: sys.exit('Port fillers would touch the jacks; lower FILL_TOP')
+ if LIP>=STANDOFF-1.0: sys.exit('The base lip would reach parts under the board; lower LIP')
+ for wall,center,width,top,f,name in PORTS:
+  if f and top<=FILL_TOP+2: sys.exit(f'The {name} filler would close its opening')
+ for fx,fy in FEET:
+  for hx,hy in HOLES:
+   if ((fx-hx)**2+(fy-hy)**2)**0.5<FOOT_POCKET/2+SCREW_HEAD/2+1.0: sys.exit(f'The foot at ({fx:g}, {fy:g}) would cover a screw head; move it')
+ strips=[]
+ for wall in ('right','front','left'):
+  ps=sorted((c-w/2,c+w/2) for wl,c,w,_,_,_ in PORTS if wl==wall)
+  strips+=[b[0]-a[1] for a,b in zip(ps,ps[1:])]
+ print(f'base: fillers {FILL_TOP:g} mm tall, {PCB_TOP-FILL_TOP:.1f} mm below the jacks; thinnest wall strip between ports {min(strips):.1f} mm, now held top and bottom')
+
 def main():
- check_fan_bolts()
+ check_fan_bolts(); check_base()
  out=HERE/'stl'; out.mkdir(exist_ok=True)
  solids,cut=logo()
  sh=shell(cut); bs=base()

@@ -126,3 +126,30 @@ def test_addons_page(browser, base_url):
     ring.get_by_role("button", name="I have one").wait_for()
     assert not page.problems.items, page.problems.items
     page.context.close()
+
+
+def test_print_controls(browser, base_url):
+    # A printer that reports it's printing (faked in the browser), and a faked "sent" from the printer
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    fake = {"id": 4242, "name": "Bench Klipper", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "printing",
+            "job": "benchy.gcode", "progress": 40, "eta_seconds": 600, "nozzle": 210, "bed": 60, "base_url": "http://127.0.0.1:9"}
+    page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
+    sent = []
+    page.route("**/api/printers/4242/control", lambda r: (sent.append(r.request.post_data_json), r.fulfill(json={"status": "sent", "printer": {**fake, "state": "paused"}})))
+    page.reload()
+    open_page(page, "Print Farm")
+    page.get_by_text("Bench Klipper").first.click()
+    # Off by default: a pointer to the setting, no buttons
+    page.get_by_text("turn on Settings → Printer controls").wait_for()
+    assert page.get_by_role("button", name="Pause").count() == 0
+    assert api(page, "PUT", "/api/settings", {"printer_controls": True})["status"] == 200
+    page.reload(); open_page(page, "Print Farm"); page.get_by_text("Bench Klipper").first.click()
+    page.get_by_role("button", name="Pause").click()
+    page.get_by_text("Pause this print?").wait_for()
+    page.get_by_role("button", name="Pause print").click()
+    page.get_by_text("Paused.").wait_for()
+    assert sent == [{"action": "pause"}]
+    api(page, "PUT", "/api/settings", {"printer_controls": False})
+    assert not page.problems.items, page.problems.items
+    page.context.close()

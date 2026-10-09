@@ -87,7 +87,12 @@ Tips:
 - **Cameras:** Bambu P1 and A1 cameras, and Klipper cameras, are found automatically. For any other camera, add its snapshot or stream address as the printer's **Camera URL**.
 - **Arrange the cards** to match your bench: **Print Farm → Reorder**.
 
-LayerHound only **watches** your printers. It never starts, stops or changes prints.
+LayerHound **watches** your printers, and never starts a print.
+
+**Pausing or cancelling from LayerHound (optional, off by default).** Turn on **Settings → Printer controls**, and a printing printer's detail panel (click it on the Print Farm page) shows **Pause** / **Resume** and **Cancel print**. Handy with Remote access: an alert on your phone, and you can stop a failing print before it wastes a spool.
+- Admins only. View-only accounts, wall screens and the status light never can.
+- Every action asks you to confirm first. A cancelled print can't be resumed.
+- **Bambu Lab:** newer firmware only accepts controls from other apps in **LAN Only mode** (and, on some models, **Developer mode**). If the printer refuses, LayerHound tells you.
 
 ## Around the dashboard
 

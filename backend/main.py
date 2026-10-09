@@ -5,7 +5,7 @@ from pathlib import Path
 import json, os, platform, re, socket, sqlite3, ssl, sys, threading, time, urllib.parse, urllib.request
 import paho.mqtt.client as mqtt
 import psutil
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -86,6 +86,7 @@ def octoprint(base,key):
 class BambuWatcher:
  def __init__(s,host,port,serial,code):
   s.key=(host,port,serial,code); s.serial=serial; s.data={}; s.firmware=None; s.error=None; s.ready=threading.Event()
+  s.answers={}   # printer's reply to a command we sent (pause/resume/stop): command -> (result, reason, time)
   c=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=f'layerhound-{serial}-{os.getpid()}'); c.username_pw_set('bblp',code)
   # The printer uses a self-signed certificate, so it can't be verified
   # Bambu printers use self-signed certificates, so they can't be verified; still require modern TLS
@@ -102,7 +103,11 @@ class BambuWatcher:
  def _message(s,c,u,msg):
   try: m=json.loads(msg.payload)
   except ValueError: return
-  if isinstance(m.get('print'),dict): s.data.update(m['print']); s.ready.set()
+  if isinstance(m.get('print'),dict):
+   p=m['print']
+   if p.get('command') in ('pause','resume','stop') and 'result' in p:
+    s.answers[p['command']]=(str(p.get('result')).lower(),p.get('reason') or '',time.time())
+   s.data.update({k:v for k,v in p.items() if k not in ('command','result','reason','sequence_id')}); s.ready.set()
   for mod in (m.get('info') or {}).get('module') or []:
    if mod.get('name')=='ota': s.firmware=mod.get('sw_ver')
  def stop(s): s.client.disconnect(); s.client.loop_stop()
@@ -167,6 +172,73 @@ def snapshot(r,grace=True):
    x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=printer_error(e))
  return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
   'camera_url':r['camera_url'],'has_camera':media.has_camera(r),**x,'updated_at':now()}
+
+# ---- Printer controls (pause / resume / cancel) -----------------------------------------
+# Off unless an admin turns on Settings -> Printer controls. Admins only (the sign-in check refuses
+# changes from viewers and access keys). Each action is checked against the printer's state first,
+# and logged to the service log.
+CONTROL_ALLOWED={'pause':('printing',),'resume':('paused',),'cancel':('printing','paused')}
+CONTROL_PAST={'pause':'paused','resume':'resumed','cancel':'cancelled'}
+BAMBU_COMMAND={'pause':'pause','resume':'resume','cancel':'stop'}
+BAMBU_WAIT=6
+
+def post_json(u,body=None,headers=None):
+ data=json.dumps(body).encode() if body is not None else b''
+ r=urllib.request.Request(u,data=data,method='POST',headers={'Content-Type':'application/json',**(headers or {})})
+ with urllib.request.urlopen(r,timeout=TIMEOUT+4) as x: return x.status
+
+def control_moonraker(base,action):
+ post_json(f"{base}/printer/print/{action}")
+
+def control_octoprint(base,key,action):
+ body={'command':'cancel'} if action=='cancel' else {'command':'pause','action':action}
+ post_json(base+'/api/job',body,{'X-Api-Key':key} if key else {})
+
+def control_bambu(pid,action):
+ with bambu_lock: w=bambu_watchers.get(pid)
+ if not w or not w.client.is_connected(): raise ConnectionError("LayerHound isn't connected to this printer right now.")
+ cmd=BAMBU_COMMAND[action]; sent=time.time()
+ w.client.publish(f'device/{w.serial}/request',json.dumps({'print':{'sequence_id':str(int(sent)),'command':cmd,'param':''}}))
+ # The printer answers with the command and "success" or "fail" (newer firmware refuses outside
+ # LAN Only / Developer mode); if it says nothing, the state change will show it
+ end=sent+BAMBU_WAIT
+ while time.time()<end:
+  a=w.answers.get(cmd)
+  if a and a[2]>=sent:
+   if a[0]!='success': raise PermissionError(f"The printer refused it{': '+a[1] if a[1] else ''}. Newer Bambu firmware only accepts controls from other apps in LAN Only mode (and on some models, Developer mode).")
+   return
+  time.sleep(0.2)
+
+def control_error(e):
+ code=getattr(e,'code',None)
+ if isinstance(e,(PermissionError,ConnectionError)): return str(e)
+ if code in (401,403): return 'The printer refused: LayerHound needs permission to control it. For OctoPrint, add the printer again with "Allow in OctoPrint"; for Klipper, check Moonraker\'s trusted clients.'
+ if code==409: return "The printer can't do that right now (its state may have just changed)."
+ return printer_error(e)
+
+class ControlIn(BaseModel):
+ action:str
+
+@app.post('/api/printers/{pid}/control')
+def control(pid:int,b:ControlIn,request:Request):
+ if not settings.get('printer_controls'): raise HTTPException(403,'Printer controls are off. An admin can turn them on in Settings -> Printer controls.')
+ if b.action not in CONTROL_ALLOWED: raise HTTPException(400,'Action must be pause, resume or cancel')
+ c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
+ if not r: raise HTTPException(404,'Printer not found')
+ now_state=snapshot(r,grace=False)
+ if now_state['state'] not in CONTROL_ALLOWED[b.action]:
+  raise HTTPException(409,f"{r['name']} is {now_state['state']}, so it can't be {CONTROL_PAST[b.action]} now.")
+ t=r['printer_type']; base=clean_url(r['base_url']); who=(getattr(request.state,'who',None) or {}).get('username') or '?'
+ try:
+  if t=='moonraker': control_moonraker(base,b.action)
+  elif t=='octoprint': control_octoprint(base,vault.decrypt(r['api_key']),b.action)
+  else: control_bambu(pid,b.action)
+ except Exception as e:
+  print(f"[control] {who}: {b.action} {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+  raise HTTPException(502,control_error(e))
+ print(f"[control] {who}: {b.action} {r['name']}",flush=True)
+ time.sleep(1.5)   # let the printer change state before reading it again
+ return {'status':'sent','action':b.action,'printer':check(r)}
 
 # Which build of the dashboard is being served: the hashed name of its main script, which changes
 # with every build. Open tabs compare it with their own to offer a reload after an update.

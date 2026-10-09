@@ -7,6 +7,7 @@ export const getSystem=()=>req('/api/system');
 export const getPrinters=()=>req('/api/printers');
 export const createPrinter=p=>req('/api/printers',{method:'POST',body:JSON.stringify(p)});
 export const deletePrinter=id=>req(`/api/printers/${id}`,{method:'DELETE'});
+export const controlPrinter=(id,action)=>req(`/api/printers/${id}/control`,{method:'POST',body:JSON.stringify({action})});
 export const testPrinter=id=>req(`/api/printers/${id}/test`,{method:'POST'});
 export const updatePrinter=(id,p)=>req(`/api/printers/${id}`,{method:'PUT',body:JSON.stringify(p)});
 export const reorderPrinters=ids=>req('/api/printers/order',{method:'PUT',body:JSON.stringify({ids})});

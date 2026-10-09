@@ -63,7 +63,7 @@ Then open **http://THIS-MACHINE:8080**. The image is `ghcr.io/teamtacticalrc/lay
 | Camera | ✅ if Klipper lists one, or set a Camera URL | ✅ built-in camera, found automatically | Set a Camera URL |
 | Imported print history | ✅ | — (recorded from now on) | — (recorded from now on) |
 
-Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its edit form. Printer monitoring is **read-only**: LayerHound shows what your printers are doing but doesn't control them.
+Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its edit form. LayerHound **never starts prints**. An admin can turn on **Settings → Printer controls** to pause, resume or cancel a print from its detail panel (off by default, admins only, each action confirmed first, and logged to the service log).
 
 ## Screenshots
 

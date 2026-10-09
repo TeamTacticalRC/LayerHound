@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
-  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Lightbulb, Puzzle, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, Pause, Play, Square, File as FileIcon, Lightbulb, Puzzle, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, MessageSquareHeart, Send, Power, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
@@ -774,6 +774,50 @@ function useEscape(handler) {
   }, [handler]);
 }
 
+// Pause / resume / cancel (Settings -> Printer controls). Every action asks first; cancel can't be undone.
+const CONTROL_TEXT = {
+  pause: { label: "Pause", ask: "Pause this print? The printer stops where it is and waits.", button: "Pause print", done: "Paused." },
+  resume: { label: "Resume", ask: "Resume this print? Check the printer is ready to continue.", button: "Resume print", done: "Resumed." },
+  cancel: { label: "Cancel print", ask: "Cancel this print? It can't be resumed afterwards.", button: "Cancel print", done: "Cancelled." },
+};
+function PrintControls({ printer, onDone }) {
+  const [asking, setAsking] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  if (!prefs.printer_controls) return <p className="mt-3 text-xs text-slate-600">To pause or cancel prints from here, turn on Settings → Printer controls.</p>;
+  const run = async action => {
+    setBusy(true); setMsg(null);
+    try { await controlPrinter(printer.id, action); setMsg({ ok: true, text: CONTROL_TEXT[action].done }); onDone(); }
+    catch (e) { setMsg({ ok: false, text: e.message }); }
+    setBusy(false); setAsking(null);
+  };
+  const paused = printer.state === "paused";
+  return (
+    <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5" data-admin>
+      <div className="text-xs uppercase tracking-wider text-slate-600">Controls</div>
+      {asking ? (
+        <div className={`mt-3 rounded-xl border p-3 ${asking === "cancel" ? "border-red-500/25 bg-red-500/6" : "border-violet-400/25 bg-violet-500/6"}`}>
+          <p className="text-sm text-slate-200">{CONTROL_TEXT[asking].ask}</p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={() => run(asking)} disabled={busy} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[#fff] disabled:opacity-50 ${asking === "cancel" ? "bg-red-500/85 hover:bg-red-500" : "bg-violet-500 hover:bg-violet-400"}`}>{busy && <Loader2 size={14} className="animate-spin" />} {CONTROL_TEXT[asking].button}</button>
+            <button onClick={() => setAsking(null)} disabled={busy} className="flex-1 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/5">Keep printing</button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex gap-2">
+          <button onClick={() => setAsking(paused ? "resume" : "pause")} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06]">
+            {paused ? <><Play size={16} /> Resume</> : <><Pause size={16} /> Pause</>}
+          </button>
+          <button onClick={() => setAsking("cancel")} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-red-500/20 px-4 py-2.5 text-sm font-medium text-red-300 hover:bg-red-500/8">
+            <Square size={15} /> Cancel print
+          </button>
+        </div>
+      )}
+      {msg && <p className={`mt-3 text-xs ${msg.ok ? "text-emerald-300" : "text-red-300"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -826,6 +870,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
           <Metric icon={Thermometer} label="Bed" value={printer.bed ? fmtTemp(printer.bed) : "—"} sub={printer.bedTarget ? `Target ${fmtTemp(printer.bedTarget, 0)}` : undefined} />
         </div>
       </div>
+      {!isDemo && isAdmin() && (printer.state === "printing" || printer.state === "paused") && <PrintControls printer={printer} onDone={onRemoved} />}
       {printer.hasCamera && !isDemo && <CameraView printer={printer} />}
       <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
@@ -2587,6 +2632,20 @@ function DiscoverySection({ onSaved }) {
   );
 }
 
+// Pause / resume / cancel from a printer's detail panel. Off until an admin turns it on.
+function PrinterControlsSection({ onSaved }) {
+  const [on, setOn] = useState(!!prefs.printer_controls);
+  const [error, setError] = useState("");
+  const set = async v => { setOn(v); setError(""); try { onSaved(await saveSettings({ printer_controls: v })); } catch (e) { setOn(!v); setError(e.message); } };
+  return (
+    <Section title={<span className="flex items-center gap-2"><Pause size={16} className="text-violet-400" /> Printer controls</span>} sub="Pause, resume or cancel a print from LayerHound, for example from your phone when a print fails while you're away.">
+      <Toggle checked={on} onChange={set} label="Allow pausing, resuming and cancelling prints" hint="Admins only: view-only accounts, wall screens and the status light never can. Each action asks you to confirm first. LayerHound never starts prints." />
+      <p className="mt-1 text-xs text-slate-500">Bambu Lab printers on newer firmware only accept controls from other apps in LAN Only mode (and, on some models, Developer mode). If a Bambu printer refuses, LayerHound tells you.</p>
+      {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+    </Section>
+  );
+}
+
 // Existing installs: ask once (admins only), until the owner answers
 function StatsPrompt({ onSaved }) {
   const [s, setS] = useState(null);
@@ -3336,6 +3395,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <AccessSection onSaved={onSaved} />
           {session.user?.kind === "user" && <AccountSection />}
           <RemoteAccessSection />
+          <PrinterControlsSection onSaved={onSaved} />
           <DiscoverySection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
           <FanSection onSaved={onSaved} />

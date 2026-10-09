@@ -168,13 +168,14 @@ Most settings live on the **Settings** page. A few can also be set with environm
   - A DNS lookup once a minute
   - `standards-oui.ieee.org`, during board setup, to download the manufacturer list
   - `api.github.com` once a day, to check for a newer LayerHound (turn off in **Settings → Updates**), and GitHub's download servers when an admin installs an update
+  - Tailscale, only after an admin connects **Settings → Remote access** (on the board, setup installs Tailscale from `tailscale.com`; it stays idle until then)
 - **Usage stats are off unless you say yes.** First-run setup asks, and you can change it in **Settings → Usage stats**, which shows exactly what's sent. With a yes, once a day LayerHound sends Team Tactical RC (through Google Forms): a random install ID made on your machine, the version, how it's installed, the board model, how many printers of each type, and your country (two letters, from the internet check above). Never names, addresses, serial numbers, access codes or print history.
 - **Feedback** is sent only when you press **Send** on the **Send feedback** page. It goes to Team Tactical RC through Google Forms, with your message, an optional email, the LayerHound version and (if you leave it on) basic system details shown on the page.
 - **Network scans** only run when you press **Scan network**, and only cover your local network (at most 254 addresses).
 - **Login:** the first visit creates the admin account (there are no default passwords). Admins can add **view-only** accounts and read-only **access keys** for devices in **Settings → Login & users**, and can let anyone on the local network view without signing in. Passwords are stored only as one-way hashes, and 5 wrong passwords pause sign-ins from that device for 5 minutes.
-- **Forgot your password?** On the board, run `layerhound reset-password`.
+- **Forgot your password?** Use **Forgot your password?** on the sign-in screen with the recovery key from setup (only its hash is stored, it works once, and wrong keys count toward the same lockout). Without the key, run `layerhound reset-password` on the board.
 - **Setup hotspot:** when the board has no network for a few minutes, it creates an open Wi-Fi network called **LayerHound-Setup** so you can connect it to your Wi-Fi from a phone. It turns off as soon as the board is back on a network. On a board that's already set up, changing Wi-Fi there needs an admin sign-in.
-- **Never expose LayerHound's port to the internet.** It uses plain `http://`, which is fine on your own network. For remote access, use a private network tool such as [Tailscale](https://tailscale.com).
+- **Never expose LayerHound's port to the internet.** It uses plain `http://`, which is fine on your own network. For remote access, use **Settings → Remote access**, which connects the board to your own [Tailscale](https://tailscale.com) account: only devices signed in to that account can reach it. LayerHound never sees your Tailscale password, and leaves Tailscale's DNS settings off so the board's local network works as before.
 - **Backups** can include your access codes and tokens. Keep backup files private, or download them with that option turned off.
 
 ## Project layout

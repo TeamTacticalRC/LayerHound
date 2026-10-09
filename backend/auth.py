@@ -95,7 +95,7 @@ PUBLIC={('GET','/api/health'),('GET','/api/auth/status'),('POST','/api/auth/logi
 # Changes any signed-in user may make to their own account
 SELF_SERVICE={('POST','/api/auth/password')}
 # Reads that are admin-only because they contain secrets
-ADMIN_READS=('/api/settings/backup','/api/auth/users','/api/auth/keys','/api/auth/recovery')
+ADMIN_READS=('/api/settings/backup','/api/auth/users','/api/auth/keys','/api/auth/recovery','/api/remote')
 
 async def middleware(request:Request,call_next):
  path=request.url.path; method=request.method

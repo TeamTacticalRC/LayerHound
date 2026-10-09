@@ -143,7 +143,18 @@ Only updates signed by Team Tactical RC are installed. You can turn off the dail
 
 ## Using LayerHound away from home
 
-**Never open LayerHound to the internet** with port forwarding on your router. Use a private network tool such as **[Tailscale](https://tailscale.com)** (free for personal use). Install it on the board and on your phone, and LayerHound works from anywhere as if you were home.
+**Never open LayerHound to the internet** with port forwarding on your router. Use **Settings → Remote access** instead. It uses **[Tailscale](https://tailscale.com)**, a private network for your own devices that's free for personal use.
+
+1. In **Settings → Remote access**, press **Connect with Tailscale**.
+2. Sign in to Tailscale, or create a free account, on the page that opens. You can also scan the code to do it on your phone.
+3. Settings shows **Connected** and your remote address, like `http://layerhound.your-tailnet.ts.net`.
+4. Install the **Tailscale** app on your phone or laptop and sign in with the **same account**.
+5. Open the remote address, or scan its code, and bookmark it. It works from anywhere, as if you were home.
+
+- **Keep it connected:** Tailscale asks devices to sign in again every few months. To stop that for the board, open the [Tailscale admin console](https://login.tailscale.com/admin/machines), choose the board and pick **Disable key expiry**.
+- **Turn off remote access** pauses it; turning it back on doesn't need a sign-in. **Sign out of Tailscale** removes the board from your account.
+- Only devices signed in to your Tailscale account can reach the board. You still sign in to LayerHound as usual.
+- **Docker or your own Linux machine:** install Tailscale on that machine yourself, the usual way. Settings → Remote access is for the LayerHound board.
 
 ## Forgot your password?
 
@@ -190,7 +201,7 @@ Use **Send feedback** in the menu for ideas, problems or questions. It goes stra
 ## Good to know
 
 - **Usage stats are your choice.** First-run setup asks whether to send anonymous stats once a day (install count, printer counts by type, country, version). Nothing is sent unless you say yes; **Settings → Usage stats** shows exactly what's sent and lets you change your mind.
-- **Your data stays home.** Printer access codes, passwords and history stay on your board. Access codes and tokens are stored encrypted. The only outside connections are internet-health checks, the daily update check, and anything you send yourself; see the [privacy details](../README.md#privacy-and-security).
+- **Your data stays home.** Printer access codes, passwords and history stay on your board. Access codes and tokens are stored encrypted. The only outside connections are internet-health checks, the daily update check, Tailscale if you turn on remote access, and anything you send yourself; see the [privacy details](../README.md#privacy-and-security).
 - **LayerHound is not affiliated with** Bambu Lab, Klipper, Moonraker, OctoPrint, Creality, Elegoo, Snapmaker, Radxa or Raspberry Pi. Their names are used only to say what LayerHound works with.
 - **Bambu Lab support may change.** Bambu has been limiting third-party access in firmware updates. A future Bambu firmware could stop LayerHound from reading Bambu printers; we'll adapt where we can.
 - **License:** LayerHound is open source under the GNU AGPL v3. The LayerHound name, logo and mascot belong to Team Tactical RC ([details](../TRADEMARKS.md)).

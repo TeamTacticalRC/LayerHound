@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -2985,6 +2985,96 @@ function RecoveryPrompt() {
   );
 }
 
+// Remote access with Tailscale (board only): sign in with the owner's own Tailscale account, then
+// reach the dashboard from anywhere on their private Tailscale network
+const Qr = ({ svg, label }) => <div className="w-32 shrink-0 rounded-lg bg-[#fff] p-1.5 [&>svg]:block [&>svg]:h-auto [&>svg]:w-full" role="img" aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} />;
+function RemoteAccessSection() {
+  const [r, setR] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const load = useCallback(async () => { try { setR(await getRemote()); } catch (e) { setError(e.message); } }, []);
+  useEffect(() => { load(); }, [load]);
+  const pending = r && (r.waiting_for_sign_in || r.state === "needs_approval" || r.state === "starting");
+  useEffect(() => { if (!pending) return; const t = setInterval(load, 3000); return () => clearInterval(t); }, [pending, load]);
+  if (!r?.available) return null;
+  const act = async what => { setBusy(what); setError(""); setConfirm(false); try { setR(await remoteAction(what)); } catch (e) { setError(e.message); } setBusy(""); };
+  const button = (what, label, primary) => (
+    <button onClick={() => act(what)} disabled={!!busy} className={primary ? "flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50" : "rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:opacity-50"}>
+      {busy === what && <Loader2 size={14} className="animate-spin" />} {label}
+    </button>
+  );
+  const expiry = r.key_expiry && !r.key_expiry.startsWith("0001") ? new Date(r.key_expiry) : null;
+  return (
+    <Section title={<span className="flex items-center gap-2"><Globe size={16} className="text-violet-400" /> Remote access</span>}
+      sub="Open this dashboard from anywhere, privately, with Tailscale. Nothing is opened to the internet.">
+      {!r.installed ? (
+        <p className="text-sm text-slate-300">Tailscale isn't installed on this board yet. Run the full LayerHound install again to add it.</p>
+      ) : r.state === "connected" ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-emerald-300"><CircleCheck size={15} /> Connected{r.account ? ` to ${r.account}'s Tailscale` : ""}</div>
+          {r.url && (
+            <div className="flex flex-wrap items-start gap-4">
+              {r.url_qr && <Qr svg={r.url_qr} label="QR code for the remote address" />}
+              <div className="min-w-0 flex-1 space-y-2 text-sm text-slate-300">
+                <div>Your remote address:</div>
+                <a href={r.url} className="block break-all font-mono text-base font-semibold text-violet-300">{r.url}</a>
+                <ol className="list-decimal space-y-1 pl-5 text-slate-400">
+                  <li>Install the <span className="text-slate-200">Tailscale</span> app on your phone or laptop.</li>
+                  <li>Sign in with the same Tailscale account{r.account ? ` (${r.account})` : ""}.</li>
+                  <li>Open the address above, or scan the code. Bookmark it.</li>
+                </ol>
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-slate-500">
+            {expiry ? `Tailscale asks this board to sign in again on ${fmtDate(expiry, { dateStyle: "medium" })}. ` : ""}
+            To keep it connected for good, turn off <span className="text-slate-300">key expiry</span> for this board in the <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noreferrer" className="text-violet-300 hover:text-violet-200">Tailscale admin console</a> (Machines → this board → Disable key expiry).
+          </p>
+          <div className="flex flex-wrap items-center gap-2 border-t border-white/6 pt-3">
+            {button("off", "Turn off remote access")}
+            {confirm ? <>
+              <span className="text-xs text-slate-400">Remove this board from your Tailscale account?</span>
+              {button("sign-out", "Sign out")}
+              <button onClick={() => setConfirm(false)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
+            </> : <button onClick={() => setConfirm(true)} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Sign out of Tailscale</button>}
+          </div>
+        </div>
+      ) : r.state === "needs_approval" ? (
+        <div className="space-y-2 text-sm text-slate-300">
+          <div className="flex items-center gap-2"><Loader2 size={15} className="animate-spin text-violet-400" /> Waiting for approval</div>
+          <p>Your Tailscale network needs new devices approved. Approve this board in the <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noreferrer" className="text-violet-300 hover:text-violet-200">Tailscale admin console</a>.</p>
+        </div>
+      ) : r.auth_url && pending ? (
+        <div className="flex flex-wrap items-start gap-4">
+          {r.auth_qr && <Qr svg={r.auth_qr} label="QR code for the Tailscale sign-in page" />}
+          <div className="min-w-0 flex-1 space-y-3 text-sm text-slate-300">
+            <p>Sign in to Tailscale to add this board to your account. It's free for personal use, and you can create an account on the same page.</p>
+            <a href={r.auth_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400"><ExternalLink size={14} /> Sign in to Tailscale</a>
+            <p className="flex items-center gap-2 text-xs text-slate-500"><Loader2 size={13} className="animate-spin" /> Waiting for you to sign in. Or scan the code to sign in on your phone.</p>
+          </div>
+        </div>
+      ) : r.state === "off" ? (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-300">Remote access is off. This board is still in {r.account ? `${r.account}'s` : "your"} Tailscale account, so turning it on again doesn't need a sign-in.</p>
+          <div className="flex flex-wrap gap-2">{button("connect", "Turn on remote access", true)}{button("sign-out", "Sign out of Tailscale")}</div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-300">
+            <li>Connect this board to your free Tailscale account.</li>
+            <li>Install the Tailscale app on your phone and sign in with the same account.</li>
+            <li>Open your dashboard from anywhere, as if you were home.</li>
+          </ol>
+          <p className="text-xs text-slate-500">Only devices signed in to your Tailscale account can reach it. Never use port forwarding on your router for LayerHound.</p>
+          {button("connect", "Connect with Tailscale", true)}
+        </div>
+      )}
+      {error && <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+    </Section>
+  );
+}
+
 function AccessSection({ onSaved }) {
   const [users, setUsers] = useState(null);
   const [keys, setKeys] = useState(null);
@@ -3097,6 +3187,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <UpdatesSection onSaved={onSaved} />
           <AccessSection onSaved={onSaved} />
           {session.user?.kind === "user" && <AccountSection />}
+          <RemoteAccessSection />
           <DiscoverySection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
           <FanSection onSaved={onSaved} />

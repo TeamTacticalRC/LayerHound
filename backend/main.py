@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import auth, discovery, fan, history, hotspot, stats, updates, vault, media, network, services, settings, storage, wifi
+import auth, discovery, fan, history, hotspot, remote, stats, updates, vault, media, network, services, settings, storage, wifi
 from fastapi.responses import Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
@@ -248,7 +248,7 @@ auth.configure(db); app.include_router(auth.router)
 updates.configure(DB_PATH.parent/'data'); app.include_router(updates.router)
 settings.configure(db); fan.configure(); app.include_router(settings.router); settings.after_restore.append(bambu_stop_all); settings.set_paths(DB_PATH,storage.FILES_ROOT)
 storage.configure(db,disks); app.include_router(storage.router)
-app.include_router(wifi.router); app.include_router(hotspot.router); hotspot.configure()
+app.include_router(wifi.router); app.include_router(hotspot.router); hotspot.configure(); app.include_router(remote.router)
 network.configure(db); app.include_router(network.router)
 services.configure(db); app.include_router(services.router)
 vault.migrate(db)

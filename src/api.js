@@ -50,6 +50,8 @@ export const setupLayerHound=d=>req('/api/auth/setup',{method:'POST',body:JSON.s
 export const login=(username,password,remember)=>req('/api/auth/login',{method:'POST',body:JSON.stringify({username,password,remember})});
 export const logout=()=>req('/api/auth/logout',{method:'POST'});
 export const recoverPassword=(username,recovery_key,password)=>req('/api/auth/recover',{method:'POST',body:JSON.stringify({username,recovery_key,password})});
+export const getRemote=()=>req('/api/remote');
+export const remoteAction=what=>req(`/api/remote/${what}`,{method:'POST'});
 export const getRecovery=()=>req('/api/auth/recovery');
 export const makeRecoveryKey=password=>req('/api/auth/recovery',{method:'POST',body:JSON.stringify({password})});
 export const changePassword=(current,next)=>req('/api/auth/password',{method:'POST',body:JSON.stringify({current,new:next})});

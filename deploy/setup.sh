@@ -55,6 +55,20 @@ sudo chmod 644 "$POLKIT"
 sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
 echo "address=/#/10.42.0.1" | sudo tee /etc/NetworkManager/dnsmasq-shared.d/layerhound-setup.conf >/dev/null
 
+# Remote access (remote.py, Settings -> Remote access): Tailscale, from Tailscale's official
+# installer. It stays idle until the owner connects it. Installed on single-board computers only;
+# on other machines LayerHound uses Tailscale if the owner already has it.
+if ! command -v tailscale >/dev/null && [ -r /proc/device-tree/model ]; then
+  echo "==> Installing Tailscale (for remote access; off until you connect it)"
+  curl -fsSL --max-time 300 https://tailscale.com/install.sh | sudo sh >/dev/null \
+    || echo "   (skipped: couldn't install Tailscale; run the install again later for remote access)"
+fi
+if command -v tailscale >/dev/null; then
+  sudo systemctl enable --now --quiet tailscaled
+  # Let the LayerHound user connect and disconnect Tailscale (only that), without root
+  sudo tailscale set --operator="$APP_USER" || echo "   (couldn't give LayerHound control of Tailscale)"
+fi
+
 echo "==> Python environment"
 cd "$APP_DIR/backend"
 [ -x .venv/bin/python ] || python3 -m venv .venv

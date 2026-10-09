@@ -1,5 +1,5 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
 psutil==6.1.1
 paho-mqtt==2.1.0
 cryptography==50.0.2

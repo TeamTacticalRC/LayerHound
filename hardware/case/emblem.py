@@ -53,7 +53,7 @@ def _polys(mask,simplify=0.8):
 def _rounded(x0,y0,x1,y1,r):
  return box(x0+r,y0+r,x1-r,y1-r).buffer(r,join_style=1)
 
-def emblem_px(root='.'):
+def emblem_px(root='.',head_only=False):
  op,blue,mx,sat=_load(f'{root}/{MASCOT}')
  h,w=op.shape; yy,xx=np.mgrid[:h,:w]
  dist=np.hypot(xx-RING_C[0],yy-RING_C[1])
@@ -78,6 +78,8 @@ def emblem_px(root='.'):
  gray=_polys(dog&~white&~lines&~morphology.dilation(eye,morphology.disk(3)))
  white=_polys(white&~lines)
  head_blue=_polys(collar)|eye_shape
+ # Just the hound (the status light's LED ring takes the place of the drawn ring and gantry)
+ if head_only: return {'blue':head_blue,'gray':gray,'white':white},(w,h)
 
  # Clean shapes: ring, rails, print head, filament (pixel coordinates, y down)
  ring=Point(*RING_C).buffer(RING_R[1],128).difference(Point(*RING_C).buffer(RING_R[0],128))
@@ -93,9 +95,9 @@ def emblem_px(root='.'):
  blue_all=unary_union([ring.difference(head).difference(nozzle.buffer(5)),caps,nozzle,filament,head_blue])
  return {'blue':blue_all,'gray':unary_union([gray,gantry_gray]),'white':white},(w,h)
 
-def emblem(width_mm,root='.'):
+def emblem(width_mm,root='.',head_only=False):
  # The emblem scaled to width_mm wide, in mm with y up, lower-left corner at (0,0)
- shapes,(w,h)=emblem_px(root)
+ shapes,(w,h)=emblem_px(root,head_only)
  x0,y0,x1,y1=unary_union(list(shapes.values())).bounds
  k=width_mm/(x1-x0); out={}
  for name,s in shapes.items():

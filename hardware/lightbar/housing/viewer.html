@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LayerHound Status Light</title>
+<style>
+  :root { --bg: #eef0f3; --panel: #ffffff; --text: #1d2129; --muted: #5d6676; --border: #d9dde3; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0f1218; --panel: #171b23; --text: #e6e9ee; --muted: #8a94a6; --border: #2a303b; } }
+  :root[data-theme="dark"] { --bg: #0f1218; --panel: #171b23; --text: #e6e9ee; --muted: #8a94a6; --border: #2a303b; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  #view { position: fixed; inset: 0; }
+  .panel { position: fixed; top: 16px; left: 16px; max-width: calc(100% - 32px); background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+  .panel h1 { margin: 0 0 6px; font-size: 15px; }
+  .panel p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  button[aria-pressed="true"] { background: #007ACC; border-color: #007ACC; color: #fff; }
+  label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div class="panel">
+  <h1>LayerHound status light · ring</h1>
+  <p>Drag to rotate, scroll to zoom. Built by build_ring_housing.py.</p>
+  <div class="row" role="group" aria-label="View">
+    <button data-mode="assembled" aria-pressed="true">Assembled</button>
+    <button data-mode="exploded" aria-pressed="false">Exploded</button>
+  </div>
+  <label><input type="checkbox" id="lit" checked> Show the lights (sample farm)</label>
+</div>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+// Colors per part (the diffuser is translucent white PETG); exploded views move parts this far (mm)
+const LOOK = {
+  'ring-head': { color: 0x2B2F3A, apart: [0, -30, 18] },
+  'ring-diffuser': { color: 0xF2F4F7, opacity: 0.55, apart: [0, -55, 30] },
+  'ring-diffuser-emblem-blue': { color: 0x00A3FF, apart: [0, -55, 30] },
+  'ring-diffuser-emblem-white': { color: 0xE8EBEF, apart: [0, -55, 30] },
+  'ring-diffuser-emblem-gray': { color: 0x8A94A6, apart: [0, -55, 30] },
+  'ring-paddle': { color: 0x434a58, apart: [0, 0, 22] },
+  'ring-base': { color: 0x2B2F3A, apart: [0, 0, 0] },
+  'ring-base-bottom': { color: 0x434a58, apart: [0, 0, -25] },
+};
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio); view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 1, 3000);
+camera.up.set(0, 0, 1); camera.position.set(-120, -230, 150);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 30, 45); controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(-80, -160, 220); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.5); fill.position.set(120, 160, 60); scene.add(fill);
+
+const meshes = [];
+const loader = new STLLoader();
+const assembly = await (await fetch('stl/assembly.json')).json();
+let headMatrix = null;
+for (const part of assembly) {
+  const name = part.file.split('/').pop().replace('.stl', '');
+  const look = LOOK[name] ?? { color: 0x888888, apart: [0, 0, 0] };
+  const m = new THREE.Matrix4().set(...part.matrix.flat());
+  if (name === 'ring-paddle') headMatrix = m;
+  loader.load(part.file, geo => {
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color: look.color, roughness: 0.7, metalness: 0.05, side: THREE.DoubleSide,
+      transparent: !!look.opacity, opacity: look.opacity ?? 1 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.matrixAutoUpdate = false; mesh.userData = { base: m, apart: look.apart };
+    meshes.push(mesh); scene.add(mesh); layout(mode);
+  });
+}
+
+// The 12 LEDs, in the head's frame (ring centre at the back plate's axis), lit like a sample farm:
+// 4 printers, 2 lit LEDs and a gap each (printing, paused, error, finished)
+const lights = new THREE.Group(); lights.matrixAutoUpdate = false; scene.add(lights);
+const COLORS = [0x00ff28, 0x00ff28, null, 0xff8c00, 0xff8c00, null, 0xff0000, 0xff0000, null, 0x005aff, 0x005aff, null];
+COLORS.forEach((c, i) => {
+  const a = Math.PI / 2 - (i / 12) * 2 * Math.PI, r = 15.1;
+  const led = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 1.6), new THREE.MeshBasicMaterial({ color: c ?? 0x202430 }));
+  led.position.set(Math.cos(a) * r, Math.sin(a) * r, 13.3);
+  lights.add(led);
+  if (c) { const glow = new THREE.PointLight(c, 40, 30); glow.position.copy(led.position); glow.position.z += 4; lights.add(glow); }
+});
+
+let mode = 'assembled';
+function layout(m) {
+  mode = m;
+  for (const mesh of meshes) {
+    const [x, y, z] = m === 'exploded' ? mesh.userData.apart : [0, 0, 0];
+    mesh.matrix.copy(new THREE.Matrix4().makeTranslation(x, y, z).multiply(mesh.userData.base));
+  }
+  if (headMatrix) lights.matrix.copy(new THREE.Matrix4().makeTranslation(...(m === 'exploded' ? [0, -40, 24] : [0, 0, 0])).multiply(headMatrix));
+  document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
+}
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => layout(b.dataset.mode));
+document.getElementById('lit').onchange = e => { lights.visible = e.target.checked; };
+layout(mode);
+
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>

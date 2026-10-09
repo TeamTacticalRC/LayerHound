@@ -1,6 +1,6 @@
 # What an owner sees and does in the dashboard, checked in a real browser.
 import pytest
-from conftest import PAGES, api, new_page, open_page
+from conftest import ADMIN, PAGES, RECOVERY, api, new_page, open_page
 
 
 def no_sideways_scroll(page):
@@ -77,4 +77,30 @@ def test_sign_out(browser, base_url, admin_state):
     page = new_page(browser, base_url, admin_state)
     page.get_by_role("button", name="Sign out").click()
     page.get_by_role("button", name="Sign in").wait_for()
+    page.context.close()
+
+
+def test_forgot_password_with_recovery_key(browser, base_url, admin_state):
+    # A second admin, so the main test session isn't signed out when its password changes
+    # (signs in by itself: test_sign_out may already have ended the shared session)
+    admin = new_page(browser, base_url)
+    assert api(admin, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    assert api(admin, "POST", "/api/auth/users", {"username": "owner2", "password": "owner2-pass-123", "role": "admin"})["status"] == 200
+    admin.context.close()
+    page = new_page(browser, base_url)
+    page.get_by_role("button", name="Forgot your password?").click()
+    page.get_by_label("Admin username").fill("owner2")
+    page.get_by_label("Recovery key").fill(RECOVERY["key"].lower())
+    page.get_by_label("New password").fill("owner2-new-pass")
+    page.get_by_label("Type it again").fill("owner2-new-pass")
+    page.get_by_role("button", name="Set new password").click()
+    # Signed in, with a new key to save (the old one is used up)
+    page.get_by_role("heading", name="Your password is changed").wait_for()
+    new_key = page.get_by_test_id("recovery-key").inner_text().strip()
+    assert new_key != RECOVERY["key"]
+    RECOVERY["key"] = new_key
+    page.get_by_label("I've saved my recovery key").check()
+    page.get_by_role("button", name="Go to my dashboard").click()
+    page.get_by_role("button", name="Sign out").wait_for()
+    assert not page.problems.items, page.problems.items
     page.context.close()

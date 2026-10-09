@@ -1,0 +1,127 @@
+<!doctype html>
+<!-- The printed setup guide that goes in the box. Build the PDF with build_setup_guide.py (see README.md here).
+     {{QR_DASHBOARD}} and {{QR_GUIDE}} are filled in by the build script. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LayerHound setup guide</title>
+<style>
+  @page { size: letter; margin: 0; }
+  :root { --blue: #007ACC; --blue-soft: #E6F5FF; --ink: #16181D; --muted: #555B66; --line: #D5D9E0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: var(--ink); font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 8.5in; height: 11in; padding: 0.45in 0.55in 0.4in; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 0.25in; padding-bottom: 0.16in; border-bottom: 3px solid var(--blue); }
+  header img { width: 1.3in; }
+  header h1 { margin: 0; font-size: 29pt; letter-spacing: -0.5px; line-height: 1.05; }
+  header p { margin: 6px 0 0; font-size: 11.5pt; color: var(--muted); line-height: 1.35; }
+  .need { margin: 0.14in 0 0; font-size: 10pt; color: var(--muted); }
+  .need b { color: var(--ink); }
+  .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 0.14in; margin-top: 0.13in; }
+  .step { border: 1.5px solid var(--line); border-radius: 12px; padding: 0.15in 0.17in; }
+  .step h2 { display: flex; align-items: center; gap: 9px; margin: 0 0 7px; font-size: 13.5pt; }
+  .num { display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px; border-radius: 50%; background: var(--blue); color: #fff; font-size: 12pt; flex-shrink: 0; }
+  .step p, .step li { font-size: 9.5pt; line-height: 1.36; margin: 0 0 4px; }
+  .step ul { margin: 0; padding-left: 16px; }
+  .or { margin: 7px 0 5px; padding: 7px 9px; border-radius: 8px; background: var(--blue-soft); }
+  .or p { margin: 0; }
+  .url { font-family: Menlo, Consolas, monospace; font-weight: 700; font-size: 11pt; color: var(--blue); }
+  code { white-space: nowrap; font-family: Menlo, Consolas, monospace; font-size: 8.5pt; background: #F1F3F6; padding: 1px 4px; border-radius: 4px; }
+  .with-qr { display: flex; gap: 0.14in; align-items: flex-start; }
+  .qr { width: 1.05in; flex-shrink: 0; text-align: center; font-size: 7.5pt; color: var(--muted); }
+  .qr svg { width: 1.05in; height: 1.05in; display: block; }
+  .keybox { margin-top: 6px; border: 1.5px dashed var(--blue); border-radius: 8px; padding: 6px 9px 8px; }
+  .keybox span { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 700; }
+  .keybox .slots { display: flex; align-items: flex-end; gap: 5px; margin-top: 10px; color: var(--muted); }
+  .keybox i { flex: 1; border-bottom: 1.2px solid var(--ink); height: 1px; }
+  .tips { margin-top: 0.14in; border-radius: 12px; background: #F6F7F9; padding: 0.13in 0.18in; }
+  .tips h3 { margin: 0 0 6px; font-size: 11.5pt; }
+  .tips ul { margin: 0; padding-left: 16px; columns: 2; column-gap: 0.3in; }
+  .tips li { font-size: 9pt; line-height: 1.34; margin-bottom: 4px; break-inside: avoid; }
+  footer { margin-top: auto; display: flex; align-items: center; gap: 0.18in; padding-top: 0.12in; border-top: 1px solid var(--line); }
+  footer .qr { width: 0.78in; }
+  footer .qr svg { width: 0.78in; height: 0.78in; }
+  footer .text { font-size: 9pt; line-height: 1.45; color: var(--muted); }
+  footer .text b { color: var(--ink); }
+  footer .small { margin-top: 4px; font-size: 7pt; line-height: 1.35; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <img src="../../public/brand/layerhound-logo.png" alt="LayerHound">
+    <div>
+      <h1>Set up your LayerHound</h1>
+      <p>Watch every printer in your farm from one dashboard, on your own network.<br>About 10 minutes, no programming needed.</p>
+    </div>
+  </header>
+
+  <p class="need"><b>You'll need:</b> your LayerHound and its power supply, a phone or computer on your home network, and an Ethernet cable if you have one (Wi-Fi works too).</p>
+
+  <div class="steps">
+    <section class="step">
+      <h2><span class="num">1</span> Connect it</h2>
+      <p><b>With a cable:</b> plug LayerHound into your router with an Ethernet cable, then plug in the power. Wait about 2 minutes.</p>
+      <div class="or">
+        <p><b>No cable?</b> Plug in the power and wait a minute or two. On your phone, join the Wi-Fi network <b>LayerHound-Setup</b>. A setup page opens: pick your home Wi-Fi and enter its password. Then reconnect your phone to your home Wi-Fi.</p>
+      </div>
+    </section>
+
+    <section class="step">
+      <h2><span class="num">2</span> Open the dashboard</h2>
+      <div class="with-qr">
+        <div>
+          <p>On a phone or computer on the same network, open:</p>
+          <p class="url">http://layerhound.local</p>
+          <p>or scan the code.</p>
+          <p>If it doesn't open, see the tips below.</p>
+        </div>
+        <div class="qr">{{QR_DASHBOARD}}layerhound.local</div>
+      </div>
+    </section>
+
+    <section class="step">
+      <h2><span class="num">3</span> Make it yours</h2>
+      <ul>
+        <li><b>Name your farm.</b> You can change it later.</li>
+        <li><b>Create your admin password.</b> There's no default password. Use at least 8 characters and keep it somewhere safe.</li>
+        <li><b>Choose whether to share anonymous usage stats.</b> Nothing is sent unless you say yes.</li>
+        <li><b>Save your recovery key.</b> It sets a new password if you ever forget yours. Write it here and keep this sheet somewhere safe:</li>
+      </ul>
+      <div class="keybox"><span>Recovery key</span><div class="slots"><i></i>–<i></i>–<i></i>–<i></i></div></div>
+    </section>
+
+    <section class="step">
+      <h2><span class="num">4</span> Add your printers</h2>
+      <p>LayerHound looks for printers on your network by itself. They show up on the Dashboard as <b>printers found on your network</b>:</p>
+      <ul>
+        <li><b>Klipper:</b> press <b>Add</b>.</li>
+        <li><b>Bambu Lab:</b> type the printer's access code, from its screen under network or WLAN settings.</li>
+        <li><b>OctoPrint:</b> press <b>Allow in OctoPrint</b>, then <b>Allow</b> in OctoPrint.</li>
+      </ul>
+      <p>Not listed? Use <b>Print Farm → Add printer</b>.</p>
+    </section>
+  </div>
+
+  <div class="tips">
+    <h3>Good to know</h3>
+    <ul>
+      <li><b>layerhound.local won't open?</b> Make sure you're on the same network as LayerHound. Some Android phones and Windows PCs can't open <b>.local</b> names: find "layerhound" in your router's device list and open <b>http://</b> followed by its IP address.</li>
+      <li><b>Before unplugging,</b> use <b>Settings → About &amp; maintenance → Shut down board</b>, then wait until the activity light stops blinking.</li>
+      <li><b>Away from home:</b> never open LayerHound to the internet with port forwarding. Use a private network app such as Tailscale.</li>
+      <li><b>Forgot your password?</b> On the sign-in screen, choose <b>Forgot your password?</b> and enter your recovery key.</li>
+      <li><b>Questions or ideas?</b> Use <b>Send feedback</b> in the dashboard menu. It goes straight to Team Tactical RC.</li>
+    </ul>
+  </div>
+
+  <footer>
+    <div class="qr">{{QR_GUIDE}}</div>
+    <div class="text">
+      <b>The full owner's guide</b> covers accounts, backups, the setup hotspot, troubleshooting and more. Scan the code to open it.<br>
+      <b>LayerHound</b> by Team Tactical RC. Free and open source.
+      <div class="small">LayerHound only watches your printers: it never starts, stops or changes prints. Not affiliated with Bambu Lab, Klipper, OctoPrint, Radxa or the other makers named here. LayerHound and the hound logo are trademarks of Team Tactical RC.</div>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

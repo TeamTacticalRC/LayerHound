@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -456,11 +456,43 @@ function StatsChoice({ value, onChange }) {
   );
 }
 
+// The recovery key: shown once, after setup, after using the old one, or when an admin makes a new one.
+// It sets a new admin password from the login screen ("Forgot your password?").
+function RecoveryKeyCard({ recoveryKey, farmName, onContinue, continueLabel = "Continue", note }) {
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(recoveryKey); setCopied(true); } catch { /* select it by hand */ } };
+  const download = () => {
+    const text = `LayerHound recovery key${farmName ? ` for ${farmName}` : ""}\n\n    ${recoveryKey}\n\nForgot your admin password? On the LayerHound login screen, choose\n"Forgot your password?" and enter this key with a new password.\nThe key works once; LayerHound then gives you a new one to save.\n\nKeep it private: anyone with this key and your admin username can sign in.\n`;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    a.download = "layerhound-recovery-key.txt"; a.click(); URL.revokeObjectURL(a.href);
+  };
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-300">{note ?? "If you ever forget your admin password, this key lets you set a new one from the login screen."} <span className="text-white">It won't be shown again.</span></p>
+      <div className="select-all rounded-xl border border-violet-400/30 bg-violet-500/8 px-3 py-3 text-center font-mono text-lg font-semibold tracking-wider text-white" data-testid="recovery-key">{recoveryKey}</div>
+      <div className="flex gap-2">
+        <button type="button" onClick={copy} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5"><Copy size={14} /> {copied ? "Copied" : "Copy"}</button>
+        <button type="button" onClick={download} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5"><Download size={14} /> Download</button>
+      </div>
+      <p className="text-xs text-slate-500">Write it in the box on your printed setup guide, or keep it in a password manager. Keep it private: with it, someone could sign in as admin.</p>
+      {onContinue && <>
+        <label className="flex items-center gap-2 pt-1 text-sm text-slate-300">
+          <input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)} className="accent-violet-500" /> I've saved my recovery key
+        </label>
+        <button type="button" onClick={onContinue} disabled={!saved} className="w-full rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{continueLabel}</button>
+      </>}
+    </div>
+  );
+}
+
 // First run: no accounts exist yet. Name the farm and create the admin account.
 function WelcomeScreen({ farmName, onDone }) {
   const [f, setF] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "", usage_stats: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [recoveryKey, setRecoveryKey] = useState(null);
   const set = k => v => setF(x => ({ ...x, [k]: v }));
   const submit = async e => {
     e.preventDefault(); setError("");
@@ -468,9 +500,14 @@ function WelcomeScreen({ farmName, onDone }) {
     if (f.password !== f.confirm) return setError("The passwords don't match.");
     if (!f.usage_stats) return setError("Choose whether to share anonymous usage stats.");
     setBusy(true);
-    try { await setupLayerHound({ farm_name: f.farm_name.trim() || "My Print Farm", username: f.username.trim(), password: f.password, usage_stats: f.usage_stats }); onDone(); }
+    try { const r = await setupLayerHound({ farm_name: f.farm_name.trim() || "My Print Farm", username: f.username.trim(), password: f.password, usage_stats: f.usage_stats }); if (r.recovery_key) setRecoveryKey(r.recovery_key); else onDone(); }
     catch (err) { setError(err.message); setBusy(false); }
   };
+  if (recoveryKey) return (
+    <AuthShell title="Save your recovery key" sub="One last thing.">
+      <RecoveryKeyCard recoveryKey={recoveryKey} farmName={f.farm_name.trim()} onContinue={onDone} continueLabel="Go to my dashboard" />
+    </AuthShell>
+  );
   return (
     <AuthShell title="Welcome to LayerHound" sub="Two quick things and you're in.">
       <form onSubmit={submit} className="space-y-4">
@@ -498,11 +535,46 @@ function LoginScreen({ farmName, onDone, onCancel }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [forgot, setForgot] = useState(false);
+  const [rec, setRec] = useState({ key: "", password: "", confirm: "" });
+  const [newKey, setNewKey] = useState(null);
   const submit = async e => {
     e.preventDefault(); setError(""); setBusy(true);
     try { await login(f.username.trim(), f.password, f.remember); onDone(); }
     catch (err) { setError(err.message); setBusy(false); setF(x => ({ ...x, password: "" })); }
   };
+  const recover = async e => {
+    e.preventDefault(); setError("");
+    if (rec.password.length < 8) return setError("Passwords need at least 8 characters.");
+    if (rec.password !== rec.confirm) return setError("The new passwords don't match.");
+    setBusy(true);
+    try { const r = await recoverPassword(f.username.trim(), rec.key.trim(), rec.password); setNewKey(r.recovery_key); }
+    catch (err) { setError(err.message); }
+    setBusy(false);
+  };
+  if (newKey) return (
+    <AuthShell title="Your password is changed" sub="Your old recovery key is used up. Here's your new one.">
+      <RecoveryKeyCard recoveryKey={newKey} farmName={farmName} onContinue={onDone} continueLabel="Go to my dashboard" note="Save this new key in place of the old one: it's what you'll need if you forget your password again." />
+    </AuthShell>
+  );
+  if (forgot) return (
+    <AuthShell title="Forgot your password?" sub="Set a new admin password with your recovery key.">
+      <form onSubmit={recover} className="space-y-3">
+        <Field label="Admin username"><input className={inputClass} maxLength={40} value={f.username} onChange={e => setF(x => ({ ...x, username: e.target.value }))} autoComplete="username" autoCapitalize="none" autoFocus={!f.username} /></Field>
+        <Field label="Recovery key" hint="You saved it when you set up LayerHound. Dashes and capitals don't matter."><input className={`${inputClass} font-mono uppercase`} maxLength={64} placeholder="XXXX-XXXX-XXXX-XXXX" value={rec.key} onChange={e => setRec(x => ({ ...x, key: e.target.value }))} autoComplete="off" autoCapitalize="characters" spellCheck={false} autoFocus={!!f.username} /></Field>
+        <Field label="New password" hint="At least 8 characters."><PasswordInput value={rec.password} onChange={v => setRec(x => ({ ...x, password: v }))} autoComplete="new-password" /></Field>
+        <Field label="Type it again"><PasswordInput value={rec.confirm} onChange={v => setRec(x => ({ ...x, confirm: v }))} autoComplete="new-password" /></Field>
+        {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+        <button type="submit" disabled={busy || !f.username.trim() || !rec.key.trim() || !rec.password} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
+          {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Saving…" : "Set new password"}
+        </button>
+      </form>
+      <div className="mt-4 space-y-2 border-t border-white/6 pt-3 text-xs text-slate-500">
+        <p><span className="text-slate-300">View-only account?</span> Ask an admin to set a new password in Settings → Login & users.</p>
+        <p><span className="text-slate-300">No recovery key?</span> On the LayerHound board (over SSH, or with a keyboard and screen), run <code className="rounded bg-white/5 px-1.5 py-0.5 text-slate-300">layerhound reset-password</code>.</p>
+        <div className="pt-1 text-center"><button onClick={() => { setForgot(false); setError(""); }} className="hover:text-slate-300">Back to sign in</button></div>
+      </div>
+    </AuthShell>
+  );
   return (
     <AuthShell title={farmName} sub="Sign in to continue.">
       <form onSubmit={submit} className="space-y-3">
@@ -517,9 +589,7 @@ function LoginScreen({ farmName, onDone, onCancel }) {
         </button>
       </form>
       <div className="mt-4 border-t border-white/6 pt-3 text-center text-xs text-slate-500">
-        {forgot
-          ? <p>On the LayerHound board (over SSH, or with a keyboard and screen), run <code className="rounded bg-white/5 px-1.5 py-0.5 text-slate-300">layerhound reset-password</code></p>
-          : <button onClick={() => setForgot(true)} className="hover:text-slate-300">Forgot your password?</button>}
+        <button onClick={() => { setForgot(true); setError(""); }} className="hover:text-slate-300">Forgot your password?</button>
         {onCancel && <div className="mt-2"><button onClick={onCancel} className="hover:text-slate-300">Back to the dashboard</button></div>}
       </div>
     </AuthShell>
@@ -535,6 +605,8 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(null);
+  const [created, setCreated] = useState(false);
+  const [recoveryKey, setRecoveryKey] = useState(null);
   useEffect(() => { getHotspot().then(setInfo).catch(e => setError(e.message)); }, []);
   const chosen = info?.networks?.find(n => n.ssid === net.ssid);
   const needsPassword = net.other || (chosen?.secure && !chosen?.saved);
@@ -542,17 +614,32 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
     e.preventDefault(); setError("");
     if (!net.ssid.trim()) return setError("Pick your Wi-Fi network.");
     if (needsPassword && net.other === false && !net.password) return setError("Enter the Wi-Fi password.");
-    if (setupRequired) {
+    if (setupRequired && !created) {
       if (acct.password.length < 8) return setError("The admin password needs at least 8 characters.");
       if (acct.password !== acct.confirm) return setError("The admin passwords don't match.");
       if (!acct.usage_stats) return setError("Choose whether to share anonymous usage stats.");
     }
     setBusy(true);
-    try {
-      if (setupRequired) await setupLayerHound({ farm_name: acct.farm_name.trim() || "My Print Farm", username: acct.username.trim(), password: acct.password, usage_stats: acct.usage_stats });
-      setJoining(await joinWifi(net.ssid.trim(), net.password));
-    } catch (err) { setError(err.message); setBusy(false); if (setupRequired) onDone(); }
+    if (setupRequired && !created) {
+      // Show the recovery key while the phone is still on the hotspot; joining Wi-Fi drops it off
+      try {
+        const r = await setupLayerHound({ farm_name: acct.farm_name.trim() || "My Print Farm", username: acct.username.trim(), password: acct.password, usage_stats: acct.usage_stats });
+        setCreated(true); setBusy(false);
+        if (r.recovery_key) return setRecoveryKey(r.recovery_key);
+      } catch (err) { setError(err.message); setBusy(false); onDone(); return; }
+    }
+    join();
   };
+  const join = async () => {
+    setBusy(true);
+    try { setJoining(await joinWifi(net.ssid.trim(), net.password)); }
+    catch (err) { setError(err.message); setBusy(false); if (setupRequired) onDone(); }
+  };
+  if (recoveryKey) return (
+    <AuthShell title="Save your recovery key" sub="Before LayerHound joins your Wi-Fi.">
+      <RecoveryKeyCard recoveryKey={recoveryKey} farmName={acct.farm_name.trim()} onContinue={() => { setRecoveryKey(null); join(); }} continueLabel={`Join ${net.ssid.trim()}`} />
+    </AuthShell>
+  );
   if (joining) return (
     <AuthShell title={`Joining ${joining.network}…`}>
       <div className="space-y-3 text-sm text-slate-300">
@@ -2851,6 +2938,53 @@ function UserRow({ u, onChanged, onError }) {
 }
 
 // Admins: who can sign in, access keys for devices, and guest viewing on the local network
+// Make a new recovery key (Settings, and the dashboard reminder on farms set up before recovery keys existed)
+function RecoveryKeyMaker({ onMade, onDone, startOpen = false, first = false }) {
+  const [asking, setAsking] = useState(startOpen);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [made, setMade] = useState(null);
+  const make = async e => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try { setMade((await makeRecoveryKey(password)).recovery_key); setPassword(""); setAsking(false); onMade?.(); }
+    catch (err) { setError(err.message); }
+    setBusy(false);
+  };
+  if (made) return (
+    <div className="mt-3 rounded-xl border border-white/8 bg-white/[.02] p-3">
+      <RecoveryKeyCard recoveryKey={made} farmName={prefs.farm_name} note="Your new recovery key. Any older key no longer works." />
+      <button onClick={() => { setMade(null); onDone?.(); }} className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">I've saved it</button>
+    </div>
+  );
+  if (!asking) return <button onClick={() => setAsking(true)} className="mt-3 flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><KeyRound size={14} /> {first ? "Make a recovery key" : "Make a new recovery key"}</button>;
+  return (
+    <form onSubmit={make} className="mt-3 flex flex-wrap items-end gap-2">
+      <div className="min-w-48 flex-1"><Field label="Your password" hint="To confirm it's you."><PasswordInput value={password} onChange={setPassword} autoComplete="current-password" /></Field></div>
+      <button type="submit" disabled={busy || !password} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">{busy ? "Making…" : "Make key"}</button>
+      <button type="button" onClick={() => { setAsking(false); setError(""); }} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Cancel</button>
+      {error && <div className="w-full text-xs text-red-300">{error}</div>}
+    </form>
+  );
+}
+
+// Farms set up before recovery keys existed: remind the admin once, until a key is made
+function RecoveryPrompt() {
+  const [r, setR] = useState(null);
+  const [later, setLater] = useState(() => { try { return localStorage.getItem("lh-recovery-later") === "1"; } catch { return false; } });
+  useEffect(() => { if (isAdmin() && session.user?.kind === "user") getRecovery().then(setR).catch(() => {}); }, []);
+  if (!r || r.exists || later) return null;
+  const hide = () => { setLater(true); try { localStorage.setItem("lh-recovery-later", "1"); } catch { /* fine */ } };
+  return (
+    <section className="mb-6 rounded-2xl border border-violet-400/25 bg-violet-500/[.06] p-5">
+      <h2 className="flex items-center gap-2 font-semibold text-white"><KeyRound size={17} className="text-violet-400" /> Save a recovery key</h2>
+      <p className="mt-1 text-sm text-slate-400">If you forget your admin password, a recovery key lets you set a new one from the login screen, no terminal needed. You can also do this later in Settings → Login & users.</p>
+      <RecoveryKeyMaker first onDone={() => setR({ exists: true })} />
+      <button onClick={hide} className="mt-2 text-xs text-slate-500 hover:text-slate-300">Not now</button>
+    </section>
+  );
+}
+
 function AccessSection({ onSaved }) {
   const [users, setUsers] = useState(null);
   const [keys, setKeys] = useState(null);
@@ -2860,8 +2994,9 @@ function AccessSection({ onSaved }) {
   const [newKey, setNewKey] = useState(null);
   const [copied, setCopied] = useState(false);
   const [guest, setGuest] = useState(!!prefs.guest_view);
+  const [recovery, setRecovery] = useState(null);
   const load = useCallback(async () => {
-    try { setUsers((await getUsers()).users); setKeys((await getKeys()).keys); } catch (e) { setError(e.message); }
+    try { setUsers((await getUsers()).users); setKeys((await getKeys()).keys); setRecovery(await getRecovery()); } catch (e) { setError(e.message); }
   }, []);
   useEffect(() => { load(); }, [load]);
   const toggleGuest = async v => {
@@ -2900,6 +3035,15 @@ function AccessSection({ onSaved }) {
       <ul className="mt-1 divide-y divide-white/6">
         {users?.map(u => <UserRow key={u.id} u={u} onChanged={load} onError={setError} />)}
       </ul>
+
+      {session.user?.kind === "user" && (
+        <div className="mt-5 border-t border-white/6 pt-5">
+          <h3 className="flex items-center gap-2 text-sm font-medium text-slate-300"><ShieldCheck size={15} /> Recovery key</h3>
+          <p className="mt-1 text-xs text-slate-600">Sets a new admin password from the login screen if you forget yours ("Forgot your password?"). Each key works once. Making a new key stops the old one working.</p>
+          {recovery && <p className={`mt-2 text-sm ${recovery.exists ? "text-slate-300" : "text-amber-200"}`}>{recovery.exists ? `Made ${fmtDate(recovery.created_at * 1000, { dateStyle: "medium" })}.` : "No recovery key yet. Make one so you can't get locked out."}</p>}
+          <RecoveryKeyMaker onMade={load} first={recovery && !recovery.exists} />
+        </div>
+      )}
 
       <div className="mt-5 border-t border-white/6 pt-5">
         <h3 className="flex items-center gap-2 text-sm font-medium text-slate-300"><KeyRound size={15} /> Access keys</h3>
@@ -3442,7 +3586,7 @@ function Dashboard({ onSignOut, onSignIn }) {
                   <Metric icon={HardDrive} label="Storage" value={system ? `${Math.round(system.storage_percent)}%` : "—"} sub={system ? `${system.storage_used_gb} GB / ${system.storage_total_gb} GB` : "Waiting for API"} progress={system?.storage_percent ?? 0} />
                 </section>
 
-                <div className="mt-8"><StatsPrompt onSaved={applySettings} /><PrinterSuggestions onAdded={refreshPrinters} noPrinters={printers.length === 0} /></div>
+                <div className="mt-8"><RecoveryPrompt /><StatsPrompt onSaved={applySettings} /><PrinterSuggestions onAdded={refreshPrinters} noPrinters={printers.length === 0} /></div>
 
                 <section className="mt-2">
                   <div className="mb-4 flex items-center justify-between">

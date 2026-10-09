@@ -29,6 +29,7 @@ def client():
     c = new_client()
     r = c.post("/api/auth/setup", json={"farm_name": "Test Farm", **ADMIN})
     assert r.status_code == 200, r.text
+    c.recovery_key = r.json()["recovery_key"]   # shown once at setup
     return c
 
 

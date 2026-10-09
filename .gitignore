@@ -6,6 +6,7 @@ dist
 !.env.example
 # Python
 .venv/
+.venv-print/
 __pycache__/
 *.pyc
 

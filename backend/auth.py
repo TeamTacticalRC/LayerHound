@@ -6,6 +6,9 @@
 # - Admins can change things; viewers can only look. Access keys are read-only, for devices.
 # - Every change (POST/PUT/DELETE) must carry the X-Requested-With header, which a form on
 #   another website can't add, so other sites can't make changes using your login.
+# - A recovery key (shown once at setup, and whenever a new one is made) lets the owner set a new
+#   admin password from the login screen. Only its hash is kept, it works once, and wrong tries
+#   count toward the same lockout as wrong passwords.
 import base64, hashlib, hmac, ipaddress, secrets, sqlite3, threading, time
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -28,6 +31,7 @@ def configure(db):
  c.execute('CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL,created_at REAL NOT NULL,expires_at REAL NOT NULL,remember INTEGER NOT NULL)')
  c.execute('''CREATE TABLE IF NOT EXISTS access_keys(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,key_hash TEXT NOT NULL UNIQUE,
   prefix TEXT NOT NULL,created_at REAL NOT NULL,last_used REAL)''')
+ c.execute('CREATE TABLE IF NOT EXISTS recovery(id INTEGER PRIMARY KEY CHECK(id=1),key_hash TEXT NOT NULL,created_at REAL NOT NULL)')
  c.execute('DELETE FROM sessions WHERE expires_at<?',(time.time(),)); c.commit(); c.close()
 
 # ---- Passwords ----------------------------------------------------------------------------
@@ -86,12 +90,12 @@ def principal(request):
 
 # Endpoints anyone can reach: health check, and the auth endpoints that sign in or set up
 # (hotspot.py checks its own endpoints: open to the first-run setup on the hotspot, otherwise admins only)
-PUBLIC={('GET','/api/health'),('GET','/api/auth/status'),('POST','/api/auth/login'),('POST','/api/auth/logout'),('POST','/api/auth/setup'),
+PUBLIC={('GET','/api/health'),('GET','/api/auth/status'),('POST','/api/auth/login'),('POST','/api/auth/logout'),('POST','/api/auth/setup'),('POST','/api/auth/recover'),
  ('GET','/api/hotspot'),('POST','/api/hotspot/connect')}
 # Changes any signed-in user may make to their own account
 SELF_SERVICE={('POST','/api/auth/password')}
 # Reads that are admin-only because they contain secrets
-ADMIN_READS=('/api/settings/backup','/api/auth/users','/api/auth/keys')
+ADMIN_READS=('/api/settings/backup','/api/auth/users','/api/auth/keys','/api/auth/recovery')
 
 async def middleware(request:Request,call_next):
  path=request.url.path; method=request.method
@@ -116,7 +120,7 @@ def throttle_check(ip):
  now=time.time()
  with _lock:
   f=_fails.get(ip)
-  if f and f['locked_until']>now: raise HTTPException(429,f"Too many wrong passwords. Try again in {int((f['locked_until']-now)//60)+1} minute(s).")
+  if f and f['locked_until']>now: raise HTTPException(429,f"Too many wrong tries. Try again in {int((f['locked_until']-now)//60)+1} minute(s).")
 
 def throttle_fail(ip):
  now=time.time()
@@ -135,6 +139,22 @@ def start_session(response,user_id,remember):
  c.execute('UPDATE users SET last_login=? WHERE id=?',(now,user_id)); c.commit(); c.close()
  # "Keep me signed in" keeps the cookie for 30 days; otherwise it ends when the browser closes
  response.set_cookie(COOKIE,token,max_age=ttl if remember else None,httponly=True,samesite='lax',path='/')
+
+# ---- Recovery key -------------------------------------------------------------------------
+# 16 characters from an alphabet without look-alikes (no 0/O, 1/I/L), in groups of four:
+# about 79 bits, so the stored SHA-256 can't be guessed back
+RECOVERY_ALPHABET='ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+def normalize_key(k): return ''.join(ch for ch in (k or '').upper() if ch.isalnum())
+
+def new_recovery_key(c):
+ raw=''.join(secrets.choice(RECOVERY_ALPHABET) for _ in range(16))
+ c.execute('INSERT INTO recovery(id,key_hash,created_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET key_hash=excluded.key_hash,created_at=excluded.created_at',(sha(raw),time.time()))
+ return '-'.join(raw[i:i+4] for i in range(0,16,4))
+
+def recovery_matches(c,key):
+ r=c.execute('SELECT key_hash FROM recovery WHERE id=1').fetchone()
+ k=normalize_key(key)
+ return bool(r and len(k)==16 and hmac.compare_digest(r['key_hash'],sha(k)))
 
 # ---- API ----------------------------------------------------------------------------------
 @router.get('/status')
@@ -158,13 +178,14 @@ def setup(b:Setup,request:Request,response:Response):
  settings.save({'farm_name':b.farm_name,**({'usage_stats':b.usage_stats} if b.usage_stats in ('yes','no') else {})})
  c=_db()
  try:
-  uid=c.execute("INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,'admin',?)",(username,hash_password(b.password),time.time())).lastrowid; c.commit()
+  uid=c.execute("INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,'admin',?)",(username,hash_password(b.password),time.time())).lastrowid
+  recovery_key=new_recovery_key(c); c.commit()
  except sqlite3.IntegrityError: c.close(); raise HTTPException(409,'Setup is already done. Sign in instead.')
  c.close(); start_session(response,uid,True)
  for fn in after_setup:   # e.g. start looking for printers right away
   try: fn()
   except Exception as e: print(f'[auth] after-setup hook failed: {e}',flush=True)
- return {'status':'ok','user':{'username':username,'role':'admin'}}
+ return {'status':'ok','user':{'username':username,'role':'admin'},'recovery_key':recovery_key}
 
 class Login(BaseModel):
  username:str=Field(max_length=40); password:str=Field(max_length=200); remember:bool=False
@@ -184,6 +205,42 @@ def logout(request:Request,response:Response):
  token=request.cookies.get(COOKIE)
  if token: c=_db(); c.execute('DELETE FROM sessions WHERE token_hash=?',(sha(token),)); c.commit(); c.close()
  response.delete_cookie(COOKIE,path='/'); return {'status':'signed out'}
+
+class Recover(BaseModel):
+ username:str=Field(max_length=40); recovery_key:str=Field(max_length=64); password:str=Field(max_length=200)
+
+@router.post('/recover')
+def recover(b:Recover,request:Request,response:Response):
+ # "Forgot password?" on the login screen: the recovery key sets a new password for an admin
+ # account. The key is used up, and a new one is returned to save.
+ ip=request.client.host if request.client else '?'; throttle_check(ip)
+ c=_db(); r=c.execute("SELECT id,username,role FROM users WHERE username=?",(b.username.strip(),)).fetchone()
+ if not (recovery_matches(c,b.recovery_key) and r and r['role']=='admin'):
+  c.close(); throttle_fail(ip); raise HTTPException(401,'Wrong admin username or recovery key')
+ try: validate_password(b.password)
+ except HTTPException: c.close(); raise
+ c.execute('UPDATE users SET password_hash=? WHERE id=?',(hash_password(b.password),r['id'])); c.execute('DELETE FROM sessions WHERE user_id=?',(r['id'],))
+ key=new_recovery_key(c); c.commit(); c.close()
+ throttle_clear(ip); start_session(response,r['id'],False)
+ return {'status':'ok','user':{'username':r['username'],'role':'admin'},'recovery_key':key}
+
+@router.get('/recovery')
+def recovery_status():
+ c=_db(); r=c.execute('SELECT created_at FROM recovery WHERE id=1').fetchone(); c.close()
+ return {'exists':bool(r),'created_at':r and r['created_at']}
+
+class NewRecovery(BaseModel):
+ password:str=Field(max_length=200)
+
+@router.post('/recovery')
+def make_recovery_key(b:NewRecovery,request:Request):
+ # A new key replaces the old one. Needs the admin's password, so a browser left signed in
+ # isn't enough to take the farm over for good.
+ who=request.state.who
+ if who['kind']!='user': raise HTTPException(403,'Sign in to make a recovery key')
+ c=_db(); r=c.execute('SELECT password_hash FROM users WHERE id=?',(who['id'],)).fetchone()
+ if not r or not check_password(b.password,r['password_hash']): c.close(); raise HTTPException(400,'Your password is wrong')
+ key=new_recovery_key(c); c.commit(); c.close(); return {'recovery_key':key}
 
 class ChangePassword(BaseModel):
  current:str=Field(max_length=200); new:str=Field(max_length=200)

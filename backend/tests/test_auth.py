@@ -130,3 +130,57 @@ def test_reset_password_on_the_board(client):
     auth.reset_password("owner", ADMIN["password"])
     # The shared test client was signed out by the reset; sign it back in
     assert login(client, "owner", ADMIN["password"]).status_code == 200
+
+
+def recover(c, username, key, password):
+    return c.post("/api/auth/recover", json={"username": username, "recovery_key": key, "password": password})
+
+
+def test_recovery_key(client):
+    # Setup gives a key like ABCD-EFGH-JKMN-PQRS, from an alphabet without look-alikes
+    key = client.recovery_key
+    assert len(key) == 19 and key.count("-") == 3 and not set(key) & set("01OIL")
+    assert client.get("/api/auth/recovery").json()["exists"] is True
+    # A second admin to recover, so the shared test session (the owner's) isn't signed out
+    assert client.post("/api/auth/users", json={"username": "spare", "password": "spare admin 1", "role": "admin"}).status_code == 200
+    assert client.post("/api/auth/users", json={"username": "floor", "password": "floor viewer 1", "role": "viewer"}).status_code == 200
+    c = new_client()
+    # Wrong key, unknown user, or a view-only account: the same answer
+    assert recover(c, "spare", "AAAA-BBBB-CCCC-DDDD", "new password 1").status_code == 401
+    assert recover(c, "nobody", key, "new password 1").status_code == 401
+    assert recover(c, "floor", key, "new password 1").status_code == 401
+    # A too-short password doesn't use the key up
+    assert recover(c, "spare", key, "short").status_code == 400
+    # Dashes, spaces and lowercase don't matter
+    r = recover(c, "spare", " " + key.lower().replace("-", " ") + " ", "new password 1")
+    assert r.status_code == 200 and r.json()["user"]["role"] == "admin"
+    new_key = r.json()["recovery_key"]
+    assert new_key != key and c.get("/api/printers").status_code == 200    # signed in
+    assert login(new_client(), "spare", "new password 1").status_code == 200
+    # The old key is used up
+    assert recover(new_client(), "spare", key, "another pass 1").status_code == 401
+    auth._fails.clear()
+    client.recovery_key = new_key
+
+
+def test_recovery_key_lockout(client):
+    c = new_client()
+    for _ in range(5):
+        assert recover(c, "owner", "AAAA-BBBB-CCCC-DDDD", "new password 1").status_code == 401
+    assert recover(c, "owner", client.recovery_key, "new password 1").status_code == 429
+    auth._fails.clear()
+
+
+def test_new_recovery_key_needs_admin_password(client):
+    assert client.post("/api/auth/recovery", json={"password": "wrong"}).status_code == 400
+    r = client.post("/api/auth/recovery", json={"password": ADMIN["password"]})
+    assert r.status_code == 200
+    old, client.recovery_key = client.recovery_key, r.json()["recovery_key"]
+    assert recover(new_client(), "owner", old, "whatever pass 1").status_code == 401   # replaced
+    auth._fails.clear()
+    # Viewers can't see or make recovery keys
+    v = new_client()
+    assert client.post("/api/auth/users", json={"username": "keyviewer", "password": "look only 12", "role": "viewer"}).status_code == 200
+    assert login(v, "keyviewer", "look only 12").status_code == 200
+    assert v.get("/api/auth/recovery").status_code == 403
+    assert v.post("/api/auth/recovery", json={"password": "look only 12"}).status_code == 403

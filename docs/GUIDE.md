@@ -62,6 +62,7 @@ The first time you open LayerHound, it asks you to:
 
 - **Name your farm.** This shows across the dashboard; you can change it later.
 - **Create the admin account.** There are no default passwords. Use at least 8 characters, and keep the password somewhere safe.
+- **Save your recovery key.** If you ever forget your password, it lets you set a new one from the sign-in screen. See [Forgot your password?](#forgot-your-password)
 
 ## Adding printers
 
@@ -146,7 +147,13 @@ Only updates signed by Team Tactical RC are installed. You can turn off the dail
 
 ## Forgot your password?
 
-On the board (over SSH, or with a keyboard and screen attached), run:
+**With your recovery key:** on the sign-in screen, choose **Forgot your password?**, then enter your admin username, your recovery key and a new password. You're signed straight in, and LayerHound gives you a new recovery key to save; the old one stops working.
+
+- **Your recovery key** is shown once, at the end of first-run setup. Write it in the box on the printed setup guide, or keep it in a password manager. Keep it private: with it, someone could sign in as admin.
+- **Lost it, or set up LayerHound before recovery keys existed?** Make a new one in **Settings → Login & users → Recovery key** (it asks for your password). Making a new key stops the old one working.
+- **View-only accounts** don't use recovery keys: an admin sets a new password for them in **Settings → Login & users**.
+
+**Without a recovery key:** on the board (over SSH, or with a keyboard and screen attached), run:
 
 ```bash
 layerhound reset-password

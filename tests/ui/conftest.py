@@ -12,6 +12,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 ADMIN = {"username": "admin", "password": "ui-" + secrets.token_hex(8)}   # throwaway, this test run only
+RECOVERY = {}   # the recovery key shown at setup, for the "Forgot your password?" test
 PAGES = ["Dashboard", "Print Farm", "History", "Server", "Storage", "Network", "Services", "Settings", "Send feedback"]
 HEADERS = {"Content-Type": "application/json", "X-Requested-With": "LayerHound"}
 
@@ -98,6 +99,12 @@ def admin_state(browser, base_url):
     assert page.get_by_role("button", name="Finish setup").is_disabled()
     page.get_by_role("radio", name="No thanks").click()
     page.get_by_role("button", name="Finish setup").click()
+    # The recovery key is shown once; setup can't finish until the owner says it's saved
+    page.get_by_role("heading", name="Save your recovery key").wait_for()
+    RECOVERY["key"] = page.get_by_test_id("recovery-key").inner_text().strip()
+    assert page.get_by_role("button", name="Go to my dashboard").is_disabled()
+    page.get_by_label("I've saved my recovery key").check()
+    page.get_by_role("button", name="Go to my dashboard").click()
     page.get_by_role("heading", name="UI Test Farm").wait_for()
     assert not page.problems.items, page.problems.items
     state = page.context.storage_state()

@@ -87,6 +87,7 @@ class BambuWatcher:
  def __init__(s,host,port,serial,code):
   s.key=(host,port,serial,code); s.serial=serial; s.data={}; s.firmware=None; s.error=None; s.ready=threading.Event()
   s.answers={}   # printer's reply to a command we sent (pause/resume/stop): command -> (result, reason, time)
+  s.replies=deque(maxlen=10)   # recent raw replies to those commands, shown when a command isn't confirmed
   c=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=f'layerhound-{serial}-{os.getpid()}'); c.username_pw_set('bblp',code)
   # The printer uses a self-signed certificate, so it can't be verified
   # Bambu printers use self-signed certificates, so they can't be verified; still require modern TLS
@@ -105,8 +106,9 @@ class BambuWatcher:
   except ValueError: return
   if isinstance(m.get('print'),dict):
    p=m['print']
-   if p.get('command') in ('pause','resume','stop') and 'result' in p:
-    s.answers[p['command']]=(str(p.get('result')).lower(),p.get('reason') or '',time.time())
+   if p.get('command') in ('pause','resume','stop'):
+    s.replies.append((time.time(),{k:v for k,v in p.items() if k!='sequence_id'}))
+    if 'result' in p: s.answers[p['command']]=(str(p.get('result')).lower(),p.get('reason') or '',time.time())
    s.data.update({k:v for k,v in p.items() if k not in ('command','result','reason','sequence_id')}); s.ready.set()
   for mod in (m.get('info') or {}).get('module') or []:
    if mod.get('name')=='ota': s.firmware=mod.get('sw_ver')
@@ -180,7 +182,12 @@ def snapshot(r,grace=True):
 CONTROL_ALLOWED={'pause':('printing',),'resume':('paused',),'cancel':('printing','paused')}
 CONTROL_PAST={'pause':'paused','resume':'resumed','cancel':'cancelled'}
 BAMBU_COMMAND={'pause':'pause','resume':'resume','cancel':'stop'}
-BAMBU_WAIT=6
+BAMBU_WAIT=6; CONFIRM_WAIT=12
+# The state that shows each action worked
+CONFIRMED={'pause':('paused',),'resume':('printing',),'cancel':('idle','complete','error','offline')}
+BAMBU_SILENT=("{name} didn't respond and is still {state}. Bambu firmware from 2025 on ignores pause and stop from other apps "
+ "unless the printer is in LAN Only mode with Developer Mode on (on the printer's screen: Settings, then LAN Only / Developer Mode). "
+ "Until then, use the printer's screen or the Bambu Handy app.")
 
 def post_json(u,body=None,headers=None):
  data=json.dumps(body).encode() if body is not None else b''
@@ -205,9 +212,10 @@ def control_bambu(pid,action):
  while time.time()<end:
   a=w.answers.get(cmd)
   if a and a[2]>=sent:
-   if a[0]!='success': raise PermissionError(f"The printer refused it{': '+a[1] if a[1] else ''}. Newer Bambu firmware only accepts controls from other apps in LAN Only mode (and on some models, Developer mode).")
+   if a[0]!='success': raise PermissionError(f"The printer refused it{': '+a[1] if a[1] else ''}. Newer Bambu firmware only accepts controls from other apps in LAN Only mode with Developer Mode on.")
    return
   time.sleep(0.2)
+ # No answer: whether it worked shows in the printer's state (checked next)
 
 def control_error(e):
  code=getattr(e,'code',None)
@@ -236,9 +244,23 @@ def control(pid:int,b:ControlIn,request:Request):
  except Exception as e:
   print(f"[control] {who}: {b.action} {r['name']} failed: {type(e).__name__}: {e}",flush=True)
   raise HTTPException(502,control_error(e))
- print(f"[control] {who}: {b.action} {r['name']}",flush=True)
- time.sleep(1.5)   # let the printer change state before reading it again
- return {'status':'sent','action':b.action,'printer':check(r)}
+ # Confirm it: the printer must report the new state. Never say "Paused." on hope alone.
+ end=time.time()+CONFIRM_WAIT; after=None
+ while True:
+  time.sleep(1.5)
+  after=check(r)
+  if after['state'] in CONFIRMED[b.action] or time.time()>=end: break
+ if after['state'] in CONFIRMED[b.action]:
+  print(f"[control] {who}: {b.action} {r['name']}: done",flush=True)
+  return {'status':'done','action':b.action,'printer':after}
+ detail=''
+ if t=='bambu':
+  w=bambu_watchers.get(pid); replies=[x for x in (w.replies if w else []) if x[0]>=time.time()-CONFIRM_WAIT-BAMBU_WAIT]
+  msg=BAMBU_SILENT.format(name=r['name'],state=after['state']) if not replies else f"{r['name']} answered but is still {after['state']}. Its reply: {json.dumps(replies[-1][1])[:300]}"
+  detail=f' replies={[x[1] for x in replies]}'
+ else: msg=f"Sent, but {r['name']} still says it's {after['state']}. Check the printer."
+ print(f"[control] {who}: {b.action} {r['name']}: not confirmed (still {after['state']}){detail}",flush=True)
+ return {'status':'unconfirmed','action':b.action,'message':msg,'printer':after}
 
 # Which build of the dashboard is being served: the hashed name of its main script, which changes
 # with every build. Open tabs compare it with their own to offer a reload after an update.

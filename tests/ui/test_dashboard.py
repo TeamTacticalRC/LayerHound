@@ -136,7 +136,7 @@ def test_print_controls(browser, base_url):
             "job": "benchy.gcode", "progress": 40, "eta_seconds": 600, "nozzle": 210, "bed": 60, "base_url": "http://127.0.0.1:9"}
     page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
     sent = []
-    page.route("**/api/printers/4242/control", lambda r: (sent.append(r.request.post_data_json), r.fulfill(json={"status": "sent", "printer": {**fake, "state": "paused"}})))
+    page.route("**/api/printers/4242/control", lambda r: (sent.append(r.request.post_data_json), r.fulfill(json={"status": "done", "printer": {**fake, "state": "paused"}})))
     page.reload()
     open_page(page, "Print Farm")
     page.get_by_text("Bench Klipper").first.click()

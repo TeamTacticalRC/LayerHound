@@ -92,7 +92,7 @@ LayerHound **watches** your printers, and never starts a print.
 **Pausing or cancelling from LayerHound (optional, off by default).** Turn on **Settings → Printer controls**, and a printing printer's detail panel (click it on the Print Farm page) shows **Pause** / **Resume** and **Cancel print**. Handy with Remote access: an alert on your phone, and you can stop a failing print before it wastes a spool.
 - Admins only. View-only accounts, wall screens and the status light never can.
 - Every action asks you to confirm first. A cancelled print can't be resumed.
-- **Bambu Lab:** newer firmware only accepts controls from other apps in **LAN Only mode** (and, on some models, **Developer mode**). If the printer refuses, LayerHound tells you.
+- **Bambu Lab:** firmware from 2025 on ignores pause and stop from other apps unless the printer is in **LAN Only mode** with **Developer Mode** on. LayerHound checks that the printer actually paused or stopped, and tells you if it didn't. Otherwise use the printer's screen or Bambu Handy.
 
 ## Around the dashboard
 

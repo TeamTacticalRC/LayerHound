@@ -787,7 +787,8 @@ function PrintControls({ printer, onDone }) {
   if (!prefs.printer_controls) return <p className="mt-3 text-xs text-slate-600">To pause or cancel prints from here, turn on Settings → Printer controls.</p>;
   const run = async action => {
     setBusy(true); setMsg(null);
-    try { await controlPrinter(printer.id, action); setMsg({ ok: true, text: CONTROL_TEXT[action].done }); onDone(); }
+    // LayerHound waits for the printer to report the new state; "unconfirmed" means it didn't
+    try { const r = await controlPrinter(printer.id, action); setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message } : { ok: true, text: CONTROL_TEXT[action].done }); onDone(); }
     catch (e) { setMsg({ ok: false, text: e.message }); }
     setBusy(false); setAsking(null);
   };
@@ -813,7 +814,8 @@ function PrintControls({ printer, onDone }) {
           </button>
         </div>
       )}
-      {msg && <p className={`mt-3 text-xs ${msg.ok ? "text-emerald-300" : "text-red-300"}`}>{msg.text}</p>}
+      {busy && <p className="mt-3 flex items-center gap-2 text-xs text-slate-400"><Loader2 size={13} className="animate-spin" /> Waiting for the printer to confirm…</p>}
+      {msg && <p className={`mt-3 text-xs ${msg.ok ? "text-emerald-300" : msg.warn ? "text-amber-200" : "text-red-300"}`}>{msg.text}</p>}
     </div>
   );
 }
@@ -2640,7 +2642,7 @@ function PrinterControlsSection({ onSaved }) {
   return (
     <Section title={<span className="flex items-center gap-2"><Pause size={16} className="text-violet-400" /> Printer controls</span>} sub="Pause, resume or cancel a print from LayerHound, for example from your phone when a print fails while you're away.">
       <Toggle checked={on} onChange={set} label="Allow pausing, resuming and cancelling prints" hint="Admins only: view-only accounts, wall screens and the status light never can. Each action asks you to confirm first. LayerHound never starts prints." />
-      <p className="mt-1 text-xs text-slate-500">Bambu Lab printers on newer firmware only accept controls from other apps in LAN Only mode (and, on some models, Developer mode). If a Bambu printer refuses, LayerHound tells you.</p>
+      <p className="mt-1 text-xs text-slate-500">LayerHound checks that the printer really paused or stopped, and tells you if it didn't. Bambu Lab printers on firmware from 2025 on ignore controls from other apps unless they're in LAN Only mode with Developer Mode on.</p>
       {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
     </Section>
   );

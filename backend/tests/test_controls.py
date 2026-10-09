@@ -22,11 +22,22 @@ def farm(client, monkeypatch):
     monkeypatch.setattr(main, "check", lambda r: {"id": r["id"], "state": states[r["id"]]})
     monkeypatch.setattr(main.time, "sleep", lambda s: None)
     sent = []
-    monkeypatch.setattr(main, "post_json", lambda u, body=None, headers=None: sent.append((u, body, headers)) or 204)
+    # A printer that does what it's told: its state changes (tests can turn this off)
+    obey = {"on": True}
+    NEW = {"pause": "paused", "resume": "printing", "cancel": "idle"}
+    def post(u, body=None, headers=None):
+        sent.append((u, body, headers))
+        action = u.rsplit("/", 1)[1] if "/printer/print/" in u else ("cancel" if body["command"] == "cancel" else body["action"])
+        pid = next(i for t, i in ids.items() if t == ("moonraker" if "/printer/print/" in u else "octoprint"))
+        if obey["on"]: states[pid] = NEW[action]
+        return 204
+    monkeypatch.setattr(main, "post_json", post)
+    monkeypatch.setattr(main, "CONFIRM_WAIT", 0)
+    ids["_obey"] = obey
     client.put("/api/settings", json={"printer_controls": True})
     yield ids, states, sent
     client.put("/api/settings", json={"printer_controls": False})   # shared test client
-    c = main.db(); c.executemany("DELETE FROM printers WHERE id=?", [(i,) for i in ids.values()]); c.commit(); c.close()
+    c = main.db(); c.executemany("DELETE FROM printers WHERE id=?", [(i,) for k, i in ids.items() if k != "_obey"]); c.commit(); c.close()
 
 
 def act(c, pid, action):
@@ -40,17 +51,26 @@ def test_off_by_default(client):
 
 def test_klipper(client, farm):
     ids, states, sent = farm
-    assert act(client, ids["moonraker"], "pause").json()["status"] == "sent"
+    r = act(client, ids["moonraker"], "pause").json()
+    assert r["status"] == "done" and r["printer"]["state"] == "paused"
     assert sent[-1][0] == UNREACHABLE + "/printer/print/pause"
-    states[ids["moonraker"]] = "paused"
     act(client, ids["moonraker"], "resume"); act(client, ids["moonraker"], "cancel")
     assert [u.rsplit("/", 1)[1] for u, _, _ in sent] == ["pause", "resume", "cancel"]
+
+
+def test_not_confirmed_is_never_reported_as_done(client, farm):
+    # The printer took the command but is still printing: say so, don't claim "Paused."
+    ids, states, sent = farm
+    ids["_obey"]["on"] = False
+    r = act(client, ids["moonraker"], "pause").json()
+    assert r["status"] == "unconfirmed" and "still says it's printing" in r["message"]
 
 
 def test_octoprint(client, farm):
     ids, states, sent = farm
     act(client, ids["octoprint"], "pause")
     assert sent[-1] == (UNREACHABLE + "/api/job", {"command": "pause", "action": "pause"}, {"X-Api-Key": "OCTOKEY"})
+    states[ids["octoprint"]] = "printing"
     act(client, ids["octoprint"], "cancel")
     assert sent[-1][1] == {"command": "cancel"}
 
@@ -68,8 +88,8 @@ def test_wrong_state_and_unknown_action(client, farm):
 
 
 class FakeBambu:
-    def __init__(self, answer):
-        self.answers, self.serial, self.answer, self.published = {}, "01P00A000000001", answer, []
+    def __init__(self, answer, on_send=None):
+        self.answers, self.serial, self.answer, self.published, self.replies = {}, "01P00A000000001", answer, [], []
         outer = self
         class Client:
             def is_connected(self): return True
@@ -77,20 +97,28 @@ class FakeBambu:
                 outer.published.append((topic, json.loads(payload)))
                 cmd = json.loads(payload)["print"]["command"]
                 if outer.answer: outer.answers[cmd] = (outer.answer, "auth denied" if outer.answer == "fail" else "", main.time.time() + 1)
+                if on_send: on_send(cmd)
         self.client = Client()
 
 
 def test_bambu(client, farm, monkeypatch):
     ids, states, sent = farm
     pid = ids["bambu"]
-    ok = FakeBambu("success"); monkeypatch.setitem(main.bambu_watchers, pid, ok)
-    assert act(client, pid, "cancel").status_code == 200
+    ok = FakeBambu("success", on_send=lambda cmd: states.__setitem__(pid, "idle"))
+    monkeypatch.setitem(main.bambu_watchers, pid, ok)
+    assert act(client, pid, "cancel").json()["status"] == "done"
     topic, msg = ok.published[-1]
     assert topic == "device/01P00A000000001/request" and msg["print"]["command"] == "stop"
     # Newer firmware refuses controls outside LAN Only / Developer mode: say so plainly
     refused = FakeBambu("fail"); monkeypatch.setitem(main.bambu_watchers, pid, refused)
+    states[pid] = "printing"
     r = act(client, pid, "pause")
     assert r.status_code == 502 and "LAN Only" in r.json()["detail"]
+    # Says nothing and keeps printing (what a P1S on firmware 01.10 did): explain, never "Paused."
+    silent = FakeBambu(None); monkeypatch.setitem(main.bambu_watchers, pid, silent)
+    monkeypatch.setattr(main, "BAMBU_WAIT", 0)
+    r = act(client, pid, "pause").json()
+    assert r["status"] == "unconfirmed" and "Developer Mode" in r["message"] and "still printing" in r["message"]
 
 
 def test_only_admins(client, farm):

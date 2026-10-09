@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
-  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Lightbulb, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, MessageSquareHeart, Send, Power, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
@@ -3075,6 +3075,97 @@ function RemoteAccessSection() {
   );
 }
 
+// LED status light: what each LED shows (lightbar.py decides; the light's firmware draws it).
+// The ring (12 LEDs, an arc per printer) is the main LayerHound light; the bar (8 LEDs) is the option.
+const LED_STATES = [["printing", "Printing"], ["paused", "Paused"], ["complete", "Finished"], ["idle", "Idle"], ["error", "Error"], ["offline", "Offline"]];
+const LED_LEGEND = { printing: [0, 255, 40], paused: [255, 140, 0], complete: [0, 90, 255], idle: [60, 60, 60], error: [255, 0, 0], offline: [255, 0, 0] };
+function Led({ led, brightness, size = "h-6 w-6", style }) {
+  const on = led.effect !== "off";
+  const k = 0.35 + 0.65 * brightness / 100;   // keep dim settings visible on screen
+  const rgb = on ? led.rgb.map(c => Math.round(c * k)).join(",") : "40,44,56";
+  return <span className={`inline-block shrink-0 rounded-full ${size} ${led.effect === "pulse" ? "lh-led-pulse" : led.effect === "blink" ? "lh-led-blink" : ""}`}
+    style={{ ...style, background: `rgb(${rgb})`, boxShadow: on ? `0 0 12px rgba(${rgb},.75)` : "inset 0 0 0 1px rgba(255,255,255,.08)" }} />;
+}
+function RingPreview({ light, brightness }) {
+  // LED 1 at 12 o'clock, going clockwise
+  const n = light.leds.length;
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-6">
+      <div className="relative h-44 w-44 shrink-0 rounded-full bg-black/40" aria-label="Status light preview">
+        {light.leds.map((l, i) => {
+          const a = (i / n) * 2 * Math.PI - Math.PI / 2;
+          return <Led key={i} led={l} brightness={brightness} size="h-5 w-5" style={{ position: "absolute", left: `calc(50% + ${Math.cos(a) * 70}px - 10px)`, top: `calc(50% + ${Math.sin(a) * 70}px - 10px)` }} />;
+        })}
+        <img src="/brand/layerhound-mascot.png" alt="" className="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 object-contain opacity-90" />
+      </div>
+      <ol className="min-w-40 space-y-1 text-sm">
+        {light.names.map((name, i) => {
+          const l = light.leds.find(x => x.printer === i);
+          return <li key={i} className="flex items-center gap-2 text-slate-300">{l && <Led led={{ ...l, rgb: LED_LEGEND[l.state] ?? l.rgb, effect: "solid" }} brightness={100} size="h-2.5 w-2.5" />}<span className="truncate">{name}</span>{l?.progress != null && l.state === "printing" && <span className="text-xs text-slate-500">{l.progress}%</span>}</li>;
+        })}
+        {!light.names.length && <li className="text-slate-500">No printers yet.</li>}
+      </ol>
+    </div>
+  );
+}
+function BarPreview({ light, brightness }) {
+  return (
+    <div className="flex justify-between gap-2" aria-label="Status light preview">
+      {light.leds.map((l, i) => (
+        <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1.5" title={l.name ? `${l.name}: ${l.state}` : "No printer"}>
+          <Led led={l} brightness={brightness} />
+          <span className="w-full truncate text-center text-[10px] text-slate-500">{l.name || "—"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function LightbarSection({ onSaved }) {
+  const [light, setLight] = useState(null);
+  const [brightness, setBrightness] = useState(prefs.lightbar_brightness ?? 40);
+  const [error, setError] = useState("");
+  const load = useCallback(() => getLightbar().then(setLight).catch(e => setError(e.message)), []);
+  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+  const save = async changes => { setError(""); try { onSaved(await saveSettings(changes)); load(); } catch (e) { setError(e.message); } };
+  const ring = (light?.layout ?? prefs.lightbar_layout) !== "bar";
+  const shape = ring ? "ring" : "bar";
+  return (
+    <Section title={<span className="flex items-center gap-2"><Lightbulb size={16} className="text-violet-400" /> LED status light</span>}
+      sub={ring ? "An optional light for your desk: each printer gets a part of the ring, in Print Farm order. A print fills its part as it goes, and trouble blinks red." : "An optional bar of 8 lights by your printers: one light per printer, in Print Farm order."}>
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-slate-300">
+        <span>Your light</span>
+        <Segmented label="Status light shape" value={shape} onChange={v => save({ lightbar_layout: v })} options={[["ring", "Ring (12 lights)"], ["bar", "Bar (8 lights)"]]} />
+      </div>
+      {light && (
+        <div className="rounded-xl border border-white/8 bg-black/30 px-4 py-4">
+          {ring ? <RingPreview light={light} brightness={brightness} /> : <BarPreview light={light} brightness={brightness} />}
+          {light.printers > light.leds.length && <p className="mt-3 text-xs text-amber-200">The {shape} shows your first {light.leds.length} printers. Reorder them in Print Farm → Reorder.</p>}
+        </div>
+      )}
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-400">
+        {LED_STATES.map(([k, label]) => <span key={k} className="flex items-center gap-1.5"><Led led={{ rgb: LED_LEGEND[k], effect: "solid" }} brightness={100} size="h-2.5 w-2.5" /> {label}{k === "paused" ? " (pulsing)" : k === "error" ? " (blinking)" : ""}</span>)}
+      </div>
+      <label className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-200">
+        <span className="w-24">Brightness</span>
+        <input type="range" min="5" max="100" step="5" value={brightness} onChange={e => setBrightness(Number(e.target.value))} onPointerUp={() => save({ lightbar_brightness: brightness })} onKeyUp={() => save({ lightbar_brightness: brightness })} className="min-w-40 flex-1 accent-violet-500" aria-label="Status light brightness" />
+        <span className="w-10 text-right text-slate-400">{brightness}%</span>
+      </label>
+      <Toggle checked={!!prefs.lightbar_reverse} onChange={v => save({ lightbar_reverse: v })} label={ring ? "Go counterclockwise" : "Bar is mounted the other way round"} hint={ring ? "Places printers around the ring the other way." : "Shows your first printer on the bar's last light instead."} />
+      <details className="mt-2 border-t border-white/6 pt-3 text-sm text-slate-300">
+        <summary className="cursor-pointer text-slate-200">Setting up a status light</summary>
+        <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-slate-400">
+          <li>In <span className="text-slate-200">Login & users → Access keys</span>, create a key named <span className="text-slate-200">Status light</span> and copy it. Keys can only view.</li>
+          <li>Plug in the light. The first time, it pulses purple and makes a Wi-Fi network called <span className="text-slate-200">LayerHound-Light</span>.</li>
+          <li>Join it from your phone. On the page that opens, pick your Wi-Fi, keep the LayerHound address (<span className="font-mono text-slate-200">http://{location.host}</span>), and paste the key.</li>
+          <li>The light joins your Wi-Fi and lights up, matching the preview above.</li>
+        </ol>
+        <p className="mt-2 text-xs text-slate-500">To change its settings later, hold the light's BOOT button while plugging it in.</p>
+      </details>
+      {error && <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+    </Section>
+  );
+}
+
 function AccessSection({ onSaved }) {
   const [users, setUsers] = useState(null);
   const [keys, setKeys] = useState(null);
@@ -3188,6 +3279,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <AccessSection onSaved={onSaved} />
           {session.user?.kind === "user" && <AccountSection />}
           <RemoteAccessSection />
+          <LightbarSection onSaved={onSaved} />
           <DiscoverySection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
           <FanSection onSaved={onSaved} />

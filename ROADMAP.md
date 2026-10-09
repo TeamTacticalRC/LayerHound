@@ -23,26 +23,34 @@ Five LEDs, one per printer, in the dashboard's display order.
 | Finished (optional) | Blue |
 | Idle (optional) | Dim |
 
+**Update (2026-10-09): the main light is a 12-LED ring** for the desk (an arc per printer, filling with progress, errors blinking red), in a housing styled like the LayerHound logo; the 8-LED bar stays as an option for mounting by the printers. Same ESP32, wiring and firmware.
+
 **Decided (2026-10-01):** a separate Wi-Fi bar mounted by the printers. An ESP32 polls the dashboard API and drives an 8-LED NeoPixel Stick. Eight LEDs leave room for more printers, and other farm sizes if this is sold. It doesn't depend on the ROCK 4D, so it can be built and tested against the dashboard on the Mac.
 
 #### Parts to order
 | Part | Where | Price |
 |---|---|---|
 | ESP32 38-pin "narrow" board + matching screw-terminal breakout (DORHEA set). Check that the listing says "38-Pin Narrow… with Breakout Board". | [Amazon (ASIN B0C8HDDNLV)](https://www.amazon.com/dp/B0C8HDDNLV) or [Newegg 3-set](https://www.newegg.com/p/3C6-020A-01JA0) | ~$10–15 |
-| NeoPixel Stick, 8 × 5050 RGB LEDs (Adafruit #1426) | [Adafruit](https://www.adafruit.com/product/1426) | $5.95 |
-| 74AHCT125 level shifter (Adafruit #1787). Required: the LEDs need a stronger data signal than the ESP32's 3.3V. | [Adafruit](https://www.adafruit.com/product/1787) | $1.50 |
+| NeoPixel Ring, 12 × 5050 RGB LEDs (Adafruit #1643). **The main LayerHound light** (decided 2026-10-09): a desk/shelf status ring, an arc per printer. | [Adafruit](https://www.adafruit.com/product/1643) | $8.95 |
+| NeoPixel Stick, 8 × 5050 RGB LEDs (Adafruit #1426). The bar option, for lights mounted by the printers; worth getting too, to test both. | [Adafruit](https://www.adafruit.com/product/1426) | $5.95 |
+| 74AHCT125 level shifter, DIP-14 (the same chip as Adafruit #1787, which was out of stock on 2026-10-09). Required: the LEDs need a stronger data signal than the ESP32's 3.3V. Check the listing says **SN74AHCT125N** (AHCT, not HC). | [Amazon: Juried Engineering SN74AHCT125N, 5-pack](https://www.amazon.com/Juried-Engineering-SN74AHCT125N-SN74AHCT125-Breadboard-Friendly/dp/B08FHD994N) (or [Adafruit #1787](https://www.adafruit.com/product/1787) when back in stock) | ~$5–8 |
 | Half-size breadboard + jumper wire bundle (Adafruit #3314) | [Adafruit](https://www.adafruit.com/product/3314) | $9.95 |
 | Female/male jumper wires, 6" (Adafruit #1954) | [Adafruit](https://www.adafruit.com/product/1954) | $1.95 |
-| USB power adapter (5V, 1A+) and a cable matching the ESP32 board (Micro-USB or USB-C) | On hand | — |
+| 470 Ω resistors, 1/4 W. One goes on the data wire, just before the stick's DIN pad, to clean up the signal. | [Amazon: E-Projects 10-pack](https://www.amazon.com/Projects-Resistors-Watt-Choose-Quantity/dp/B071NRWXFS) (or Adafruit #2781, pack of 25) | ~$1 |
+| 1000 µF electrolytic capacitor, 6.3 V or higher (10 V or 16 V is fine). Goes across the stick's 5V and GND to protect the LEDs when power is plugged in. **Polarity matters:** the stripe (−) goes to GND. Adafruit doesn't stock this size. | [Amazon: E-Projects 1000 µF 16 V, 5-pack](https://www.amazon.com/Projects-Radial-Electrolytic-Capacitor-1000uF/dp/B07YN6DS58) | ~$1–2 |
+| Perma-Proto half-size board (Adafruit #1609, or the 3-pack #571). Same layout as the breadboard: once the prototype works, solder the same parts into the same holes for a permanent bar. Not needed for the first prototype. | [Adafruit single](https://www.adafruit.com/product/1609) or [3-pack](https://www.adafruit.com/product/571) | ~$4.50 |
+| USB power adapter (5V, 1A+) and a cable matching the ESP32 board (Micro-USB or USB-C). The cable must carry **data**, not just charge, so firmware can be loaded from the Mac. | On hand | — |
 
-About $30–35 total. All the Adafruit parts can go in one order. Prices were checked on 2026-10-01.
+About $35–40 total. All the Adafruit parts can go in one order. Prices were checked on 2026-10-01 (the resistor, capacitor and Perma-Proto rows were added 2026-10-09; the single Perma-Proto showed out of stock then, so check, or get the 3-pack).
+
+**Breadboard vs. production:** the breadboard is for prototyping only (parts held by friction). A permanent bar uses the Perma-Proto board. Selling bars in quantity would mean a custom circuit board (ESP32 module, level shifter, capacitor, resistor, USB-C and the 8 LEDs on one board, shaped for the housing) made and assembled by a fab such as JLCPCB or PCBWay; using a pre-certified ESP32 module also simplifies the FCC check.
 
 #### Build notes
 - Solder three wires to the stick's input pads: **5V**, **GND** and **DIN** (data in). Use the input side, not DOUT.
-- Rough wiring: the stick's 5V and GND go to the ESP32's 5V/VIN and GND. The 74AHCT125 is powered from 5V/GND, with its 1OE pin to GND. An ESP32 data pin goes to the chip's 1A pin, and the chip's 1Y pin goes to the stick's DIN. Make a proper wiring diagram when building.
+- Rough wiring: the stick's 5V and GND go to the ESP32's 5V/VIN and GND, with the 1000 µF capacitor across them near the stick. The 74AHCT125 is powered from 5V/GND, with its 1OE pin to GND. An ESP32 data pin goes to the chip's 1A pin, and the chip's 1Y pin goes through the 470 Ω resistor to the stick's DIN. Make a proper wiring diagram when building.
 - At status-light brightness, 8 LEDs draw well under what USB power provides.
 - Design a 3D-printed bar with a diffuser (translucent PETG or white PLA over the LEDs) and printer labels.
-- Software: a small read-only status endpoint on the dashboard and ESP32 firmware that polls it. Once login exists, the bar uses a read-only access key (see the Login plan).
+- [x] **Software** (built 2026-10-09, not yet tried on hardware): `GET /api/lightbar` (`backend/lightbar.py`) gives the 8 LEDs' colors and effects in Print Farm order, read with a read-only access key; **Settings → LED light bar** has a live preview, brightness and a reversed-mounting option. ESP32 firmware in `hardware/lightbar/firmware` (PlatformIO): setup page on its own Wi-Fi network (LayerHound-LightBar) for Wi-Fi, address and key; finds `layerhound.local` by mDNS; purple status patterns when it can't show printers. Wiring and setup in `hardware/lightbar/README.md`.
 
 ## Packaging for release
 Goal: make installing as easy as possible for other people, once it's proven on the ROCK 4D.

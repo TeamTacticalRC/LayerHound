@@ -19,3 +19,6 @@ backend/data/
 
 # Test runs
 .pytest_cache/
+
+# Light bar firmware build output (PlatformIO)
+hardware/lightbar/firmware/.pio/

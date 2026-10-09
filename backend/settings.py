@@ -55,6 +55,11 @@ SCHEMA={
  # Printer suggestions (discovery.py): scan once a day; optionally add Klipper printers without asking
  'printer_discovery':(True,bool,None),
  'auto_add_klipper':(False,bool,None),
+ # LED status light (lightbar.py): which shape the owner has (12-LED ring, the main LayerHound light,
+ # or an 8-LED bar), brightness in percent, and LED order for a light mounted the other way round
+ 'lightbar_layout':('ring',str,('ring','bar')),
+ 'lightbar_brightness':(40,int,(5,100)),
+ 'lightbar_reverse':(False,bool,None),
  # Anonymous usage stats (stats.py): 'ask' until the owner chooses; nothing is sent unless 'yes'
  'usage_stats':('ask',str,('ask','yes','no')),
 }
@@ -63,7 +68,7 @@ SCHEMA={
 LABELS={'farm_name':'Farm name','farm_description':'Description','accent':'Accent color','temp_unit':'Temperature unit','time_format':'Time format',
  'temp_warn':'Server running hot','temp_hot':'Server overheating','storage_warn':'Main drive warning','storage_critical':'Main drive critical','memory_warn':'Memory warning',
  'fan_mode':'Fan mode','setup_hotspot':'Setup hotspot','fan_quiet_temp':'Quiet up to','fan_full_temp':'Full speed at','fan_min_percent':'Minimum fan speed',
- 'network_history_days':'Uptime history','auto_update_hour':'Update time','time_zone':'Time zone','storage_history_days':'Storage trend','data_usage_days':'Data usage'}
+ 'network_history_days':'Uptime history','auto_update_hour':'Update time','lightbar_brightness':'Light bar brightness','time_zone':'Time zone','storage_history_days':'Storage trend','data_usage_days':'Data usage'}
 
 def configure(db):
  global _db; _db=db

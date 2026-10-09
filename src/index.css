@@ -81,3 +81,10 @@ button { font: inherit; }
 
 /* Viewers (and guests) only look: hide controls that change things. The server refuses those changes anyway. */
 .lh-viewer [data-admin] { display: none !important; }
+
+/* LED light bar preview (Settings -> LED light bar): the same effects the bar's firmware draws */
+@keyframes lh-led-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@keyframes lh-led-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .08; } }
+.lh-led-pulse { animation: lh-led-pulse 2s ease-in-out infinite; }
+.lh-led-blink { animation: lh-led-blink 1s step-end infinite; }
+@media (prefers-reduced-motion: reduce) { .lh-led-pulse, .lh-led-blink { animation: none; } }

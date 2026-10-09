@@ -13,7 +13,8 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[2]
 ADMIN = {"username": "admin", "password": "ui-" + secrets.token_hex(8)}   # throwaway, this test run only
 RECOVERY = {}   # the recovery key shown at setup, for the "Forgot your password?" test
-PAGES = ["Dashboard", "Print Farm", "History", "Server", "Storage", "Network", "Services", "Settings", "Send feedback"]
+PAGES = ["Dashboard", "Print Farm", "History", "Server", "Storage", "Network", "Services", "Settings", "Add-ons", "Send feedback"]
+ADMIN_ONLY_PAGES = {"Add-ons"}   # not in a view-only account's menu
 HEADERS = {"Content-Type": "application/json", "X-Requested-With": "LayerHound"}
 
 

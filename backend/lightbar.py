@@ -12,7 +12,10 @@
 # - The light signs in with a read-only access key (Settings -> Login & users), sent as
 #   "Authorization: Bearer lhk_...". Keys can only view.
 # - Kept small: the ESP32 reads it every few seconds.
-from fastapi import APIRouter, HTTPException
+# - Add-ons page: when a light checks in with its access key, LayerHound notes when (per shape) and
+#   marks that shape as one the owner has, so its settings show without asking.
+import time
+from fastapi import APIRouter, HTTPException, Request
 import settings
 
 router=APIRouter(prefix='/api/lightbar')
@@ -28,7 +31,8 @@ LOOK={
  'offline':((255,0,0),'solid'),
 }
 OFF={'name':'','printer':None,'state':'none','rgb':[0,0,0],'effect':'off','progress':None}
-_printers=None
+OWNED={'ring':'addon_ring','bar':'addon_bar'}   # settings: the owner has this shape
+_printers=None; seen={}   # shape -> {'at': time, 'leds': count, 'key': access key name}
 
 def configure(get_printers):
  # main.py hands over its printer list (the same data the dashboard shows)
@@ -63,15 +67,25 @@ def ring(printers,count):
   out+=[dict(OFF) for _ in range(size-lit)]
  return out+[dict(OFF) for _ in range(count-len(out))]
 
+def checked_in(layout,count,who):
+ # A light (signed in with an access key, saying its shape) just asked for its colors
+ first=layout not in seen
+ seen[layout]={'at':time.time(),'leds':count,'key':who.get('username')}
+ if first and not settings.get(OWNED[layout]): settings.save({OWNED[layout]:True})
+
 @router.get('')
-def status(layout:str|None=None,leds:int|None=None):
+def status(request:Request,layout:str|None=None,leds:int|None=None):
  # The light says what it is (?layout=ring&leds=12); otherwise the shape chosen in Settings
+ device=layout is not None
  layout=layout or settings.get('lightbar_layout')
  if layout not in DEFAULT_LEDS: raise HTTPException(400,'layout must be ring or bar')
  count=DEFAULT_LEDS[layout] if leds is None else leds
  if not 1<=count<=MAX_LEDS: raise HTTPException(400,f'leds must be between 1 and {MAX_LEDS}')
+ who=getattr(request.state,'who',None) or {}
+ if device and who.get('kind')=='key': checked_in(layout,count,who)
  printers=_printers()['printers'] if _printers else []
  out=(ring if layout=='ring' else bar)(printers,count)
  return {'v':1,'poll':POLL_SECONDS,'layout':layout,'brightness':settings.get('lightbar_brightness'),
   'printers':len(printers),'names':[p.get('name') or '' for p in printers[:count]],
+  'seen':{k:{**v,'ago':round(time.time()-v['at'])} for k,v in seen.items()},
   'leds':out[::-1] if settings.get('lightbar_reverse') else out}

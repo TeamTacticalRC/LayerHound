@@ -3,7 +3,7 @@ import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
-  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Lightbulb, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
+  ArrowDownToLine, ArrowUpFromLine, Ban, Box, Camera, Lock, CircleCheck, CircleX, Clock, ExternalLink, History as HistoryIcon, RotateCw, CloudUpload, Globe, Monitor, Radar, Router, Search, Smartphone, Database, Download, File as FileIcon, Lightbulb, Puzzle, Folder, FolderPlus, GripVertical, HeartPulse, HardDrive, LayoutDashboard, Loader2, Menu, Network, Package,
   Pencil, Plug, Plus, Printer, Server, Settings, ShieldCheck, Thermometer, Trash2, Wifi, X, Zap, Eye, Fan, Moon, Sun, MessageSquareHeart, Send, Power, KeyRound, LogIn, LogOut, UserRound, Users, Copy
 } from "lucide-react";
 import "./index.css";
@@ -119,6 +119,7 @@ const PAGE_TITLES = {
   network: "Network",
   services: "Services",
   settings: "Settings",
+  addons: "Add-ons",
   feedback: "Send Feedback",
 };
 
@@ -350,6 +351,8 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
     ["Network", Network, "network"],
     ["Services", Activity, "services"],
     ["Settings", Settings, "settings"],
+    // Optional hardware; admins only (it has setup and store links)
+    ...(isAdmin() ? [["Add-ons", Puzzle, "addons"]] : []),
     ["Send feedback", MessageSquareHeart, "feedback"],
   ];
   return (
@@ -3120,49 +3123,103 @@ function BarPreview({ light, brightness }) {
     </div>
   );
 }
-function LightbarSection({ onSaved }) {
-  const [light, setLight] = useState(null);
+// Add-ons: optional Team Tactical RC hardware. Admins only. Nothing here is required: each add-on
+// can be bought ready-made (once it's in the store), built from the open guide, or marked as owned.
+// A light that checks in with its access key is noticed and marked as owned automatically.
+const ADDON_GUIDE = "https://github.com/TeamTacticalRC/LayerHound/blob/main/hardware/lightbar/README.md";
+const ADDONS = [
+  { shape: "ring", setting: "addon_ring", title: "Status light", kind: "Ring · 12 lights", buyUrl: null,
+    blurb: "A small light for your desk. Each printer gets a part of the ring: a print fills its part as it goes, and trouble blinks red, so you notice it from across the room without opening the dashboard." },
+  { shape: "bar", setting: "addon_bar", title: "Status bar", kind: "Bar · 8 lights", buyUrl: null,
+    blurb: "A strip of lights mounted by your printers, one light per printer, in the same order as your shelf." },
+];
+const DEMO_FARM = { names: ["Printer 1", "Printer 2", "Printer 3", "Printer 4"], printers: 4,
+  leds: [[0, 255, 40], [0, 255, 40], null, [255, 140, 0], [255, 140, 0], null, [0, 90, 255], [0, 90, 255], null, [60, 60, 60], [60, 60, 60], null]
+    .map((rgb, i) => ({ rgb: rgb ?? [0, 0, 0], effect: rgb ? "solid" : "off", printer: rgb ? Math.floor(i / 3) : null, state: "demo" })) };
+const DEMO_BAR = { names: DEMO_FARM.names, printers: 4,
+  leds: [[0, 255, 40], [255, 140, 0], [0, 90, 255], [60, 60, 60], null, null, null, null]
+    .map((rgb, i) => ({ rgb: rgb ?? [0, 0, 0], effect: rgb ? "solid" : "off", name: rgb ? `Printer ${i + 1}` : "", state: "demo" })) };
+const seenText = s => s.ago < 60 ? `seen ${s.ago} s ago` : s.ago < 3600 ? `last seen ${Math.round(s.ago / 60)} min ago` : `last seen ${fmtDate(Date.now() - s.ago * 1000, { dateStyle: "medium", timeStyle: "short" })}`;
+
+function AddonCard({ addon, light, owned, brightness, onSave, onBrightness }) {
+  const seen = light?.seen?.[addon.shape];
+  const ring = addon.shape === "ring";
+  const Preview = ring ? RingPreview : BarPreview;
+  return (
+    <section className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-white"><Lightbulb size={18} className="text-violet-400" /> {addon.title}</h2>
+          <div className="mt-0.5 text-xs text-slate-500">{addon.kind} · Wi-Fi · USB powered</div>
+        </div>
+        {seen ? <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${seen.ago < 60 ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-200"}`}><span className={`h-1.5 w-1.5 rounded-full ${seen.ago < 60 ? "bg-emerald-400" : "bg-amber-300"}`} /> {seen.ago < 60 ? "Connected" : "Not connected"} · {seenText(seen)}</span>
+          : owned && <span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">Waiting for it to connect</span>}
+      </div>
+      <p className="mt-3 max-w-3xl text-sm text-slate-400">{addon.blurb}</p>
+      <div className="mt-4 rounded-xl border border-white/8 bg-black/30 px-4 py-4">
+        {owned && light ? <Preview light={light} brightness={brightness} /> : <Preview light={ring ? DEMO_FARM : DEMO_BAR} brightness={100} />}
+        {owned && light?.printers > light?.leds.length && <p className="mt-3 text-xs text-amber-200">It shows your first {light.leds.length} printers. Reorder them in Print Farm → Reorder.</p>}
+        {!owned && <p className="mt-3 text-center text-xs text-slate-600">Example</p>}
+      </div>
+      {!owned ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {addon.buyUrl && <a href={addon.buyUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400"><ExternalLink size={14} /> Get one</a>}
+          <button onClick={() => onSave({ [addon.setting]: true })} className="rounded-lg bg-violet-500/15 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500/25">I have one</button>
+          <a href={ADDON_GUIDE} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"><ExternalLink size={14} /> Build your own</a>
+        </div>
+      ) : (
+        <>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-400">
+            {LED_STATES.map(([k, label]) => <span key={k} className="flex items-center gap-1.5"><Led led={{ rgb: LED_LEGEND[k], effect: "solid" }} brightness={100} size="h-2.5 w-2.5" /> {label}{k === "paused" ? " (pulsing)" : k === "error" ? " (blinking)" : ""}</span>)}
+          </div>
+          <label className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-200">
+            <span className="w-24">Brightness</span>
+            <input type="range" min="5" max="100" step="5" value={brightness} onChange={e => onBrightness(Number(e.target.value))} onPointerUp={() => onSave({ lightbar_brightness: brightness })} onKeyUp={() => onSave({ lightbar_brightness: brightness })} className="min-w-40 flex-1 accent-violet-500" aria-label={`${addon.title} brightness`} />
+            <span className="w-10 text-right text-slate-400">{brightness}%</span>
+          </label>
+          <Toggle checked={!!prefs.lightbar_reverse} onChange={v => onSave({ lightbar_reverse: v })} label={ring ? "Go counterclockwise" : "Bar is mounted the other way round"} hint={ring ? "Places printers around the ring the other way." : "Shows your first printer on the bar's last light instead."} />
+          <details className="mt-2 border-t border-white/6 pt-3 text-sm text-slate-300" open={!seen}>
+            <summary className="cursor-pointer text-slate-200">Setting it up</summary>
+            <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-slate-400">
+              <li>In <span className="text-slate-200">Settings → Login & users → Access keys</span>, create a key named <span className="text-slate-200">{addon.title}</span> and copy it. Keys can only view.</li>
+              <li>Plug in the {ring ? "light" : "bar"}. The first time, it pulses purple and makes a Wi-Fi network called <span className="text-slate-200">LayerHound-Light</span>.</li>
+              <li>Join it from your phone. On the page that opens, pick your Wi-Fi, keep the LayerHound address (<span className="font-mono text-slate-200">http://{location.host}</span>), and paste the key.</li>
+              <li>It joins your Wi-Fi and lights up, matching the preview above. This page then shows it as connected.</li>
+            </ol>
+            <p className="mt-2 text-xs text-slate-500">To change its settings later, hold its BOOT button while plugging it in. Purple lights mean it's talking about itself: pulsing is the setup page, blinking means it can't reach LayerHound, solid means the key was refused.</p>
+          </details>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/6 pt-3 text-xs">
+            <a href={ADDON_GUIDE} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-slate-400 hover:text-slate-200"><ExternalLink size={12} /> Build and wiring guide</a>
+            <button onClick={() => onSave({ [addon.setting]: false })} className="text-slate-500 hover:text-slate-300">I don't have one</button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function AddonsPage({ onSaved }) {
+  const [lights, setLights] = useState({});
   const [brightness, setBrightness] = useState(prefs.lightbar_brightness ?? 40);
   const [error, setError] = useState("");
-  const load = useCallback(() => getLightbar().then(setLight).catch(e => setError(e.message)), []);
+  const [, rerender] = useState(0);
+  const load = useCallback(async () => {
+    try { const [ring, bar] = await Promise.all([getLightbar("ring"), getLightbar("bar")]); setLights({ ring, bar }); }
+    catch (e) { setError(e.message); }
+  }, []);
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
-  const save = async changes => { setError(""); try { onSaved(await saveSettings(changes)); load(); } catch (e) { setError(e.message); } };
-  const ring = (light?.layout ?? prefs.lightbar_layout) !== "bar";
-  const shape = ring ? "ring" : "bar";
+  const save = async changes => { setError(""); try { onSaved(await saveSettings(changes)); rerender(n => n + 1); load(); } catch (e) { setError(e.message); } };
   return (
-    <Section title={<span className="flex items-center gap-2"><Lightbulb size={16} className="text-violet-400" /> LED status light</span>}
-      sub={ring ? "An optional light for your desk: each printer gets a part of the ring, in Print Farm order. A print fills its part as it goes, and trouble blinks red." : "An optional bar of 8 lights by your printers: one light per printer, in Print Farm order."}>
-      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-slate-300">
-        <span>Your light</span>
-        <Segmented label="Status light shape" value={shape} onChange={v => save({ lightbar_layout: v })} options={[["ring", "Ring (12 lights)"], ["bar", "Bar (8 lights)"]]} />
+    <>
+      <div className="mb-7">
+        <h1 className="text-3xl font-bold tracking-tight text-white">Add-ons</h1>
+        <p className="mt-2 text-sm text-slate-500">Optional hardware that works with LayerHound. Everything is open: build your own from the guide, or tell LayerHound you have one to set it up.</p>
       </div>
-      {light && (
-        <div className="rounded-xl border border-white/8 bg-black/30 px-4 py-4">
-          {ring ? <RingPreview light={light} brightness={brightness} /> : <BarPreview light={light} brightness={brightness} />}
-          {light.printers > light.leds.length && <p className="mt-3 text-xs text-amber-200">The {shape} shows your first {light.leds.length} printers. Reorder them in Print Farm → Reorder.</p>}
-        </div>
-      )}
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-400">
-        {LED_STATES.map(([k, label]) => <span key={k} className="flex items-center gap-1.5"><Led led={{ rgb: LED_LEGEND[k], effect: "solid" }} brightness={100} size="h-2.5 w-2.5" /> {label}{k === "paused" ? " (pulsing)" : k === "error" ? " (blinking)" : ""}</span>)}
+      <div className="space-y-4">
+        {ADDONS.map(a => <AddonCard key={a.shape} addon={a} light={lights[a.shape]} owned={!!prefs[a.setting] || !!lights[a.shape]?.seen?.[a.shape]} brightness={brightness} onBrightness={setBrightness} onSave={save} />)}
       </div>
-      <label className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-200">
-        <span className="w-24">Brightness</span>
-        <input type="range" min="5" max="100" step="5" value={brightness} onChange={e => setBrightness(Number(e.target.value))} onPointerUp={() => save({ lightbar_brightness: brightness })} onKeyUp={() => save({ lightbar_brightness: brightness })} className="min-w-40 flex-1 accent-violet-500" aria-label="Status light brightness" />
-        <span className="w-10 text-right text-slate-400">{brightness}%</span>
-      </label>
-      <Toggle checked={!!prefs.lightbar_reverse} onChange={v => save({ lightbar_reverse: v })} label={ring ? "Go counterclockwise" : "Bar is mounted the other way round"} hint={ring ? "Places printers around the ring the other way." : "Shows your first printer on the bar's last light instead."} />
-      <details className="mt-2 border-t border-white/6 pt-3 text-sm text-slate-300">
-        <summary className="cursor-pointer text-slate-200">Setting up a status light</summary>
-        <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-slate-400">
-          <li>In <span className="text-slate-200">Login & users → Access keys</span>, create a key named <span className="text-slate-200">Status light</span> and copy it. Keys can only view.</li>
-          <li>Plug in the light. The first time, it pulses purple and makes a Wi-Fi network called <span className="text-slate-200">LayerHound-Light</span>.</li>
-          <li>Join it from your phone. On the page that opens, pick your Wi-Fi, keep the LayerHound address (<span className="font-mono text-slate-200">http://{location.host}</span>), and paste the key.</li>
-          <li>The light joins your Wi-Fi and lights up, matching the preview above.</li>
-        </ol>
-        <p className="mt-2 text-xs text-slate-500">To change its settings later, hold the light's BOOT button while plugging it in.</p>
-      </details>
-      {error && <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
-    </Section>
+      {error && <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
+    </>
   );
 }
 
@@ -3279,7 +3336,6 @@ function SettingsPage({ onSaved, onRestored }) {
           <AccessSection onSaved={onSaved} />
           {session.user?.kind === "user" && <AccountSection />}
           <RemoteAccessSection />
-          <LightbarSection onSaved={onSaved} />
           <DiscoverySection onSaved={onSaved} />
           <DataSection onSaved={onSaved} onRestored={onRestored} />
           <FanSection onSaved={onSaved} />
@@ -3736,6 +3792,8 @@ function Dashboard({ onSignOut, onSignIn }) {
               <SettingsPage onSaved={applySettings} onRestored={() => { reloadSettings(); refreshPrinters(); }} />
             ) : page === "services" ? (
               <ServicesPage printers={livePrinters ?? []} />
+            ) : page === "addons" && isAdmin() ? (
+              <AddonsPage onSaved={applySettings} />
             ) : page === "feedback" ? (
               <FeedbackPage printers={livePrinters ?? []} />
             ) : page === "network" ? (

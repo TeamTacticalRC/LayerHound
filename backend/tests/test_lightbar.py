@@ -84,3 +84,19 @@ def test_light_reads_with_an_access_key(client, monkeypatch):
     assert light.get("/api/lightbar", headers={"Authorization": f"Bearer {key}"}).status_code == 200
     # The key can only look
     assert light.put("/api/settings", json={"lightbar_brightness": 90}, headers={"Authorization": f"Bearer {key}"}).status_code == 403
+
+
+def test_a_light_checking_in_is_noticed(client, monkeypatch):
+    farm(monkeypatch, FARM)
+    monkeypatch.setattr(lightbar, "seen", {})
+    key = client.post("/api/auth/keys", json={"name": "Desk ring"}).json()["key"]
+    light = new_client()
+    # The dashboard's own preview (signed in, no shape given) doesn't count as a light
+    assert client.get("/api/lightbar").json()["seen"] == {}
+    assert client.get("/api/settings").json()["addon_ring"] is False
+    r = light.get("/api/lightbar?layout=ring&leds=12", headers={"Authorization": f"Bearer {key}"}).json()
+    assert r["seen"]["ring"]["key"] == "Desk ring" and r["seen"]["ring"]["leds"] == 12 and r["seen"]["ring"]["ago"] <= 1
+    # First check-in marks the ring as one the owner has, so its settings show on the Add-ons page
+    assert client.get("/api/settings").json()["addon_ring"] is True
+    assert "bar" not in client.get("/api/lightbar").json()["seen"]
+    client.put("/api/settings", json={"addon_ring": False})   # shared test client

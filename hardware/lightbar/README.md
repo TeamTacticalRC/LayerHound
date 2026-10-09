@@ -17,7 +17,7 @@ A small light that shows what your printers are doing, so you notice trouble wit
 | Offline | Red |
 | No printer for this light | Off |
 
-LayerHound picks the colors (`backend/lightbar.py`), so they can change without reloading the light. **Settings → LED status light** has the shape (ring or bar), a live preview, the brightness, and an option to reverse the order.
+LayerHound picks the colors (`backend/lightbar.py`), so they can change without reloading the light. The **Add-ons** page in the dashboard (admins only, near the bottom of the menu) has a card for each shape: an example, **I have one** to set it up, and a link to this guide. Once you have one, the card shows a live preview, whether the light is connected (it's noticed automatically the first time it checks in), the brightness, and an option to reverse the order.
 
 When the light can't show printers, it uses purple, which never means a printer state:
 
@@ -67,7 +67,7 @@ pio run -e ring -t upload      # or: pio run -e bar -t upload
 1. In LayerHound, **Settings → Login & users → Access keys**: create a key named **Status light** and copy it. Keys can only view.
 2. Plug in the light. The first time, it pulses purple and makes a Wi-Fi network called **LayerHound-Light**.
 3. Join that network from a phone. On the page that opens, choose **Configure WiFi**, pick your Wi-Fi and enter its password, keep the LayerHound address (`http://layerhound.local`) and paste the key. Save.
-4. The light joins your Wi-Fi and lights up, matching the preview in **Settings → LED status light**. Pick **Ring** or **Bar** there to match yours.
+4. The light joins your Wi-Fi and lights up, matching the preview on the **Add-ons** page, which now shows it as **Connected**.
 
 **To change its settings later** (new Wi-Fi, new key), hold the ESP32's **BOOT** button while plugging the light in.
 

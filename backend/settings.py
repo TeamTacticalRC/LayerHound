@@ -60,6 +60,9 @@ SCHEMA={
  'lightbar_layout':('ring',str,('ring','bar')),
  'lightbar_brightness':(40,int,(5,100)),
  'lightbar_reverse':(False,bool,None),
+ # Add-ons the owner has (Add-ons page): set by "I have one", or when the light first checks in
+ 'addon_ring':(False,bool,None),
+ 'addon_bar':(False,bool,None),
  # Anonymous usage stats (stats.py): 'ask' until the owner chooses; nothing is sent unless 'yes'
  'usage_stats':('ask',str,('ask','yes','no')),
 }

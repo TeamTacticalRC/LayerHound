@@ -100,7 +100,8 @@ LayerHound only **watches** your printers. It never starts, stops or changes pri
 | **Storage** | Drive health and space, and a shared **LayerHound Files** folder for uploads and downloads. |
 | **Network** | Internet health, devices you monitor, Wi-Fi settings and the network scan. |
 | **Services** | Quick links and health checks for your other home-lab apps, plus Home Assistant and Pi-hole stats. |
-| **Settings** | Farm name, colors, light or dark mode, alerts, fan, accounts, backups and updates. |
+| **Settings** | Farm name, colors, light or dark mode, alerts, fan, accounts, backups, updates and remote access. |
+| **Add-ons** | Optional hardware for LayerHound, like the status light ring for your desk. Admins only. |
 
 **Light or dark:** use the moon, sun and screen buttons under the logo. Each device remembers its own choice.
 

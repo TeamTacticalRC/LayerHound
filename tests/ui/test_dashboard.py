@@ -1,6 +1,6 @@
 # What an owner sees and does in the dashboard, checked in a real browser.
 import pytest
-from conftest import ADMIN, PAGES, RECOVERY, api, new_page, open_page
+from conftest import ADMIN, ADMIN_ONLY_PAGES, PAGES, RECOVERY, api, new_page, open_page
 
 
 def no_sideways_scroll(page):
@@ -63,7 +63,9 @@ def test_view_only_account_sees_no_admin_controls(browser, base_url, admin_state
     page.locator("input[type=password]").fill("staff-pass-123")
     page.get_by_role("button", name="Sign in").click()
     page.get_by_text("View only").first.wait_for()
-    for name in PAGES:
+    for name in ADMIN_ONLY_PAGES:
+        assert page.get_by_role("button", name=name, exact=True).count() == 0, f"{name} shown to a viewer"
+    for name in (p for p in PAGES if p not in ADMIN_ONLY_PAGES):
         open_page(page, name)
         shown = page.evaluate("[...document.querySelectorAll('[data-admin]')].filter(e => e.offsetParent !== null).length")
         assert shown == 0, f"{name}: {shown} admin controls visible to a viewer"
@@ -102,5 +104,25 @@ def test_forgot_password_with_recovery_key(browser, base_url, admin_state):
     page.get_by_label("I've saved my recovery key").check()
     page.get_by_role("button", name="Go to my dashboard").click()
     page.get_by_role("button", name="Sign out").wait_for()
+    assert not page.problems.items, page.problems.items
+    page.context.close()
+
+
+def test_addons_page(browser, base_url):
+    # Signs in by itself (test_sign_out may already have ended the shared session)
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    page.reload()
+    open_page(page, "Add-ons")
+    ring = page.locator("section", has_text="Ring · 12 lights")
+    # Not in the store yet: no "Get one"; the open build guide and "I have one" are there
+    assert page.get_by_role("link", name="Get one").count() == 0
+    assert ring.get_by_role("link", name="Build your own").is_visible()
+    assert not ring.get_by_label("Status light brightness").is_visible()
+    ring.get_by_role("button", name="I have one").click()
+    ring.get_by_label("Status light brightness").wait_for()
+    assert ring.get_by_text("Waiting for it to connect").is_visible()
+    ring.get_by_role("button", name="I don't have one").click()
+    ring.get_by_role("button", name="I have one").wait_for()
     assert not page.problems.items, page.problems.items
     page.context.close()

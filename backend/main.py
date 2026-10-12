@@ -55,9 +55,9 @@ class PrinterOrder(BaseModel):
 def clean_url(v):
  v=v.strip(); return v if v.startswith(('http://','https://','mqtts://')) else 'http://'+v
 
-def get_json(u,headers=None):
+def get_json(u,headers=None,timeout=TIMEOUT):
  r=urllib.request.Request(u,headers=headers or {}); 
- with urllib.request.urlopen(r,timeout=TIMEOUT) as x: return json.loads(x.read().decode())
+ with urllib.request.urlopen(r,timeout=timeout) as x: return json.loads(x.read().decode())
 
 def moonraker(base):
  info=get_json(base+'/printer/info'); s=get_json(base+'/printer/objects/query?print_stats=&virtual_sdcard=&toolhead=extruder&heater_bed=&extruder=&extruder1=&extruder2=&extruder3=&gcode_move=gcode_position')
@@ -351,18 +351,20 @@ def start_printer_row(pid,request):
  if r['printer_type']=='bambu': raise HTTPException(409,"Starting prints on Bambu Lab printers isn't supported yet. Use Bambu Studio or Bambu Handy.")
  return r
 
+FILES_TIMEOUT=20   # some printers (the Elegoo Neptune 4) sometimes take several seconds to answer anything
+
 def printer_files(r):
  # The printer's own stored files, newest first: [{path, name, size, modified}]
  base=clean_url(r['base_url'])
  if r['printer_type']=='moonraker':
-  rows=[{'path':f['path'],'size':f.get('size'),'modified':f.get('modified')} for f in get_json(base+'/server/files/list?root=gcodes').get('result',[])]
+  rows=[{'path':f['path'],'size':f.get('size'),'modified':f.get('modified')} for f in get_json(base+'/server/files/list?root=gcodes',timeout=FILES_TIMEOUT).get('result',[])]
  else:
   key=vault.decrypt(r['api_key']); out=[]
   def walk(items):
    for f in items:
     if f.get('type')=='folder': walk(f.get('children') or [])
     elif f.get('type')=='machinecode': out.append({'path':f.get('path') or f.get('name'),'size':f.get('size'),'modified':f.get('date')})
-  walk(get_json(base+'/api/files/local?recursive=true',{'X-Api-Key':key} if key else {}).get('files',[]))
+  walk(get_json(base+'/api/files/local?recursive=true',{'X-Api-Key':key} if key else {},timeout=FILES_TIMEOUT).get('files',[]))
   rows=out
  rows=[{**x,'name':x['path'].rsplit('/',1)[-1]} for x in rows if str(x['path']).lower().endswith(PRINT_EXT)]
  return sorted(rows,key=lambda x:-(x['modified'] or 0))[:500]
@@ -371,7 +373,9 @@ def printer_files(r):
 def list_printer_files(pid:int,request:Request):
  r=start_printer_row(pid,request)
  try: return {'files':printer_files(r)}
- except Exception as e: raise HTTPException(502,control_error(e))
+ except Exception as e:
+  print(f"[control] listing files on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+  raise HTTPException(502,control_error(e))
 
 async def confirm_started(r,name,who,said=None):
  # The printer must report printing; never say "Printing" on hope alone

@@ -841,8 +841,9 @@ function StartPrint({ printer, onDone }) {
   const [clear, setClear] = useState(false);
   const [busy, setBusy] = useState(null);   // null | {progress} | "starting"
   const [msg, setMsg] = useState(null);
+  const [listError, setListError] = useState("");
   const enabled = prefs.printer_controls && prefs.printer_start;
-  useEffect(() => { if (enabled && source === "printer" && files === null) getPrinterFiles(printer.id).then(r => setFiles(r.files)).catch(e => { setFiles([]); setMsg({ ok: false, text: e.message }); }); }, [enabled, source, files, printer.id]);
+  useEffect(() => { if (enabled && source === "printer" && files === null && !listError) getPrinterFiles(printer.id).then(r => setFiles(r.files)).catch(e => setListError(e.message)); }, [enabled, source, files, listError, printer.id]);
   if (!enabled) return <p className="mt-3 text-xs text-slate-600">To start prints from here, turn on Settings → Printer controls → Also allow starting prints.</p>;
   // After starting, once the printer is busy, just show how it went
   if (printer.state !== "idle" && printer.state !== "complete") return msg && (
@@ -863,7 +864,7 @@ function StartPrint({ printer, onDone }) {
       else { setBusy({ progress: 0 }); r = await sendPrintFile(printer.id, upload, startNow, p => setBusy(p < 1 ? { progress: p } : "starting")); }
       setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: (r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}.` : `Printing ${r.name}.`) + (r.note ? ` The printer also reported: ${r.note}` : "") });
       setClear(false); onDone();
-      if (r.status === "uploaded") { setUpload(null); setFiles(null); }
+      if (r.status === "uploaded") { setUpload(null); setFiles(null); setListError(""); }
     } catch (e) { setMsg({ ok: false, text: e.message }); }
     setBusy(null);
   };
@@ -878,7 +879,12 @@ function StartPrint({ printer, onDone }) {
         <div className="mt-3">
           <input className={inputClass} placeholder="Search files" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search the printer's files" />
           <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/8" role="radiogroup" aria-label="Files on the printer">
-            {files === null ? <div className="flex items-center gap-2 p-3 text-sm text-slate-500"><Loader2 size={14} className="animate-spin" /> Loading files…</div>
+            {listError ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm text-red-300">
+                <span>Couldn't load the printer's files: {listError}</span>
+                <button type="button" onClick={() => { setListError(""); setFiles(null); }} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5"><RotateCw size={13} /> Try again</button>
+              </div>
+            ) : files === null ? <div className="flex items-center gap-2 p-3 text-sm text-slate-500"><Loader2 size={14} className="animate-spin" /> Loading files… (some printers take a few seconds)</div>
               : !shown.length ? <div className="p-3 text-sm text-slate-500">{files.length ? "No files match." : "No G-code files on the printer."}</div>
               : shown.map(f => (
                 <button key={f.path} type="button" role="radio" aria-checked={chosen === f.path} onClick={() => setChosen(f.path)}

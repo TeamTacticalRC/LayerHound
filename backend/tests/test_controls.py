@@ -220,7 +220,7 @@ def test_start_not_confirmed(client, starting, monkeypatch):
 
 def test_printer_files_and_start_one(client, starting, monkeypatch):
     ids, states, sent, uploads = starting
-    def get_json(u, headers=None):
+    def get_json(u, headers=None, timeout=None):
         if "/server/files/list" in u:
             return {"result": [{"path": "old.gcode", "modified": 100, "size": 5}, {"path": "shelf/new.gcode", "modified": 200, "size": 9},
                                {"path": "notes.txt", "modified": 300, "size": 1}]}
@@ -319,3 +319,12 @@ def test_printer_complains_but_does_it(client, farm, monkeypatch):
     monkeypatch.setattr(main, "post_json", lambda u, body=None, headers=None: complain(u, does_it=False))
     r = act(client, pid, "cancel")
     assert r.status_code == 502 and "Must home axis first" in r.json()["detail"]
+
+
+def test_file_list_gets_more_time(client, starting, monkeypatch):
+    # Listing the Elegoo's files hit the usual 4 s limit while it was slow; listing gets 20 s
+    ids, states, sent, uploads = starting
+    seen = []
+    monkeypatch.setattr(main, "get_json", lambda u, headers=None, timeout=main.TIMEOUT: seen.append(timeout) or {"result": []})
+    assert client.get(f"/api/printers/{ids['moonraker']}/files").status_code == 200
+    assert seen == [main.FILES_TIMEOUT] and main.FILES_TIMEOUT >= 15

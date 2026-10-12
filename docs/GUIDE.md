@@ -182,7 +182,7 @@ Only updates signed by Team Tactical RC are installed. You can turn off the dail
 layerhound reset-password
 ```
 
-It asks for a new password, and signs that account out everywhere. `layerhound users` lists the accounts.
+It first asks for the board's password (it runs as LayerHound's own account), then for the new LayerHound password, and signs that account out everywhere. `layerhound users` lists the accounts.
 
 ## Troubleshooting
 

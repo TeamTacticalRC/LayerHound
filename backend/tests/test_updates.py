@@ -1,5 +1,6 @@
 # Update checks, signatures, and the updater's install/rollback, in a fake app folder.
 import base64, hashlib, io, json, tarfile
+from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -68,6 +69,8 @@ def app(tmp_path, monkeypatch):
         monkeypatch.setattr(updater, k, v)
     (backend / "data/updates").mkdir(parents=True)
     calls = []
+    # These tests build unsigned packages anywhere; the signature check has its own test below
+    monkeypatch.setattr(updater, "check_package", lambda p: Path(p))
     monkeypatch.setattr(updater, "restart", lambda: calls.append("restart"))
     monkeypatch.setattr(updater, "pip_install", lambda: calls.append("pip"))
     return appdir, db, calls
@@ -185,3 +188,29 @@ def test_updater_keeps_the_automatic_flag(app, monkeypatch, tmp_path):
     updater.run({**job(appdir, pkg), "auto": True})
     state = json.loads((appdir / "backend/data/updates/state.json").read_text())
     assert state["phase"] == "done" and state["auto"] is True
+
+
+def test_updater_checks_the_signature_itself(app, monkeypatch, tmp_path):
+    # On a board the updater runs as root: it only installs a package from its own updates folder,
+    # signed by the release key, whatever LayerHound's own account wrote into the job.
+    appdir, db, calls = app
+    monkeypatch.undo()   # the real check_package (and real paths again below)
+    for k, v in {"BACKEND": appdir / "backend", "APP_DIR": appdir, "DB_PATH": db, "DATA": appdir / "backend/data",
+                 "UPDATES": appdir / "backend/data/updates", "BACKUPS": appdir / "backend/data/backups", "ROLLBACK": tmp_path / "rb"}.items():
+        monkeypatch.setattr(updater, k, v)
+    key = Ed25519PrivateKey.generate()
+    monkeypatch.setattr(updates, "PUBLIC_KEY", base64.b64encode(key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode())
+    upd = appdir / "backend/data/updates"
+    good = upd / "layerhound-9.9.9.tar.gz"; make_package(good, {"backend/main.py": "new"})
+    (upd / "layerhound-9.9.9.tar.gz.sig").write_bytes(base64.b64encode(key.sign(good.read_bytes())))
+    assert updater.check_package(good) == good.resolve()
+    outside = tmp_path / "evil.tar.gz"; outside.write_bytes(good.read_bytes())
+    with pytest.raises(ValueError, match="outside"): updater.check_package(outside)
+    good.write_bytes(good.read_bytes() + b"tampered")
+    with pytest.raises(ValueError, match="not signed"): updater.check_package(good)
+    (upd / "layerhound-9.9.9.tar.gz.sig").unlink()
+    with pytest.raises(ValueError, match="no signature"): updater.check_package(good)
+    # run() refuses and records why, without touching the code
+    updater.run({"version": "9.9.9", "from_version": "0.5.0", "started": 0, "package": str(good)})
+    state = json.loads((upd / "state.json").read_text())
+    assert state["phase"] == "failed" and "signature" in state["error"] and (appdir / "backend/main.py").read_text() == "old"

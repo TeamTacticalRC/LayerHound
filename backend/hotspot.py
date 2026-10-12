@@ -13,12 +13,12 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-import auth, problems, settings, wifi
+import auth, paths, problems, settings, wifi
 
 router=APIRouter(prefix='/api/hotspot')
 SSID=CON='LayerHound-Setup'; GATEWAY='10.42.0.1'; SUBNET=ipaddress.ip_network('10.42.0.0/24')
 CHECK_EVERY=15; OFFLINE_WAIT=180; FIRST_WAIT=45; RETRY_EVERY=300; MANUAL_LIMIT=30*60; JOIN_DELAY=3
-REQUEST_FILE=Path(__file__).with_name('data')/'hotspot-request'
+REQUEST_FILE=paths.DATA/'hotspot-request'
 state={'active':False,'reason':None,'since':None,'networks':[],'last_error':None,'joining':None,'joined':None}
 _lock=threading.Lock()
 

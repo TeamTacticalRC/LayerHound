@@ -1,16 +1,15 @@
 # Owner tools run on the board itself (over SSH or with a keyboard and screen attached).
-#   Reset a forgotten password:  sudo -u <service user> ~/layerhound/backend/.venv/bin/python ~/layerhound/backend/manage.py reset-password
-#   List accounts:               ... manage.py users
-#   Setup hotspot on/off:        ... manage.py hotspot start|stop
-# setup.sh installs these as the "layerhound" command, e.g. "layerhound reset-password".
+#   Reset a forgotten password:  layerhound reset-password
+#   List accounts:               layerhound users
+#   Setup hotspot on/off:        layerhound hotspot start|stop
+# setup.sh installs the "layerhound" command, which runs this as the LayerHound service account
+# (with the database and data folder from the service's environment); it asks for your password.
 import argparse, getpass, sqlite3, sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-import os
-import auth
+import auth, paths
 
-def env(name): return os.environ.get(f'LAYERHOUND_{name}') or os.environ.get(f'TTRC_{name}')
-DB_PATH=Path(env('DB') or Path(__file__).with_name('layerhound.db'))
+DB_PATH=paths.DB_PATH
 
 def db():
  c=sqlite3.connect(DB_PATH); c.row_factory=sqlite3.Row; return c

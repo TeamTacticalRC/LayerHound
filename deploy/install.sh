@@ -4,7 +4,8 @@
 #   curl -fsSL https://github.com/TeamTacticalRC/layerhound-releases/releases/latest/download/install.sh | bash
 #
 # Downloads the latest LayerHound release, checks its checksum and Team Tactical RC signature,
-# installs it to ~/layerhound and runs the board setup (deploy/setup.sh). Asks for your password
+# and runs the board setup (deploy/setup.sh), which installs it to /opt/layerhound with its data in
+# /var/lib/layerhound, running as its own "layerhound" account. Asks for your password
 # for sudo. Already installed? Update from Settings -> Updates instead; for an update that changes
 # the board setup (Settings says so), run this with --update:
 #
@@ -26,7 +27,9 @@ set -euo pipefail
 TEST="${LAYERHOUND_INSTALL_TEST:-}"
 
 RELEASES="TeamTacticalRC/layerhound-releases"
-APP_DIR="$HOME/layerhound"
+APP_DIR=/opt/layerhound
+LEGACY_DIR="$HOME/layerhound"   # installs from before 1.4 (setup.sh moves them to $APP_DIR)
+DATA_DIR=/var/lib/layerhound
 DEFAULT_NAME="layerhound"
 # Team Tactical RC's release signing key (the same key as PUBLIC_KEY in backend/updates.py)
 PUBLIC_KEY="-----BEGIN PUBLIC KEY-----
@@ -54,11 +57,19 @@ main() {
   [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || fail "--port needs a number from 1 to 65535."
   [ "$(id -u)" != 0 ] || fail "Run this as your normal user, not root. It asks for sudo when needed."
   command -v apt-get >/dev/null && command -v systemctl >/dev/null || fail "This installer needs a Debian-based Linux with systemd (Debian 12, Armbian, Raspberry Pi OS, Ubuntu)."
+  # Which install is the live one: the account the service runs as says so (after going back from
+  # 1.4 with revert-to-home-install.sh, /opt/layerhound is still there, unused)
+  local installed="" runs_as; runs_as="$(systemctl show -p User --value layerhound 2>/dev/null || true)"
+  if [ "$runs_as" = layerhound ] && [ -e "$APP_DIR/backend/main.py" ]; then installed="$APP_DIR"
+  elif [ -e "$LEGACY_DIR/backend/main.py" ]; then installed="$LEGACY_DIR"
+  elif [ -e "$APP_DIR/backend/main.py" ]; then installed="$APP_DIR"
+  fi
   if [ -n "$update" ]; then
-    [ -e "$APP_DIR/backend/main.py" ] && [ -x "$APP_DIR/backend/.venv/bin/python" ] || fail "LayerHound isn't installed in $APP_DIR yet. Run the installer without --update."
-    port="$(cat /var/lib/layerhound/port 2>/dev/null || echo 80)"   # keep the port it already uses
-  elif [ -e "$APP_DIR/backend/main.py" ]; then
-    fail "LayerHound is already installed in $APP_DIR. To update, open LayerHound and go to Settings -> Updates (or, if it says the update needs a full install, run this installer with --update)."
+    [ -n "$installed" ] && [ -x "$installed/backend/.venv/bin/python" ] || fail "LayerHound isn't installed yet. Run the installer without --update."
+    # Keep the port it already uses
+    port="$(cat /etc/layerhound/port 2>/dev/null || cat /var/lib/layerhound/port 2>/dev/null || echo 80)"
+  elif [ -n "$installed" ]; then
+    fail "LayerHound is already installed in $installed. To update, open LayerHound and go to Settings -> Updates (or, if it says the update needs a full install, run this installer with --update)."
   fi
 
   if [ -z "$TEST" ]; then
@@ -97,15 +108,15 @@ main() {
     || fail "This package is not signed by Team Tactical RC. Not installing it."
   say "Signature OK: signed by Team Tactical RC"
 
-  if [ -n "$update" ]; then update_existing "$pkg"; return 0; fi
+  if [ -n "$update" ]; then update_existing "$pkg" "$sig" "$installed"; return 0; fi
 
-  say "Unpacking to $APP_DIR"
+  say "Unpacking"
   mkdir -p "$work/unpack"
   tar -xzf "$pkg" -C "$work/unpack" --no-same-owner
   [ -f "$work/unpack/layerhound/deploy/setup.sh" ] || fail "The package doesn't look like LayerHound."
-  mv "$work/unpack/layerhound" "$APP_DIR"
-  local version; version="$(cat "$APP_DIR/VERSION" 2>/dev/null || echo "?")"
-  if [ -n "$TEST" ]; then say "Test mode: LayerHound $version unpacked to $APP_DIR; stopping before board setup"; return 0; fi
+  local src="$work/unpack/layerhound"
+  local version; version="$(cat "$src/VERSION" 2>/dev/null || echo "?")"
+  if [ -n "$TEST" ]; then say "Test mode: LayerHound $version unpacked; stopping before board setup"; return 0; fi
 
   # A board with its maker's default name is easier to find as http://layerhound.local
   local current; current="$(hostname)"; local target=""
@@ -124,8 +135,8 @@ main() {
     grep -qE "[[:space:]]$target([[:space:]]|\$)" /etc/hosts || echo "127.0.1.1 $target" | sudo tee -a /etc/hosts >/dev/null
   fi
 
-  say "Setting up the board (this takes a few minutes)"
-  LAYERHOUND_PORT="$port" bash "$APP_DIR/deploy/setup.sh"
+  say "Setting up the board and installing LayerHound to $APP_DIR (this takes a few minutes)"
+  LAYERHOUND_PORT="$port" bash "$src/deploy/setup.sh"
   # Announce the (new) name on the network right away
   sudo systemctl restart avahi-daemon 2>/dev/null || true
 
@@ -141,32 +152,54 @@ main() {
 # with data, the database and the Python environment kept, restart, and roll back if the new
 # version doesn't start); then the new board setup runs, which is the part that needs sudo.
 update_existing() {
-  local pkg="$1" updates="$APP_DIR/backend/data/updates" from version
+  local pkg="$1" sig="$2" dir="$3" from version updates job
   # The installed version: from a release package's VERSION file, or the code itself
-  from="$(cat "$APP_DIR/VERSION" 2>/dev/null || sed -n "s/^APP_VERSION='\(.*\)'/\1/p" "$APP_DIR/backend/settings.py" 2>/dev/null || true)"
-  [ -n "$from" ] || from="?"
+  from="$(sed -n "s/^APP_VERSION='\(.*\)'/\1/p" "$dir/backend/settings.py" 2>/dev/null || true)"
+  [ -n "$from" ] || from="$(cat "$dir/VERSION" 2>/dev/null || echo "?")"
   mkdir -p "$work/peek" && tar -xzf "$pkg" -C "$work/peek" --no-same-owner layerhound/VERSION 2>/dev/null || true
   version="$(cat "$work/peek/layerhound/VERSION" 2>/dev/null || echo "?")"
-  [ -n "$TEST" ] && { say "Test mode: would update LayerHound $from to $version; stopping here"; return 0; }
+  [ -n "$TEST" ] && { say "Test mode: would update LayerHound $from in $dir to $version; stopping here"; return 0; }
   say "Updating LayerHound $from to $version (your printers, settings and accounts are kept)"
-  mkdir -p "$updates"; cp "$pkg" "$updates/layerhound-$version.tar.gz"
-  python3 - "$updates" "$version" "$from" <<'PY'
-import json, sys, time
-d, version, old = sys.argv[1:4]
-json.dump({'version': version, 'from_version': old, 'started': time.time(), 'phase': 'installing',
-           'package': f'{d}/layerhound-{version}.tar.gz'}, open(f'{d}/state.json', 'w'))
-PY
-  LAYERHOUND_PORT="$port" "$APP_DIR/backend/.venv/bin/python" "$APP_DIR/backend/updater.py" || true
-  local result; result="$(python3 -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("phase"), j.get("rolled_back"), j.get("error") or "")' "$updates/state.json" 2>/dev/null || echo "unknown")"
+  job="layerhound-$version.tar.gz"
+  if [ "$dir" = "$APP_DIR" ]; then
+    # Since 1.4: the updater runs as root and checks the signature again itself
+    updates="$DATA_DIR/data/updates"
+    sudo install -d -o layerhound -g layerhound "$updates"
+    sudo install -o layerhound -g layerhound -m 644 "$pkg" "$updates/$job"
+    sudo install -o layerhound -g layerhound -m 644 "$sig" "$updates/$job.sig"
+    write_job "$updates" "$version" "$from" | sudo -u layerhound tee "$updates/state.json" >/dev/null
+    sudo env LAYERHOUND_DB="$DATA_DIR/layerhound.db" LAYERHOUND_FILES="$DATA_DIR/files" LAYERHOUND_PORT="$port" \
+      "$APP_DIR/backend/.venv/bin/python" "$APP_DIR/backend/updater.py" || true
+  else
+    # Before 1.4 (in the home folder): its own updater, as before; the new setup then moves it to $APP_DIR
+    updates="$dir/backend/data/updates"
+    mkdir -p "$updates"; cp "$pkg" "$updates/$job"; cp "$sig" "$updates/$job.sig"
+    write_job "$updates" "$version" "$from" > "$updates/state.json"
+    LAYERHOUND_PORT="$port" "$dir/backend/.venv/bin/python" "$dir/backend/updater.py" || true
+  fi
+  # Since 1.4 the status file is in LayerHound's own data folder, which only it (and root) can read
+  local read=""; [ "$dir" = "$APP_DIR" ] && read="sudo"
+  local result; result="$($read python3 -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("phase"), j.get("rolled_back"), j.get("error") or "")' "$updates/state.json" 2>/dev/null || echo "unknown")"
   case "$result" in
     done*) ;;
     "failed True"*) fail "The update didn't work (${result#failed True }). LayerHound went back to $from and is running." ;;
     *) fail "The update didn't finish ($result). Check LayerHound in a browser; Settings -> Recent problems may say more." ;;
   esac
   say "Setting up the board for $version (this takes a few minutes)"
-  LAYERHOUND_PORT="$port" bash "$APP_DIR/deploy/setup.sh" || fail "LayerHound $version is installed, but the board setup didn't finish. Run this command again."
+  local setup="$APP_DIR/deploy/setup.sh"; [ "$dir" = "$APP_DIR" ] || setup="$dir/deploy/setup.sh"
+  LAYERHOUND_PORT="$port" bash "$setup" || fail "LayerHound $version is installed, but the board setup didn't finish. Run this command again."
   echo
   say "LayerHound is updated to $version."
+}
+
+# The updater's job: install this package
+write_job() {
+  python3 - "$@" <<'PY'
+import json, sys, time
+d, version, old = sys.argv[1:4]
+print(json.dumps({'version': version, 'from_version': old, 'started': time.time(), 'phase': 'installing',
+                  'package': f'{d}/layerhound-{version}.tar.gz'}))
+PY
 }
 
 # Everything runs from here, so a half-downloaded script does nothing

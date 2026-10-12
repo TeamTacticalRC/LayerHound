@@ -5,11 +5,14 @@
 #   deploy/deploy.sh user@board-hostname.local --with-db  also copy this Mac's printer list
 #   deploy/deploy.sh user@board-hostname.local --full     run the full board setup even if unchanged
 #
-# Most deploys only change LayerHound itself: they copy the files, install any new Python packages
-# and restart it, with no password needed. The full board setup (deploy/setup.sh, which needs the
-# board's password for sudo) runs only the first time, when setup.sh has changed since it was last
-# applied, or with --full. The board records which setup.sh it last applied in
-# /var/lib/layerhound/setup.sha256 (written by setup.sh as root).
+# The files go to a staging folder on the board (~/layerhound-src); LayerHound itself runs from
+# /opt/layerhound (see setup.sh). Most deploys only change LayerHound itself: the code installer
+# (/usr/local/sbin/layerhound-install-code, which setup.sh lets your account run without a password
+# on a development board) puts the code in place and installs any new Python packages, then
+# LayerHound restarts, with no password needed. The full board setup (deploy/setup.sh, which needs
+# the board's password for sudo) runs only the first time, when setup.sh has changed since it was
+# last applied, or with --full. The board records which setup.sh it last applied in
+# /etc/layerhound/setup.sha256 (written by setup.sh as root).
 #
 # The board's printer database is never overwritten unless you pass --with-db.
 set -euo pipefail
@@ -24,7 +27,7 @@ for arg in "$@"; do
   esac
 done
 if [ -z "$TARGET" ]; then echo "Usage: deploy/deploy.sh user@host [--with-db] [--full]" >&2; exit 1; fi
-REMOTE_DIR="layerhound"   # relative to the board user's home folder
+REMOTE_DIR="layerhound-src"   # staging, relative to the board user's home folder
 cd "$(dirname "$0")/.."
 
 echo "==> Building frontend"
@@ -43,14 +46,14 @@ rsync -az --delete \
   ./ "$TARGET:$REMOTE_DIR/"
 
 if [ "$WITH_DB" = "--with-db" ]; then
-  echo "==> Copying printer database"
+  echo "==> Copying printer database (needs the board's password)"
   DB=backend/layerhound.db; [ -f "$DB" ] || DB=backend/ttrc.db   # installs from before the rename
-  rsync -az "$DB" "$TARGET:$REMOTE_DIR/backend/layerhound.db"
+  ssh "$TARGET" "mkdir -p $REMOTE_DIR/.import"
+  rsync -az "$DB" "$TARGET:$REMOTE_DIR/.import/layerhound.db"
   # Stored access codes are encrypted with this computer's key; the board needs the same key to read them
-  if [ -f backend/data/secret.key ]; then
-    ssh "$TARGET" "mkdir -p $REMOTE_DIR/backend/data"
-    rsync -az --chmod=F600 backend/data/secret.key "$TARGET:$REMOTE_DIR/backend/data/secret.key"
-  fi
+  [ -f backend/data/secret.key ] && rsync -az --chmod=F600 backend/data/secret.key "$TARGET:$REMOTE_DIR/.import/secret.key"
+  ssh -t "$TARGET" "sudo systemctl stop layerhound; sudo install -o layerhound -g layerhound -m 640 ~/$REMOTE_DIR/.import/layerhound.db /var/lib/layerhound/layerhound.db; \
+    [ -f ~/$REMOTE_DIR/.import/secret.key ] && sudo install -o layerhound -g layerhound -m 600 ~/$REMOTE_DIR/.import/secret.key /var/lib/layerhound/data/secret.key; rm -rf ~/$REMOTE_DIR/.import"
 fi
 
 if [ -z "$FULL" ]; then
@@ -61,16 +64,14 @@ if [ -z "$FULL" ]; then
 set -e
 cd ~/"$REMOTE_DIR"
 want=$(sha256sum deploy/setup.sh | cut -d' ' -f1)
-have=$(cat /var/lib/layerhound/setup.sha256 2>/dev/null || true)
+have=$(cat /etc/layerhound/setup.sha256 2>/dev/null || true)
 [ "$want" = "$have" ] || exit 10
-PORT=$(cat /var/lib/layerhound/port 2>/dev/null || echo 80)
-cd backend
-if ! cmp -s requirements.txt .venv/.installed-requirements; then
-  echo "==> Installing Python packages"
-  .venv/bin/pip install -q -r requirements.txt && cp requirements.txt .venv/.installed-requirements
-fi
-# Allowed without a password by the rule setup.sh installs for updates
-systemctl restart layerhound.service
+PORT=$(cat /etc/layerhound/port 2>/dev/null || echo 80)
+# Puts the code in /opt/layerhound (allowed without a password on a development board; otherwise
+# exit 10 runs the full setup)
+sudo -n /usr/local/sbin/layerhound-install-code "$HOME/$REMOTE_DIR" || exit 10
+# Allowed without a password on a development board (setup.sh, LAYERHOUND_DEV_DEPLOY)
+sudo -n "$(command -v systemctl)" restart layerhound.service
 for _ in $(seq 40); do
   if curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null; then
     URL="http://$(hostname).local"; [ "$PORT" = 80 ] || URL="$URL:$PORT"
@@ -88,4 +89,5 @@ QUICK
 fi
 
 echo "==> Running setup on the board (it may ask for the board's password for sudo)"
-ssh -t "$TARGET" "bash ~/$REMOTE_DIR/deploy/setup.sh"
+# LAYERHOUND_DEV_DEPLOY lets this account install code from ~/layerhound-src without a password next time
+ssh -t "$TARGET" "LAYERHOUND_DEV_DEPLOY=1 bash ~/$REMOTE_DIR/deploy/setup.sh"

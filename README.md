@@ -124,8 +124,9 @@ deploy/deploy.sh user@BOARD-HOSTNAME.local
 ```
 
 - Add `--with-db` the first time to copy the printers, devices, services and settings from your computer to the board. Leave it off for later updates so the board keeps its own data.
-- The script builds the dashboard, copies the project to `~/layerhound` on the board, and runs [`deploy/setup.sh`](deploy/setup.sh) there. That installs Python, the drive health tool (`smartctl`), ping and network tools, and the public IEEE manufacturer list used by network scans. It then sets up a `layerhound` service that starts on boot and restarts if it crashes. It may ask for the board's password once, for `sudo`.
-- **Later deploys are quicker:** they copy LayerHound, install any new Python packages and restart it, without asking for a password. The full setup (and its password prompt) runs again only when `deploy/setup.sh` has changed, or when you add `--full`.
+- The script builds the dashboard, copies the project to a staging folder (`~/layerhound-src`) on the board, and runs [`deploy/setup.sh`](deploy/setup.sh) there. That installs Python, the drive health tool (`smartctl`), ping and network tools, and the public IEEE manufacturer list used by network scans, then installs LayerHound to `/opt/layerhound` and sets up a `layerhound` service that starts on boot and restarts if it crashes. It may ask for the board's password once, for `sudo`.
+- **Where things live on the board:** the code in `/opt/layerhound` (owned by root, so LayerHound can't change its own code), its database, data and Files folder in `/var/lib/layerhound`, running as its own `layerhound` account with no login and no sudo. Installs from before 1.4 lived in `~/layerhound`; the first 1.4 setup moves them over and leaves the old folder as a fallback ([going back](docs/REVERT-OPT-MOVE.md)).
+- **Later deploys are quicker:** they copy LayerHound, put the code in place, install any new Python packages and restart it, without asking for a password (the first full setup from `deploy.sh` allows exactly that, for your account, on that board). The full setup (and its password prompt) runs again only when `deploy/setup.sh` has changed, or when you add `--full`.
 - When it finishes, open **http://BOARD-HOSTNAME.local**.
 
 Useful commands on the board:
@@ -139,12 +140,14 @@ journalctl -u layerhound -f
 
 ### Docker containers (optional)
 
-To list and restart containers on the Services page, give LayerHound access to Docker on the board, then restart the service:
+To list and restart containers on the Services page, give LayerHound's account access to Docker on the board, then restart the service:
 
 ```bash
-sudo usermod -aG docker $USER
+sudo usermod -aG docker layerhound
 sudo systemctl restart layerhound
 ```
+
+(The board setup does this by itself if your own account already has Docker access.)
 
 Docker access is effectively admin access to the board, so only do this on a network you trust.
 
@@ -154,14 +157,14 @@ Most settings live on the **Settings** page. A few can also be set with environm
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `LAYERHOUND_DB` | `backend/layerhound.db` | Database file (printers, devices, services, settings, history) |
-| `LAYERHOUND_FILES` | `~/LayerHound Files` | Shared files folder for the Storage page. It lives outside the app folder, so updates never touch it. |
+| `LAYERHOUND_DB` | `backend/layerhound.db` (on a board: `/var/lib/layerhound/layerhound.db`) | Database file (printers, devices, services, settings, history). The data folder (encryption key, backups, ...) is the `data` folder next to it. |
+| `LAYERHOUND_FILES` | `~/LayerHound Files` (on a board: `/var/lib/layerhound/files`) | Shared files folder for the Storage page. It lives outside the code, so updates never touch it. |
 | `LAYERHOUND_PORT` | `80` | Port used by `deploy/setup.sh` for the board service |
 | `LAYERHOUND_DOCKER_SOCK` | `/var/run/docker.sock` | Docker socket for the Services page |
 
 ## Privacy and security
 
-- **Your data stays on your network.** Printer access codes, API keys and service tokens are stored **encrypted** in the local database and are never sent to the browser. The encryption key is a separate file (`backend/data/secret.key`), so a copy of the database alone doesn't reveal them. If you move the database to another computer by hand, copy that key file with it (`deploy.sh --with-db` does this for you).
+- **Your data stays on your network.** Printer access codes, API keys and service tokens are stored **encrypted** in the local database and are never sent to the browser. The encryption key is a separate file (`data/secret.key` next to the database: `/var/lib/layerhound/data/secret.key` on a board), so a copy of the database alone doesn't reveal them. If you move the database to another computer by hand, copy that key file with it (`deploy.sh --with-db` does this for you).
 - **What LayerHound contacts outside your network:**
   - `1.1.1.1` and `8.8.8.8` (pings for internet health)
   - Cloudflare's `1.1.1.1/cdn-cgi/trace` (your public IP, every 15 minutes)
@@ -171,7 +174,7 @@ Most settings live on the **Settings** page. A few can also be set with environm
   - Tailscale, only after an admin connects **Settings → Remote access** (on the board, setup installs Tailscale from `tailscale.com`; it stays idle until then)
 - **Usage stats are off unless you say yes.** First-run setup asks, and you can change it in **Settings → Usage stats**, which shows exactly what's sent. With a yes, once a day LayerHound sends Team Tactical RC (through Google Forms): a random install ID made on your machine, the version, how it's installed, the board model, how many printers of each type, and your country (two letters, from the internet check above). Never names, addresses, serial numbers, access codes or print history.
 - **Feedback** is sent only when you press **Send** on the **Send feedback** page. It goes to Team Tactical RC through Google Forms, with your message, an optional email, the LayerHound version and (if you leave it on) basic system details shown on the page. For a problem report you can also include **recent problems**, with printer names, addresses, serial numbers and emails replaced; the page shows exactly what's included.
-- **Recent problems** (Settings) is a list of what went wrong lately (unreachable printers, failed commands and updates, crashes, including crashes in the dashboard page). It's kept on your board only (`backend/data/problems.json`, the last 200) and never sent on its own.
+- **Recent problems** (Settings) is a list of what went wrong lately (unreachable printers, failed commands and updates, crashes, including crashes in the dashboard page). It's kept on your board only (`data/problems.json`, the last 200) and never sent on its own.
 - **Bug reports** go to [GitHub Issues](https://github.com/TeamTacticalRC/LayerHound/issues) (public); **Report a bug on GitHub** in Settings prefills the form with the same scrubbed text, for you to review before submitting.
 - **Network scans** only run when you press **Scan network**, and only cover your local network (at most 254 addresses).
 - **Login:** the first visit creates the admin account (there are no default passwords). Admins can add **view-only** accounts and read-only **access keys** for devices in **Settings → Login & users**, and can let anyone on the local network view without signing in. Passwords are stored only as one-way hashes, and 5 wrong passwords pause sign-ins from that device for 5 minutes.

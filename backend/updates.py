@@ -173,7 +173,8 @@ def _install(latest,auto=False):
   write_job(**base,phase='verifying')
   if hashlib.sha256(package).hexdigest()!=manifest.get('sha256'): raise ValueError('The download is damaged (checksum mismatch)')
   if not verify(package,base64.b64decode(signature.strip())): raise ValueError('The package is not signed by Team Tactical RC; refusing to install it')
-  path=DIR/name; path.write_bytes(package)
+  # The signature goes next to it: the updater (root, on a board) checks it again itself
+  path=DIR/name; path.write_bytes(package); path.with_name(name+'.sig').write_bytes(signature)
   write_job(**base,phase='installing',package=str(path))
   r=subprocess.run(['systemctl','start','--no-block',UPDATER_UNIT],capture_output=True,text=True,timeout=30)
   if r.returncode!=0: raise RuntimeError(f"Couldn't start the updater: {r.stderr.strip() or 'unknown error'}")

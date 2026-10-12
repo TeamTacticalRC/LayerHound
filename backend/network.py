@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import ipaddress, json, os, re, socket, ssl, subprocess, sys, threading, time, urllib.request
 import psutil
-import settings
+import paths, settings
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -13,7 +13,7 @@ router=APIRouter(prefix='/api/network')
 CHECK_EVERY=60; IFACE_EVERY=5
 INTERNET_TARGETS=('1.1.1.1','8.8.8.8'); DNS_NAME='one.one.one.one'
 # IEEE manufacturer list (setup.sh downloads it); optional, discovery works without it
-OUI_PATH=Path(__file__).with_name('data')/'oui.csv'
+OUI_PATH=paths.DATA/'oui.csv'
 KINDS=('router','printer','computer','server','nas','camera','phone','other')
 MAC=sys.platform=='darwin'
 _db=None; state={'internet':{},'devices':{},'public_ip':None,'public_ip_at':0,'country':None}

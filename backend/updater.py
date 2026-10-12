@@ -1,12 +1,18 @@
 # Installs a downloaded, verified LayerHound update. Run by layerhound-updater.service (set up by
-# deploy/setup.sh) when an admin presses "Update now"; updates.py has already checked the signature.
+# deploy/setup.sh) when an admin presses "Update now", or by install.sh --update.
+#
+# On a board the updater runs as root (the code in /opt/layerhound is root's, so LayerHound itself
+# can't change it), while the update was downloaded by LayerHound's own account. So it checks the
+# package's Team Tactical RC signature again itself, with the key in this (root-owned) code, and only
+# takes packages from its own updates folder: a LayerHound that had been broken into couldn't get
+# root to install something else.
 #
 # 1. Back up the database and keep a copy of the current code.
 # 2. Put the new code in place (data, the database and the Python environment are kept).
 # 3. Install new Python packages if the requirements changed, then restart LayerHound.
 # 4. Wait for the new version to answer. If it doesn't, or anything above fails, put the old code
 #    and database back and restart, so the board keeps working on the version it had.
-import json, os, shutil, sqlite3, subprocess, sys, tarfile, time, urllib.request
+import base64, json, os, shutil, sqlite3, subprocess, sys, tarfile, time, urllib.request
 from pathlib import Path
 
 BACKEND=Path(__file__).resolve().parent; APP_DIR=BACKEND.parent
@@ -23,8 +29,24 @@ KEEP=('.venv','data','__pycache__')
 
 def log(msg): print(f'[updater] {msg}',flush=True)
 
+def give_back(path):
+ # Files the updater writes as root in LayerHound's data folder go back to LayerHound's account
+ if os.geteuid()!=0: return
+ try: st=DATA.stat(); os.chown(path,st.st_uid,st.st_gid)
+ except OSError: pass
+
 def write_state(**job):
- tmp=UPDATES/'state.json.tmp'; tmp.write_text(json.dumps(job)); tmp.replace(UPDATES/'state.json')
+ tmp=UPDATES/'state.json.tmp'; tmp.write_text(json.dumps(job)); tmp.replace(UPDATES/'state.json'); give_back(UPDATES/'state.json')
+
+def check_package(path):
+ # Only a package in our own updates folder, with a valid Team Tactical RC signature next to it
+ p=Path(path).resolve()
+ if p.parent!=UPDATES.resolve() or not p.name.endswith('.tar.gz'): raise ValueError(f'Refusing a package outside the updates folder: {path}')
+ sig=p.with_name(p.name+'.sig')
+ if not sig.exists(): raise ValueError('The package has no signature next to it')
+ from updates import verify   # the same key LayerHound checks downloads with
+ if not verify(p.read_bytes(),base64.b64decode(sig.read_bytes().strip())): raise ValueError('The package is not signed by Team Tactical RC; refusing to install it')
+ return p
 
 def kept(rel):
  # Paths (relative to the app folder) an update must never replace or delete
@@ -69,12 +91,12 @@ def restore_code():
   if (ROLLBACK/d).exists(): sync(ROLLBACK/d,APP_DIR/d,d)
 
 def backup_db(version):
- BACKUPS.mkdir(parents=True,exist_ok=True)
+ BACKUPS.mkdir(parents=True,exist_ok=True); give_back(BACKUPS)
  if not DB_PATH.exists(): return None
  dest=BACKUPS/f'layerhound-{version}-{time.strftime("%Y%m%d-%H%M%S")}.db'
  src=sqlite3.connect(DB_PATH); out=sqlite3.connect(dest)
  with out: src.backup(out)
- src.close(); out.close()
+ src.close(); out.close(); give_back(dest)
  for old in sorted(BACKUPS.glob('layerhound-*.db'))[:-KEEP_BACKUPS]: old.unlink()
  return dest
 
@@ -105,12 +127,15 @@ def wait_for(version,timeout=HEALTH_WAIT):
 def run(job):
  version,old=job['version'],job['from_version']; base={k:job[k] for k in ('version','from_version','started','auto') if k in job}
  write_state(**base,phase='installing')
+ try: package=check_package(job['package'])
+ except Exception as e:
+  log(f'not installing: {e}'); write_state(**base,phase='failed',error=str(e),rolled_back=False,finished=time.time()); return
  backup=backup_db(old); log(f'database backed up to {backup}')
  snapshot(); log('current version saved for rollback')
  stage=UPDATES/'new'; old_reqs=(BACKEND/'requirements.txt').read_text(); reqs_changed=False
  try:
   if stage.exists(): shutil.rmtree(stage)
-  new=safe_extract(job['package'],stage)
+  new=safe_extract(package,stage)
   for d in CODE_DIRS:
    if (new/d).exists(): sync(new/d,APP_DIR/d,d)
   reqs_changed=(BACKEND/'requirements.txt').read_text()!=old_reqs
@@ -130,8 +155,9 @@ def run(job):
   write_state(**base,phase='failed',error=str(e),rolled_back=back,finished=time.time())
  finally:
   shutil.rmtree(stage,ignore_errors=True)
-  try: Path(job['package']).unlink()
-  except OSError: pass
+  for f in (Path(job['package']),Path(str(job['package'])+'.sig')):
+   try: f.unlink()
+   except OSError: pass
 
 def main():
  try: job=json.loads((UPDATES/'state.json').read_text())

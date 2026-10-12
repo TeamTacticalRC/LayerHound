@@ -10,12 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import auth, discovery, fan, history, hotspot, lightbar, problems, remote, stats, updates, vault, media, network, services, settings, storage, wifi
+import auth, discovery, fan, history, hotspot, lightbar, paths, problems, remote, stats, updates, vault, media, network, services, settings, storage, wifi
 from fastapi.responses import JSONResponse, Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
 def env(name): return os.environ.get(f'LAYERHOUND_{name}') or os.environ.get(f'TTRC_{name}')
-DB_PATH=Path(env('DB') or Path(__file__).with_name('layerhound.db')); TIMEOUT=4
+DB_PATH=paths.DB_PATH; TIMEOUT=4   # see paths.py: /var/lib/layerhound on a board
 # Installs from before the rename used ttrc.db; carry it over once
 if not env('DB') and not DB_PATH.exists() and DB_PATH.with_name('ttrc.db').exists(): DB_PATH.with_name('ttrc.db').rename(DB_PATH)
 # Built frontend (npm run build). When present, this server hosts the whole dashboard.

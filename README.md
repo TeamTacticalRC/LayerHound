@@ -187,23 +187,33 @@ Most settings live on the **Settings** page. A few can also be set with environm
 
 ```
 backend/            Python API (FastAPI)
-  main.py           printers, system stats, app setup
+  main.py           printers, printer controls, system stats, app setup
+  paths.py          where the database, data and files live
   storage.py        drive health, usage history, shared files
-  network.py        internet health, device monitor, interfaces, discovery
+  network.py        internet health, device monitor, interfaces, scans
+  discovery.py      printer suggestions
   services.py       service checks, Home Assistant / Pi-hole, Docker
   settings.py       settings, backups, about/restart
-  auth.py           login, accounts, sessions, access keys
+  auth.py           login, accounts, sessions, access keys, recovery key
   vault.py          encryption for stored access codes and tokens
+  history.py        print history
+  problems.py       Recent problems
+  remote.py         remote access with Tailscale
+  stats.py          optional anonymous usage stats
   fan.py            case fan speed from the chip temperature
-  updates.py        update check and one-click install (with updater.py)
+  updates.py        update checks and installs (with updater.py, which runs as root on a board)
   hotspot.py        LayerHound-Setup hotspot for Wi-Fi setup without a cable
+  lightbar.py       the status light's colors (light not released yet)
   manage.py         owner tools on the board (reset-password, hotspot)
 src/                Dashboard (React + Tailwind)
-deploy/             install.sh (one-line installer), deploy.sh (developer deploy from your computer), setup.sh (board setup)
-docs/GUIDE.md       Owner's guide
+deploy/             install.sh (one-line installer and --update), setup.sh (board setup), install-code.sh,
+                    deploy.sh (developer deploy from your computer), revert-to-home-install.sh
+docs/               GUIDE.md (owner's guide), print/ (printed setup guide), REVERT-OPT-MOVE.md
 hardware/case/      Printable case for the ROCK 4D
+hardware/lightbar/  Status light: firmware and printable housing (in progress)
 scripts/release.py  Publishes a signed release (see RELEASING.md)
 ROADMAP.md          What's planned next
+CONTRIBUTING.md     How to help
 ```
 
 ## Running the tests
@@ -226,10 +236,11 @@ The tests use their own temporary database and files folder, so they never touch
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Highlights:
-- a Wi-Fi LED status bar that shows each printer's state
-- a one-line installer
-- a ready-to-run LayerHound board
+See [ROADMAP.md](ROADMAP.md). Coming up: a Wi-Fi status light for your desk that shows each printer's state, and a ready-to-run LayerHound board.
+
+## Contributing
+
+Bug reports, ideas, testing (especially with OctoPrint) and code are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report bugs on [GitHub Issues](https://github.com/TeamTacticalRC/LayerHound/issues), and security problems privately ([SECURITY.md](SECURITY.md)).
 
 ## License
 

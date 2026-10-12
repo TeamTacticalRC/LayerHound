@@ -112,7 +112,7 @@ LayerHound **watches** your printers. Controlling them is optional and off by de
 | **Storage** | Drive health and space, and a shared **LayerHound Files** folder for uploads and downloads. |
 | **Network** | Internet health, devices you monitor, Wi-Fi settings and the network scan. |
 | **Services** | Quick links and health checks for your other home-lab apps, plus Home Assistant and Pi-hole stats. |
-| **Settings** | Farm name, colors, light or dark mode, alerts, fan, accounts, backups, updates and remote access. |
+| **Settings** | In tabs: **General** (farm name, light or dark mode, alerts), **Printers** (printer controls, discovery), **Accounts** (users, recovery key, your password), **Network** (remote access, setup hotspot) and **System** (updates, backups, recent problems, maintenance, fan, usage stats). |
 
 **Light or dark:** use the moon, sun and screen buttons under the logo. Each device remembers its own choice.
 

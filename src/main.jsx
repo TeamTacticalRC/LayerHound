@@ -791,7 +791,7 @@ function PrintControls({ printer, onDone }) {
   const [asking, setAsking] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
-  if (!prefs.printer_controls) return <p className="mt-3 text-xs text-slate-600">To pause or cancel prints from here, turn on Settings → Printer controls.</p>;
+  if (!prefs.printer_controls) return <p className="mt-3 text-xs text-slate-600">To pause or cancel prints from here, turn on <SettingsLink tab="printers">Settings → Printer controls</SettingsLink>.</p>;
   const run = async action => {
     setBusy(true); setMsg(null);
     // LayerHound waits for the printer to report the new state; "unconfirmed" means it didn't
@@ -846,7 +846,7 @@ function StartPrint({ printer, onDone }) {
   const [listError, setListError] = useState("");
   const enabled = prefs.printer_controls && prefs.printer_start;
   useEffect(() => { if (enabled && source === "printer" && files === null && !listError) getPrinterFiles(printer.id).then(r => setFiles(r.files)).catch(e => setListError(e.message)); }, [enabled, source, files, listError, printer.id]);
-  if (!enabled) return <p className="mt-3 text-xs text-slate-600">To start prints from here, turn on Settings → Printer controls → Also allow starting prints.</p>;
+  if (!enabled) return <p className="mt-3 text-xs text-slate-600">To start prints from here, turn on <SettingsLink tab="printers">Settings → Printer controls → Also allow starting prints</SettingsLink>.</p>;
   // After starting, once the printer is busy, just show how it went
   if (printer.state !== "idle" && printer.state !== "complete") return msg && (
     <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5" data-admin>
@@ -3216,7 +3216,7 @@ function RecoveryPrompt() {
   return (
     <section className="mb-6 rounded-2xl border border-violet-400/25 bg-violet-500/[.06] p-5">
       <h2 className="flex items-center gap-2 font-semibold text-white"><KeyRound size={17} className="text-violet-400" /> Save a recovery key</h2>
-      <p className="mt-1 text-sm text-slate-400">If you forget your admin password, a recovery key lets you set a new one from the login screen, no terminal needed. You can also do this later in Settings → Login & users.</p>
+      <p className="mt-1 text-sm text-slate-400">If you forget your admin password, a recovery key lets you set a new one from the login screen, no terminal needed. You can also do this later in <SettingsLink tab="accounts">Settings → Login & users</SettingsLink>.</p>
       <RecoveryKeyMaker first onDone={() => setR({ exists: true })} />
       <button onClick={hide} className="mt-2 text-xs text-slate-500 hover:text-slate-300">Not now</button>
     </section>
@@ -3556,37 +3556,61 @@ function AccessSection({ onSaved }) {
   );
 }
 
+// Settings is split into tabs, so it isn't one long scroll. Within each tab, the most-used
+// sections come first. The last tab is remembered on each device; links elsewhere in the dashboard
+// can open a tab directly (SettingsLink).
+const SETTINGS_TABS = [
+  ["general", "General", LayoutDashboard],
+  ["printers", "Printers", Printer],
+  ["accounts", "Accounts", Users],
+  ["network", "Network", Globe],
+  ["system", "System", Server],
+];
+const nav = { openSettings: null };   // set by App
+function SettingsLink({ tab, children }) {
+  return <button type="button" onClick={() => nav.openSettings?.(tab)} className="text-violet-300 underline-offset-2 hover:text-violet-200 hover:underline">{children}</button>;
+}
+function readSettingsTab() { try { const t = localStorage.getItem("lh-settings-tab"); return SETTINGS_TABS.some(([k]) => k === t) ? t : "general"; } catch { return "general"; } }
+
 function SettingsPage({ onSaved, onRestored }) {
+  const [tab, setTabState] = useState(readSettingsTab);
+  const setTab = t => { setTabState(t); try { localStorage.setItem("lh-settings-tab", t); } catch { /* this visit only */ } };
+  useEffect(() => {   // a SettingsLink while Settings is already open
+    const go = e => setTabState(e.detail);
+    addEventListener("lh-settings-tab", go); return () => removeEventListener("lh-settings-tab", go);
+  }, []);
+  // On a phone, the tab row scrolls sideways: keep the selected tab in view
+  useEffect(() => { document.getElementById(`settings-tab-${tab}`)?.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }, [tab]);
+  const sections = {
+    general: <><BrandingSection onSaved={onSaved} /><AppearanceSection /><AlertsSection onSaved={onSaved} /></>,
+    printers: <><PrinterControlsSection onSaved={onSaved} /><DiscoverySection onSaved={onSaved} /></>,
+    accounts: <><AccessSection onSaved={onSaved} />{session.user?.kind === "user" && <AccountSection />}</>,
+    network: <><RemoteAccessSection /><HotspotSection onSaved={onSaved} /></>,
+    system: <><UpdatesSection onSaved={onSaved} /><DataSection onSaved={onSaved} onRestored={onRestored} /><ProblemsSection /><AboutSection /><FanSection onSaved={onSaved} /><UsageStatsSection onSaved={onSaved} /></>,
+  };
   return (
     <>
-      <div className="mb-7">
+      <div className="mb-5">
         <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
-        <p className="mt-2 text-sm text-slate-500">{isAdmin() ? "Your farm, alerts, updates, accounts, backups and maintenance." : "Your account. Other settings can be changed by an admin."}</p>
+        <p className="mt-2 text-sm text-slate-500">{isAdmin() ? "Your farm, printers, accounts, network and system." : "Your account. Other settings can be changed by an admin."}</p>
       </div>
-      <div className="space-y-4">
-        {/* Ordered by how often owners need each section: everyday choices first, set-once ones later */}
-        {isAdmin() ? <>
-          <BrandingSection onSaved={onSaved} />
-          <AppearanceSection />
-          <AlertsSection onSaved={onSaved} />
-          <UpdatesSection onSaved={onSaved} />
-          <AccessSection onSaved={onSaved} />
-          {session.user?.kind === "user" && <AccountSection />}
-          <RemoteAccessSection />
-          <PrinterControlsSection onSaved={onSaved} />
-          <DiscoverySection onSaved={onSaved} />
-          <DataSection onSaved={onSaved} onRestored={onRestored} />
-          <FanSection onSaved={onSaved} />
-          <HotspotSection onSaved={onSaved} />
-          <AboutSection />
-          <ProblemsSection />
-          <UsageStatsSection onSaved={onSaved} />
-        </> : <>
+      {isAdmin() ? <>
+        <div role="tablist" aria-label="Settings sections" className="-mx-4 mb-5 flex gap-1 overflow-x-auto border-b border-white/8 px-4 sm:mx-0 sm:px-0">
+          {SETTINGS_TABS.map(([key, label, Icon]) => (
+            <button key={key} role="tab" id={`settings-tab-${key}`} aria-selected={tab === key} aria-controls="settings-panel" onClick={() => setTab(key)}
+              className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm transition ${tab === key ? "border-violet-400 text-white" : "border-transparent text-slate-500 hover:text-slate-300"}`}>
+              <Icon size={15} className={tab === key ? "text-violet-400" : ""} /> {label}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${tab}`} className="space-y-4">{sections[tab]}</div>
+      </> : (
+        <div className="space-y-4">
           <AppearanceSection />
           {session.user?.kind === "user" && <AccountSection />}
           <AboutSection />
-        </>}
-      </div>
+        </div>
+      )}
     </>
   );
 }
@@ -3926,6 +3950,12 @@ function HistoryPage({ printers }) {
 
 function Dashboard({ onSignOut, onSignIn }) {
   const [selected, setSelected] = useState(null);
+  // Links elsewhere in the dashboard open a Settings tab directly (closing any open printer panel)
+  nav.openSettings = tab => {
+    try { localStorage.setItem("lh-settings-tab", tab); } catch { /* this visit only */ }
+    setSelected(null); setPage("settings");
+    dispatchEvent(new CustomEvent("lh-settings-tab", { detail: tab }));
+  };
   const [page, setPage] = useState("dashboard");
   const [menu, setMenu] = useState(false);
   const [system, setSystem] = useState(null);

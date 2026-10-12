@@ -189,6 +189,7 @@ def test_recent_problems_and_feedback(browser, base_url):
     # A crash in the page reaches Recent problems (as a page would report it)
     assert api(page, "POST", "/api/problems/report", {"message": "TypeError: card is undefined", "detail": "at Card", "page": "printers"})["status"] == 200
     page.reload(); open_page(page, "Settings")
+    page.get_by_role("tab", name="System").click()
     section = page.locator("section", has_text="Recent problems")
     section.get_by_text("card is undefined", exact=False).wait_for()
     link = section.get_by_role("link", name="Report a bug on GitHub").get_attribute("href")
@@ -200,5 +201,32 @@ def test_recent_problems_and_feedback(browser, base_url):
     page.get_by_role("button", name="Show exactly what's included").click()
     page.get_by_text("[Dashboard page]", exact=False).wait_for()
     api(page, "DELETE", "/api/problems")
+    assert not page.problems.items, page.problems.items
+    page.context.close()
+
+
+def test_settings_tabs(browser, base_url):
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    page.reload(); open_page(page, "Settings")
+    tabs = page.get_by_role("tab")
+    assert tabs.all_inner_texts() == ["General", "Printers", "Accounts", "Network", "System"]
+    # One tab's sections at a time
+    page.get_by_role("tab", name="General").click()
+    page.get_by_role("heading", name="Appearance").wait_for()
+    assert page.get_by_text("Recent problems", exact=True).count() == 0
+    page.get_by_role("tab", name="System").click()
+    page.get_by_role("heading", name="Recent problems").wait_for()
+    assert page.get_by_role("tab", name="System").get_attribute("aria-selected") == "true"
+    # Remembered on this device
+    page.reload(); open_page(page, "Settings")
+    page.get_by_role("heading", name="Recent problems").wait_for()
+    # A link in a printer's panel opens the right tab (and closes the panel)
+    fake = {"id": 4244, "name": "Link Klipper", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "printing", "progress": 10, "base_url": "http://127.0.0.1:9"}
+    page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
+    open_page(page, "Print Farm"); page.get_by_text("Link Klipper").first.click()
+    page.get_by_role("button", name="Settings → Printer controls").click()
+    page.get_by_role("heading", name="Printer controls").wait_for()
+    assert page.get_by_role("tab", name="Printers").get_attribute("aria-selected") == "true"
     assert not page.problems.items, page.problems.items
     page.context.close()

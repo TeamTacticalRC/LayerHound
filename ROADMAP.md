@@ -9,8 +9,9 @@
 - [ ] **Status light** (its own release): software built, housing v1.1 printed; waiting on parts to wire and test. See [Status light](#status-light).
 - [ ] **Starting prints on Bambu:** only if the printer is in LAN Only + Developer Mode (see [Printer controls](#printer-controls)).
 - [ ] **Automatic crash reports** (opt-in, e.g. Sentry): decide after the announcement, once there's feedback to judge by.
+- [ ] **LayerHound card:** a ready-to-use memory card image for the ROCK 4D (see [LayerHound card](#layerhound-card-bring-your-own-board)).
 - [ ] **Native Windows version:** only if people ask (Send feedback). Meanwhile WSL2 with mirrored networking runs the Linux installer.
-- [ ] Kyle's items: 2FA on the email account linked to GitHub, register `layerhound.com` and social handles, brand guide, and the [plug-and-play board](#plug-and-play-board) business items.
+- [ ] Kyle's items: register `layerhound.com`, list LayerHound on ttrc.us and Etsy, brand guide, and the [LayerHound card](#layerhound-card-bring-your-own-board) business items.
 
 ## Status light
 
@@ -118,12 +119,12 @@ Open source means anyone can read and fork the code, but only people with write 
 - [x] **Checks on every pull request and push** (`.github/workflows/checks.yml`): backend tests (Python 3.10 and 3.12), frontend build, browser tests, deploy scripts (`bash -n` and shellcheck). Plus CodeQL (`codeql.yml`) and the Docker image build and test (`docker.yml`).
 - [x] **Dependabot**, **`SECURITY.md`** (private reporting), **branch protection on `main`** (2026-10-05), **secret scanning** with push protection.
 - [x] **2FA and a passkey** on the TeamTacticalRC GitHub account (2026-10-02). Keep the recovery codes somewhere safe off the computer.
-- [ ] **2FA on the email account** connected to GitHub, since it can be used to reset access.
+- [x] **2FA on the email account** connected to GitHub (2026-10-12, Google account): it can reset other accounts and holds the feedback and usage-stats responses.
 - [x] **Contributing guide and review rules** (2026-10-12): [CONTRIBUTING.md](CONTRIBUTING.md): small pull requests, issues first for big changes, tests required, extra care for installing/updating, sign-in, commands, file paths, network calls, printer controls and secrets; only the maintainer merges; contributors agree to AGPL plus permission for Team Tactical RC to offer other licenses. A pull request template asks for the same.
 - [x] **Official releases** with checksums and **signed updates** (Ed25519), built and signed on the release Mac.
 
 ## Branding & business
-Plan: free **open-source software**, plus a **pre-built plug-and-play board** sold by Team Tactical RC (the Home Assistant model: open software, with Home Assistant Green hardware for people who want it ready to go).
+Plan: free **open-source software**, plus a **ready-to-go LayerHound card** (and printed case and guide) sold by Team Tactical RC for people who want it easy. Customers bring their own board (see [LayerHound card](#layerhound-card-bring-your-own-board)).
 
 ### Decisions
 - [x] **Product name: LayerHound** (chosen 2026-10-01). "LayerHound by Team Tactical RC".
@@ -133,19 +134,30 @@ Plan: free **open-source software**, plus a **pre-built plug-and-play board** so
 - [x] **Disclaimers** (README and owner's guide): "not affiliated with" Bambu Lab, Klipper, OctoPrint and others. Don't use their logos.
 
 ### Launch checklist
-- [ ] **Register `layerhound.com`** (and ideally `.io`) and social handles. Unclaimed on 2026-10-01; do this first.
+- [ ] **Register `layerhound.com`** (and ideally `.io`). Unclaimed on 2026-10-01; do this first.
+- [ ] **List LayerHound on ttrc.us and Etsy** (decided 2026-10-12): the shop pages are where people find it. No Facebook or Instagram accounts for now.
 - [ ] **Announce** (Kyle).
 - [ ] Optionally claim a `layerhound` GitHub organization name to protect it.
 - [ ] Logo and simple brand guide (name usage, colors; the accent color system already exists).
 - [x] Rename in the code (2026-10-01), `LICENSE` and `TRADEMARKS.md` (2026-10-04), contributing guide (2026-10-12).
 
-### Plug-and-play board
-- [ ] **Hardware:** the board (currently ROCK 4D; confirm long-term availability), the printed case (`hardware/case/`, version 3 test-printed 2026-10-07: full-footprint base bracing the port wall, Bumpon SJ5302 feet, fan held with M3 bolts), a power supply, and the status light as an optional add-on.
-- [ ] **Case fan for production:** 40 × 40 × 10 mm 5 V fans pre-terminated with a **2-pin 1.25 mm plug** (the ROCK 4D's fan header) at a set wire length, so no splicing is needed. Check plug polarity against Radxa's fan header page.
-- [x] **Fan speed by temperature** (2026-10-04, `backend/fan.py`): quiet up to 45 °C, full at 65 °C (adjustable); full speed if LayerHound stops or can't read a temperature.
+### LayerHound card (bring your own board)
+**Plan (decided 2026-10-12):** sell a **memory card with LayerHound already on it**, plus optionally the printed case and the paper setup guide. The customer buys the board (ROCK 4D) themselves. Why: a finished board with a radio needs FCC testing and a Declaration of Conformity before it can be sold, and the ROCK 4D has no FCC certification yet. A memory card, a printed case and a guide aren't devices that need FCC approval, and the board's FCC status stays with Radxa. A complete board can come back later if it's worth the testing.
+
+- [ ] **Card image build script:** Radxa's OS with LayerHound in `/opt/layerhound`, built by a script so every card is identical. Also published as a **free download** to flash yourself (like OctoPi).
+- [ ] **Unique per card:** on first start, each card creates its own secret key, SSH host keys and board password prompt; nothing secret is baked into the image. Test by booting two cards from the same image.
 - [x] **First boot** (v0.5.0): plug in Ethernet and power, open `http://layerhound.local`, name the farm, create the admin account, save the recovery key, and printers are suggested.
 - [x] **No-cable Wi-Fi setup** (2026-10-02; tested 2026-10-04): with no network, the board opens **"LayerHound-Setup"**; a phone that joins it gets the setup page (pick the home Wi-Fi, and on a new board name the farm and create the admin account).
 - [x] **Updates in the field:** signed one-click and automatic updates with rollback; `install.sh --update` for setup changes.
 - [x] **Locked down:** LayerHound runs as its own account, can't change its own code, and only installs signed updates (v1.4.0).
-- [ ] **Compliance:** check FCC requirements for the finished product (a pre-certified board helps).
-- [ ] **Business:** price (Home Assistant Green is roughly $100–130 for reference), warranty, returns and support.
+- [ ] **Setup guide for the card:** "buy this exact board, put the card in, plug in power (and Ethernet if you have it)", with a direct link to the right board and power supply.
+- [ ] **Cards:** brand-name **high-endurance** microSD cards (LayerHound writes to its database all the time). Name the kind in the guide for people flashing their own.
+- [ ] **Licensing notice:** the image includes Linux and other free software: include a short notice with links to their source code, and check Radxa's terms for sharing their OS image.
+- [ ] **Etsy:** check that a card with software on it fits Etsy's rules (ttrc.us has no such question).
+- [ ] **Case** (sold printed, or as free STL files): `hardware/case/`, version 3 test-printed 2026-10-07: full-footprint base bracing the port wall, Bumpon SJ5302 feet, fan held with M3 bolts. The board must be confirmed available long-term.
+- [ ] **Case fan:** 40 × 40 × 10 mm 5 V fans pre-terminated with a **2-pin 1.25 mm plug** (the ROCK 4D's fan header) at a set wire length, so no splicing is needed. Check plug polarity against Radxa's fan header page.
+- [x] **Fan speed by temperature** (2026-10-04, `backend/fan.py`): quiet up to 45 °C, full at 65 °C (adjustable); full speed if LayerHound stops or can't read a temperature.
+- [ ] **Status light as a kit:** sell the printed housing and a pre-flashed ESP32 (and parts) rather than a finished, powered light, for the same FCC reason. Confirm where the kit line is with a test lab.
+- [ ] **Compliance check:** a short (often free) call with an EMC test lab to confirm the card and kits need no FCC testing. General information so far, not legal advice.
+- [ ] **Later, a complete board (optional):** only after Radxa confirms FCC status for the ROCK 4D and its Wi-Fi module (FCU760K) has an FCC ID; then FCC Part 15 Subpart B Class B testing of the finished product at a lab, a Declaration of Conformity from Team Tactical RC, and the label and manual statements. Or use a board with FCC paperwork already (e.g. Raspberry Pi).
+- [ ] **Business:** price, returns and support for the card and kits.

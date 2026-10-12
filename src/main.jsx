@@ -780,6 +780,13 @@ const CONTROL_TEXT = {
   resume: { label: "Resume", ask: "Resume this print? Check the printer is ready to continue.", button: "Resume print", done: "Resumed." },
   cancel: { label: "Cancel print", ask: "Cancel this print? It can't be resumed afterwards.", button: "Cancel print", done: "Cancelled." },
 };
+// When the printer confirms after LayerHound stopped waiting, turn the amber warning into the success
+// message (the panel's printer is live, so its state updates on its own)
+const CONTROL_DONE = { pause: ["paused"], resume: ["printing"], cancel: ["idle", "complete"] };
+function LateConfirm({ msg, setMsg, done, text }) {
+  useEffect(() => { if (msg?.warn && done) setMsg({ ok: true, text }); }, [msg, done, text, setMsg]);
+  return null;
+}
 function PrintControls({ printer, onDone }) {
   const [asking, setAsking] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -788,13 +795,14 @@ function PrintControls({ printer, onDone }) {
   const run = async action => {
     setBusy(true); setMsg(null);
     // LayerHound waits for the printer to report the new state; "unconfirmed" means it didn't
-    try { const r = await controlPrinter(printer.id, action); setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message } : { ok: true, text: CONTROL_TEXT[action].done }); onDone(); }
+    try { const r = await controlPrinter(printer.id, action); setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, action } : { ok: true, text: CONTROL_TEXT[action].done }); onDone(); }
     catch (e) { setMsg({ ok: false, text: e.message }); }
     setBusy(false); setAsking(null);
   };
   const paused = printer.state === "paused";
   return (
     <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5" data-admin>
+      <LateConfirm msg={msg} setMsg={setMsg} done={msg?.action && CONTROL_DONE[msg.action]?.includes(printer.state)} text={msg?.action && CONTROL_TEXT[msg.action].done} />
       <div className="text-xs uppercase tracking-wider text-slate-600">Controls</div>
       {asking ? (
         <div className={`mt-3 rounded-xl border p-3 ${asking === "cancel" ? "border-red-500/25 bg-red-500/6" : "border-violet-400/25 bg-violet-500/6"}`}>
@@ -836,6 +844,14 @@ function StartPrint({ printer, onDone }) {
   const enabled = prefs.printer_controls && prefs.printer_start;
   useEffect(() => { if (enabled && source === "printer" && files === null) getPrinterFiles(printer.id).then(r => setFiles(r.files)).catch(e => { setFiles([]); setMsg({ ok: false, text: e.message }); }); }, [enabled, source, files, printer.id]);
   if (!enabled) return <p className="mt-3 text-xs text-slate-600">To start prints from here, turn on Settings → Printer controls → Also allow starting prints.</p>;
+  // After starting, once the printer is busy, just show how it went
+  if (printer.state !== "idle" && printer.state !== "complete") return msg && (
+    <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5" data-admin>
+      <LateConfirm msg={msg} setMsg={setMsg} done={printer.state === "printing"} text={`Printing ${msg?.name ?? ""}.`} />
+      <div className="text-xs uppercase tracking-wider text-slate-600">Start a print</div>
+      <p className={`mt-3 text-sm ${msg.ok ? "text-emerald-300" : msg.warn ? "text-amber-200" : "text-red-300"}`}>{msg.text}</p>
+    </div>
+  );
   const starting = source === "printer" || startNow;
   const ready = (source === "printer" ? !!chosen : !!upload) && (!starting || clear) && !busy;
   const shown = (files ?? []).filter(f => f.path.toLowerCase().includes(search.toLowerCase()));
@@ -845,7 +861,7 @@ function StartPrint({ printer, onDone }) {
       let r;
       if (source === "printer") { setBusy("starting"); r = await startPrinterFile(printer.id, chosen); }
       else { setBusy({ progress: 0 }); r = await sendPrintFile(printer.id, upload, startNow, p => setBusy(p < 1 ? { progress: p } : "starting")); }
-      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message } : { ok: true, text: r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}.` : `Printing ${r.name}.` });
+      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}.` : `Printing ${r.name}.` });
       setClear(false); onDone();
       if (r.status === "uploaded") { setUpload(null); setFiles(null); }
     } catch (e) { setMsg({ ok: false, text: e.message }); }
@@ -853,6 +869,7 @@ function StartPrint({ printer, onDone }) {
   };
   return (
     <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5" data-admin>
+      <LateConfirm msg={msg} setMsg={setMsg} done={printer.state === "printing"} text={`Printing ${msg?.name ?? ""}.`} />
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-wider text-slate-600">Start a print</div>
         <Segmented label="File source" value={source} onChange={v => { setSource(v); setMsg(null); }} options={[["printer", "On the printer"], ["upload", "Upload"]]} />
@@ -898,6 +915,7 @@ function StartPrint({ printer, onDone }) {
 }
 
 function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
+  const [started, setStarted] = useState(false);   // keep "Start a print" on screen after starting, for its result
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -951,7 +969,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
       </div>
       {!isDemo && isAdmin() && (printer.state === "printing" || printer.state === "paused") && <PrintControls printer={printer} onDone={onRemoved} />}
       {printer.hasCamera && !isDemo && <CameraView printer={printer} />}
-      {!isDemo && isAdmin() && (printer.state === "idle" || printer.state === "complete") && printer.type !== "bambu" && <StartPrint printer={printer} onDone={onRemoved} />}
+      {!isDemo && isAdmin() && (printer.state === "idle" || printer.state === "complete" || started) && printer.type !== "bambu" && <StartPrint printer={printer} onDone={() => { setStarted(true); onRemoved(); }} />}
       <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
         <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : "Connected"}</div>

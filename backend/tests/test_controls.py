@@ -250,3 +250,32 @@ def test_viewers_cannot_send_or_list(client, starting):
     assert upload(v, ids["moonraker"], start=True, bed_clear=True).status_code == 403
     assert v.get(f"/api/printers/{ids['moonraker']}/files").status_code == 403
     assert uploads == []
+
+
+def test_slow_printer_still_confirms(client, starting, monkeypatch):
+    # What the Elegoo did: it started, but its first readings timed out. The check must keep asking
+    # (not fall back to the remembered "idle") and report it once the printer answers.
+    ids, states, sent, uploads = starting
+    pid = ids["moonraker"]
+    monkeypatch.setattr(main, "START_WAIT", 5)
+    answers = iter([{"state": "idle"}, {"state": "offline", "connected": False}, {"state": "offline", "connected": False}])
+    def snapshot(r, grace=True):
+        if r["id"] != pid: return {"id": r["id"], "name": r["name"], "state": states[r["id"]]}
+        if grace: return {"id": pid, "name": r["name"], "state": "idle"}           # the remembered reading
+        return {"id": pid, "name": r["name"], **next(answers, {"state": states[pid]})}
+    monkeypatch.setattr(main, "snapshot", snapshot)
+    r = upload(client, pid, start=True, bed_clear=True).json()
+    assert r["status"] == "done" and r["printer"]["state"] == "printing"
+
+
+def test_timeouts_are_not_a_cancel(client, farm, monkeypatch):
+    ids, states, sent = farm
+    pid = ids["moonraker"]
+    ids["_obey"]["on"] = False
+    first = {"done": False}
+    def snapshot(r, grace=True):
+        if not first["done"]: first["done"] = True; return {"id": pid, "name": r["name"], "state": "printing"}
+        return {"id": pid, "name": r["name"], "state": "offline", "connected": False}   # every later reading times out
+    monkeypatch.setattr(main, "snapshot", snapshot)
+    r = act(client, pid, "cancel").json()
+    assert r["status"] == "unconfirmed" and "didn't answer in time" in r["message"]

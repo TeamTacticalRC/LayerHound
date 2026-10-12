@@ -183,12 +183,23 @@ def snapshot(r,grace=True):
 CONTROL_ALLOWED={'pause':('printing',),'resume':('paused',),'cancel':('printing','paused')}
 CONTROL_PAST={'pause':'paused','resume':'resumed','cancel':'cancelled'}
 BAMBU_COMMAND={'pause':'pause','resume':'resume','cancel':'stop'}
-BAMBU_WAIT=6; CONFIRM_WAIT=12
+BAMBU_WAIT=6; CONFIRM_WAIT=20
 # The state that shows each action worked
-CONFIRMED={'pause':('paused',),'resume':('printing',),'cancel':('idle','complete','error','offline')}
+CONFIRMED={'pause':('paused',),'resume':('printing',),'cancel':('idle','complete','error')}   # never 'offline': that's just a slow answer
 BAMBU_SILENT=("{name} didn't respond and is still {state}. Bambu firmware from 2025 on ignores pause and stop from other apps "
  "unless the printer is in LAN Only mode with Developer Mode on (on the printer's screen: Settings, then LAN Only / Developer Mode). "
  "Until then, use the printer's screen or the Bambu Handy app.")
+
+def confirm_read(r):
+ # A fresh reading for confirming an action. The dashboard's usual reading keeps showing the last
+ # good status for a while when a printer answers slowly, which would hide the change we're
+ # waiting for; here a slow or failed reading just means "don't know yet" (connected=False).
+ x=snapshot(r,grace=False)
+ if x.get('connected',True):
+  printer_cache[r['id']]=(time.time(),r['base_url'],x)
+  try: history.observe(x)
+  except Exception as e: print('history error:',e,flush=True)
+ return x
 
 def post_json(u,body=None,headers=None):
  data=json.dumps(body).encode() if body is not None else b''
@@ -246,11 +257,13 @@ def control(pid:int,b:ControlIn,request:Request):
   print(f"[control] {who}: {b.action} {r['name']} failed: {type(e).__name__}: {e}",flush=True)
   raise HTTPException(502,control_error(e))
  # Confirm it: the printer must report the new state. Never say "Paused." on hope alone.
- end=time.time()+CONFIRM_WAIT; after=None
+ end=time.time()+CONFIRM_WAIT; after=None; last=None
  while True:
   time.sleep(1.5)
-  after=check(r)
-  if after['state'] in CONFIRMED[b.action] or time.time()>=end: break
+  after=confirm_read(r)
+  if after.get('connected',True): last=after
+  if (last and last['state'] in CONFIRMED[b.action]) or time.time()>=end: break
+ after=last or after
  if after['state'] in CONFIRMED[b.action]:
   print(f"[control] {who}: {b.action} {r['name']}: done",flush=True)
   return {'status':'done','action':b.action,'printer':after}
@@ -259,7 +272,8 @@ def control(pid:int,b:ControlIn,request:Request):
   w=bambu_watchers.get(pid); replies=[x for x in (w.replies if w else []) if x[0]>=time.time()-CONFIRM_WAIT-BAMBU_WAIT]
   msg=BAMBU_SILENT.format(name=r['name'],state=after['state']) if not replies else f"{r['name']} answered but is still {after['state']}. Its reply: {json.dumps(replies[-1][1])[:300]}"
   detail=f' replies={[x[1] for x in replies]}'
- else: msg=f"Sent, but {r['name']} still says it's {after['state']}. Check the printer."
+ elif not after.get('connected',True): msg=f"Sent, but {r['name']} didn't answer in time to confirm it. This panel updates when it does."
+ else: msg=f"Sent, but {r['name']} still says it's {after['state']}. It may take a moment; this panel updates when it changes."
  print(f"[control] {who}: {b.action} {r['name']}: not confirmed (still {after['state']}){detail}",flush=True)
  return {'status':'unconfirmed','action':b.action,'message':msg,'printer':after}
 
@@ -268,7 +282,7 @@ def control(pid:int,b:ControlIn,request:Request):
 # starting prints". Klipper and OctoPrint only (Bambu firmware refuses other apps outside LAN Only
 # with Developer Mode). The file streams to the board, then on to the printer; starting needs the
 # owner to confirm the bed is clear, and "Printing" is only reported once the printer says so.
-PRINT_EXT=('.gcode','.gco','.g','.bgcode'); MAX_PRINT_FILE=1024*2**20; START_WAIT=25; UPLOAD_TIMEOUT=600; START_POLL=2
+PRINT_EXT=('.gcode','.gco','.g','.bgcode'); MAX_PRINT_FILE=1024*2**20; START_WAIT=45; UPLOAD_TIMEOUT=600; START_POLL=2
 
 def print_name(name):
  # Just the file's own name, safe for the printer's file list
@@ -333,16 +347,19 @@ def list_printer_files(pid:int,request:Request):
 
 async def confirm_started(r,name,who):
  # The printer must report printing; never say "Printing" on hope alone
- end=time.time()+START_WAIT
+ end=time.time()+START_WAIT; after=last=None
  while True:
   await asyncio.sleep(START_POLL)
-  after=await run_in_threadpool(check,r)
-  if after['state']=='printing' or time.time()>=end: break
+  after=await run_in_threadpool(confirm_read,r)
+  if after.get('connected',True): last=after
+  if (last and last['state']=='printing') or time.time()>=end: break
+ after=last or after
  if after['state']=='printing':
   print(f"[control] {who}: {name} started on {r['name']}",flush=True)
   return {'status':'done','name':name,'printer':after}
  print(f"[control] {who}: {name} on {r['name']}: start not confirmed (still {after['state']})",flush=True)
- return {'status':'unconfirmed','name':name,'message':f"{name} was sent to {r['name']}, but it still says it's {after['state']}. Check the printer.",'printer':after}
+ said='didn\'t answer in time' if not after.get('connected',True) else f"still says it's {after['state']}"
+ return {'status':'unconfirmed','name':name,'message':f"{name} was sent to {r['name']}, which hasn't confirmed it's printing yet ({said}). It may still be starting; this panel updates when it does.",'printer':after}
 
 class StartFile(BaseModel):
  path:str=Field(min_length=1,max_length=500); bed_clear:bool=False

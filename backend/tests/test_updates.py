@@ -38,6 +38,7 @@ def test_status_and_install_rules(client, monkeypatch):
     monkeypatch.setitem(updates.state, "latest", {"version": "99.0.0", "notes": "", "assets": {}, "manifest": {"sha256": "x", "requires_setup": True}})
     s = client.get("/api/updates").json()
     assert not s["can_install"] and "setup" in s["reason"]
+    assert s["setup_command"].endswith("install.sh | bash -s -- --update")   # run on the board
     monkeypatch.setitem(updates.state, "latest", None)
     assert client.post("/api/updates/install").status_code == 409
 

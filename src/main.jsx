@@ -352,7 +352,7 @@ function Sidebar({ page, setPage, open, setOpen, usingDemo, summary, onSignOut, 
     ["Services", Activity, "services"],
     ["Settings", Settings, "settings"],
     // Optional hardware; admins only (it has setup and store links)
-    ...(isAdmin() ? [["Add-ons", Puzzle, "addons"]] : []),
+    ...(isAdmin() && ADDONS_RELEASED ? [["Add-ons", Puzzle, "addons"]] : []),
     ["Send feedback", MessageSquareHeart, "feedback"],
   ];
   return (
@@ -2902,6 +2902,18 @@ const hourLabel = h => fmtDate(new Date(2000, 0, 1, h), { hour: "numeric", minut
 const UPDATE_PHASES = { downloading: "Downloading", verifying: "Checking the signature", installing: "Installing", restarting: "Restarting LayerHound" };
 
 // Settings: is there a newer LayerHound, and one-click install (backend/updates.py, updater.py)
+// For an update that changes the board setup: the installer's update mode, to run on the board
+function SetupCommand({ command }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(command); setCopied(true); } catch { /* select it by hand */ } };
+  return (
+    <div className="mt-2 flex items-start gap-2">
+      <code className="min-w-0 flex-1 select-all break-all rounded-lg bg-black/30 px-2 py-1.5 font-mono text-xs text-white">{command}</code>
+      <button onClick={copy} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5"><Copy size={13} /> {copied ? "Copied" : "Copy"}</button>
+    </div>
+  );
+}
+
 function UpdatesSection({ onSaved }) {
   const [u, setU] = useState(null);
   const [busy, setBusy] = useState("");
@@ -2941,6 +2953,7 @@ function UpdatesSection({ onSaved }) {
           </div>
           {latest.notes && <div className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/10 p-3 text-sm text-slate-300">{latest.notes}</div>}
           {u.reason && <p className="mt-3 text-xs text-amber-200">{u.reason}</p>}
+          {u.setup_command && <SetupCommand command={u.setup_command} />}
           {confirm && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-300">
               LayerHound will restart, so the dashboard is unavailable for a minute or two. Printers keep printing.
@@ -3348,6 +3361,8 @@ function BarPreview({ light, brightness }) {
 // Add-ons: optional Team Tactical RC hardware. Admins only. Nothing here is required: each add-on
 // can be bought ready-made (once it's in the store), built from the open guide, or marked as owned.
 // A light that checks in with its access key is noticed and marked as owned automatically.
+// The Add-ons page (the status light) ships in its own release: hidden until it's ready
+const ADDONS_RELEASED = false;
 const ADDON_GUIDE = "https://github.com/TeamTacticalRC/LayerHound/blob/main/hardware/lightbar/README.md";
 const ADDONS = [
   { shape: "ring", setting: "addon_ring", title: "Status light", kind: "Ring · 12 lights", buyUrl: null,
@@ -3507,7 +3522,7 @@ function AccessSection({ onSaved }) {
 
       <div className="mt-5 border-t border-white/6 pt-5">
         <h3 className="flex items-center gap-2 text-sm font-medium text-slate-300"><KeyRound size={15} /> Access keys</h3>
-        <p className="mt-1 text-xs text-slate-600">For devices that read LayerHound without signing in, like an LED status bar. Keys can only view, never change anything.</p>
+        <p className="mt-1 text-xs text-slate-600">For devices that read LayerHound without signing in, like a wall screen. Keys can only view, never change anything.</p>
         <form onSubmit={createKey} className="mt-3 flex gap-2">
           <input className={inputClass} maxLength={60} placeholder="Device name, e.g. LED bar" value={keyName} onChange={e => setKeyName(e.target.value)} />
           <button type="submit" disabled={!keyName.trim()} className="shrink-0 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50">Create key</button>
@@ -4027,7 +4042,7 @@ function Dashboard({ onSignOut, onSignIn }) {
               <SettingsPage onSaved={applySettings} onRestored={() => { reloadSettings(); refreshPrinters(); }} />
             ) : page === "services" ? (
               <ServicesPage printers={livePrinters ?? []} />
-            ) : page === "addons" && isAdmin() ? (
+            ) : page === "addons" && isAdmin() && ADDONS_RELEASED ? (
               <AddonsPage onSaved={applySettings} />
             ) : page === "feedback" ? (
               <FeedbackPage printers={livePrinters ?? []} />

@@ -108,23 +108,15 @@ def test_forgot_password_with_recovery_key(browser, base_url, admin_state):
     page.context.close()
 
 
-def test_addons_page(browser, base_url):
-    # Signs in by itself (test_sign_out may already have ended the shared session)
+def test_addons_page_hidden_until_the_light_is_released(browser, base_url):
+    # The status light ships in its own release: until then, no Add-ons page in the menu.
+    # (When ADDONS_RELEASED turns on, test the page here: no "Get one" until it's in the store,
+    # "Build your own", and "I have one" showing the light's settings.)
     page = new_page(browser, base_url)
     assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
     page.reload()
-    open_page(page, "Add-ons")
-    ring = page.locator("section", has_text="Ring · 12 lights")
-    # Not in the store yet: no "Get one"; the open build guide and "I have one" are there
-    assert page.get_by_role("link", name="Get one").count() == 0
-    assert ring.get_by_role("link", name="Build your own").is_visible()
-    assert not ring.get_by_label("Status light brightness").is_visible()
-    ring.get_by_role("button", name="I have one").click()
-    ring.get_by_label("Status light brightness").wait_for()
-    assert ring.get_by_text("Waiting for it to connect").is_visible()
-    ring.get_by_role("button", name="I don't have one").click()
-    ring.get_by_role("button", name="I have one").wait_for()
-    assert not page.problems.items, page.problems.items
+    page.get_by_role("button", name="Settings", exact=True).wait_for()
+    assert page.get_by_role("button", name="Add-ons", exact=True).count() == 0
     page.context.close()
 
 

@@ -113,7 +113,6 @@ LayerHound **watches** your printers. Controlling them is optional and off by de
 | **Network** | Internet health, devices you monitor, Wi-Fi settings and the network scan. |
 | **Services** | Quick links and health checks for your other home-lab apps, plus Home Assistant and Pi-hole stats. |
 | **Settings** | Farm name, colors, light or dark mode, alerts, fan, accounts, backups, updates and remote access. |
-| **Add-ons** | Optional hardware for LayerHound, like the status light ring for your desk. Admins only. |
 
 **Light or dark:** use the moon, sun and screen buttons under the logo. Each device remembers its own choice.
 

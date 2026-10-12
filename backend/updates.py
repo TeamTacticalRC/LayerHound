@@ -28,6 +28,8 @@ CHECK_EVERY=24*3600; FIRST_CHECK=120; TIMEOUT=20; MAX_PACKAGE=200*2**20
 AUTO_EVERY=10*60   # how often to see whether it's time for an automatic update
 STALE_JOB=30*60   # an install that hasn't finished after this long is reported as failed
 UPDATER_UNIT='layerhound-updater.service'
+# For releases that change the board setup: the installer's update mode, run on the board
+SETUP_COMMAND=f'curl -fsSL https://github.com/{RELEASES_REPO}/releases/latest/download/install.sh | bash -s -- --update'
 BUSY=('downloading','verifying','installing','restarting')
 
 state={'latest':None,'checked_at':None,'error':None}
@@ -149,9 +151,10 @@ def status():
  if settings.in_docker(): reason='LayerHound runs in Docker here: update by pulling the new image (docker compose pull, then docker compose up -d).'
  elif not settings.as_service(): reason='Updates install on the LayerHound board. On this computer, update with git.'
  elif available and not manifest: reason='This release is missing its manifest, so it cannot be installed automatically.'
- elif available and manifest.get('requires_setup'): reason='This update changes the board setup, so it needs a full install (deploy) instead of one-click.'
+ elif available and manifest.get('requires_setup'): reason="This update changes the board's setup, so it installs from the board itself instead of one-click. Run the command below on the board (over SSH, or with a keyboard and screen) and type your password when asked. Your printers, settings and accounts are kept, and the previous version comes back if anything goes wrong."
  elif job and job.get('phase') in BUSY: reason='An update is already in progress.'
  return {'current':cur,'latest':latest and {k:v for k,v in latest.items() if k!='assets'},'available':available,
+  'setup_command':SETUP_COMMAND if available and manifest.get('requires_setup') else None,
   'checked_at':state['checked_at'],'error':state['error'],'auto_check':settings.get('update_check'),
   'auto_update':settings.get('auto_update'),'auto_update_hour':settings.get('auto_update_hour'),
   'can_auto':settings.as_service() and not settings.in_docker(),

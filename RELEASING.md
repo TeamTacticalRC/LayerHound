@@ -27,7 +27,15 @@ It then asks before publishing. Answering `y` pushes the tag and creates the pub
 
 ## When the board setup changed
 
-If a release changes `deploy/setup.sh` (system packages, permissions, services), add `--needs-setup`. Boards will then say the update needs a full install, rather than offering one-click. The script warns you if `setup.sh` changed since the previous release.
+If a release changes `deploy/setup.sh` (system packages, permissions, services), add `--needs-setup`. The script warns you if `setup.sh` changed since the previous release.
+
+Boards then don't offer one-click for that release. Instead, **Settings → Updates** shows a command (with a Copy button) for the owner to run on the board, over SSH or with a keyboard and screen:
+
+```bash
+curl -fsSL https://github.com/TeamTacticalRC/layerhound-releases/releases/latest/download/install.sh | bash -s -- --update
+```
+
+It downloads and verifies the release, then does what one-click does (database backup, new code with data and settings kept, restart, automatic rollback), then runs the new board setup, which asks for their password. Say so in the release notes' Updating section, and update your own board this way first, before announcing the release.
 
 ## Version numbers
 

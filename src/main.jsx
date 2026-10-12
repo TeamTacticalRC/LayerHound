@@ -835,6 +835,8 @@ function StartPrint({ printer, onDone }) {
   const [source, setSource] = useState("printer");
   const [files, setFiles] = useState(null);
   const [search, setSearch] = useState("");
+  const [sort, setSortState] = useState(() => { try { return localStorage.getItem("lh-file-sort") || "newest"; } catch { return "newest"; } });
+  const setSort = v => { setSortState(v); try { localStorage.setItem("lh-file-sort", v); } catch { /* remembered for this visit only */ } };
   const [chosen, setChosen] = useState(null);
   const [upload, setUpload] = useState(null);
   const [startNow, setStartNow] = useState(true);
@@ -855,7 +857,9 @@ function StartPrint({ printer, onDone }) {
   );
   const starting = source === "printer" || startNow;
   const ready = (source === "printer" ? !!chosen : !!upload) && (!starting || clear) && !busy;
-  const shown = (files ?? []).filter(f => f.path.toLowerCase().includes(search.toLowerCase()));
+  // Newest first is the printer's own order; A–Z sorts by file name (numbers in order: 2 before 10)
+  const shown = (files ?? []).filter(f => f.path.toLowerCase().includes(search.toLowerCase()))
+    .sort(sort === "name" ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) : (a, b) => (b.modified ?? 0) - (a.modified ?? 0));
   const go = async () => {
     setMsg(null);
     try {
@@ -877,7 +881,10 @@ function StartPrint({ printer, onDone }) {
       </div>
       {source === "printer" ? (
         <div className="mt-3">
-          <input className={inputClass} placeholder="Search files" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search the printer's files" />
+          <div className="flex gap-2">
+            <input className={`${inputClass} min-w-0 flex-1`} placeholder="Search files" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search the printer's files" />
+            <Segmented label="Sort files" value={sort} onChange={setSort} options={[["newest", "Newest"], ["name", "A–Z"]]} />
+          </div>
           <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/8" role="radiogroup" aria-label="Files on the printer">
             {listError ? (
               <div className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm text-red-300">

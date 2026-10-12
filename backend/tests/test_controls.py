@@ -223,12 +223,13 @@ def test_printer_files_and_start_one(client, starting, monkeypatch):
     def get_json(u, headers=None, timeout=None):
         if "/server/files/list" in u:
             return {"result": [{"path": "old.gcode", "modified": 100, "size": 5}, {"path": "shelf/new.gcode", "modified": 200, "size": 9},
-                               {"path": "notes.txt", "modified": 300, "size": 1}]}
+                               {"path": "notes.txt", "modified": 300, "size": 1}, {"path": "sda1/._new.gcode", "modified": 400, "size": 4},
+                               {"path": ".hidden/x.gcode", "modified": 500, "size": 4}]}
         return {"files": [{"type": "folder", "children": [{"type": "machinecode", "name": "a.gcode", "path": "parts/a.gcode", "date": 5, "size": 1}]},
                           {"type": "model", "name": "b.stl", "path": "b.stl", "date": 9}]}
     monkeypatch.setattr(main, "get_json", get_json)
     files = client.get(f"/api/printers/{ids['moonraker']}/files").json()["files"]
-    assert [f["path"] for f in files] == ["shelf/new.gcode", "old.gcode"] and files[0]["name"] == "new.gcode"   # newest first, G-code only
+    assert [f["path"] for f in files] == ["shelf/new.gcode", "old.gcode"] and files[0]["name"] == "new.gcode"   # newest first, G-code only, no hidden files
     assert [f["path"] for f in client.get(f"/api/printers/{ids['octoprint']}/files").json()["files"]] == ["parts/a.gcode"]
     # Start one: Klipper by file name; OctoPrint select-and-print
     sent.clear()

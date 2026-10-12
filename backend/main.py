@@ -378,7 +378,9 @@ def printer_files(r):
     elif f.get('type')=='machinecode': out.append({'path':f.get('path') or f.get('name'),'size':f.get('size'),'modified':f.get('date')})
   walk(get_json(base+'/api/files/local?recursive=true',{'X-Api-Key':key} if key else {},timeout=FILES_TIMEOUT).get('files',[]))
   rows=out
+ # G-code only, and no hidden files (like the "._name.gcode" copies a Mac leaves on USB drives)
  rows=[{**x,'name':x['path'].rsplit('/',1)[-1]} for x in rows if str(x['path']).lower().endswith(PRINT_EXT)]
+ rows=[x for x in rows if not x['name'].startswith('.') and not any(part.startswith('.') for part in x['path'].split('/'))]
  return sorted(rows,key=lambda x:-(x['modified'] or 0))[:500]
 
 @app.get('/api/printers/{pid}/files')

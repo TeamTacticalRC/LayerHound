@@ -162,7 +162,8 @@ def test_start_a_print(browser, base_url):
     fake = {"id": 4243, "name": "Shelf Klipper", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "idle",
             "progress": 0, "nozzle": 25, "bed": 24, "base_url": "http://127.0.0.1:9"}
     files = [{"path": "shelf/car_shelf.gcode", "name": "car_shelf.gcode", "size": 812345, "modified": 1760000000},
-             {"path": "cube.gcode", "name": "cube.gcode", "size": 1234, "modified": 1750000000}]
+             {"path": "cube.gcode", "name": "cube.gcode", "size": 1234, "modified": 1750000000},
+             {"path": "aardvark.gcode", "name": "aardvark.gcode", "size": 99, "modified": 1740000000}]
     page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
     page.route("**/api/printers/4243/files", lambda r: r.fulfill(json={"files": files}))
     started = []
@@ -170,6 +171,11 @@ def test_start_a_print(browser, base_url):
     assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
     page.reload(); open_page(page, "Print Farm"); page.get_by_text("Shelf Klipper").first.click()
     page.get_by_text("Start a print").wait_for()
+    # Newest first by default (the printer's order); A–Z by name
+    names = lambda: page.get_by_role("radiogroup", name="Files on the printer").get_by_role("radio").all_inner_texts()
+    assert [n.split("\n")[0] for n in names()] == ["car_shelf.gcode", "cube.gcode", "aardvark.gcode"]
+    page.get_by_role("radio", name="A–Z").click()
+    assert [n.split("\n")[0] for n in names()] == ["aardvark.gcode", "car_shelf.gcode", "cube.gcode"]
     page.get_by_label("Search the printer's files").fill("shelf")
     assert page.get_by_role("radio", name="cube.gcode").count() == 0
     page.get_by_role("radio", name="car_shelf.gcode").click()

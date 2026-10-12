@@ -300,3 +300,22 @@ def test_slow_reply_is_not_a_failure(client, starting, monkeypatch):
     monkeypatch.setattr(main, "post_json", unreachable)
     states[pid] = "printing"
     assert act(client, pid, "pause").status_code == 502
+
+
+def test_printer_complains_but_does_it(client, farm, monkeypatch):
+    # The Elegoo cancelled while still heating: it answered "400 Bad Request" (its cancel routine
+    # tried to move before homing) but the print was cancelled. Check the state, pass on its words.
+    import io, urllib.error
+    ids, states, sent = farm
+    pid = ids["moonraker"]
+    def complain(u, body=None, headers=None, does_it=True):
+        if does_it: states[pid] = "idle"
+        raise urllib.error.HTTPError(u, 400, "Bad Request", {}, io.BytesIO(b'{"error": {"code": 400, "message": "Must home axis first: 0.000 0.000 10.000 [0.000]"}}'))
+    monkeypatch.setattr(main, "post_json", complain)
+    r = act(client, pid, "cancel").json()
+    assert r["status"] == "done" and r["note"].startswith("Must home axis first")
+    # Didn't do it: the printer's own words, not "Bad Request"
+    states[pid] = "printing"
+    monkeypatch.setattr(main, "post_json", lambda u, body=None, headers=None: complain(u, does_it=False))
+    r = act(client, pid, "cancel")
+    assert r.status_code == 502 and "Must home axis first" in r.json()["detail"]

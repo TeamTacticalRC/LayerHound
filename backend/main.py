@@ -208,6 +208,17 @@ def post_json(u,body=None,headers=None):
  r=urllib.request.Request(u,data=data,method='POST',headers={'Content-Type':'application/json',**(headers or {})})
  with urllib.request.urlopen(r,timeout=CONTROL_TIMEOUT) as x: return x.status
 
+def printer_said(e):
+ # A printer that answers a command with an error (HTTP 400/500): its own words, if it gave any.
+ # Some do what was asked and still complain, e.g. an Elegoo cancelled while heating ran its cancel
+ # routine's moves before homing: "Must home axis first".
+ if not isinstance(e,urllib.error.HTTPError) or e.code in (401,403,404): return None
+ try: j=json.loads(e.read() or b'{}')
+ except Exception: j={}
+ err=j.get('error') if isinstance(j,dict) else None
+ msg=(err.get('message') if isinstance(err,dict) else err) or (j.get('message') if isinstance(j,dict) else None) or f'HTTP {e.code}'
+ return ' '.join(str(msg).split())[:200]
+
 def slow_reply(e):
  # The command reached the printer, but its answer is slow (some Klipper printers, like the Elegoo
  # Neptune 4, only answer once their start or cancel routine is well under way). Not a failure:
@@ -258,15 +269,18 @@ def control(pid:int,b:ControlIn,request:Request):
  if now_state['state'] not in CONTROL_ALLOWED[b.action]:
   raise HTTPException(409,f"{r['name']} is {now_state['state']}, so it can't be {CONTROL_PAST[b.action]} now.")
  t=r['printer_type']; base=clean_url(r['base_url']); who=(getattr(request.state,'who',None) or {}).get('username') or '?'
+ said=None
  try:
   if t=='moonraker': control_moonraker(base,b.action)
   elif t=='octoprint': control_octoprint(base,vault.decrypt(r['api_key']),b.action)
   else: control_bambu(pid,b.action)
  except Exception as e:
-  if not slow_reply(e):
+  said=printer_said(e)
+  if slow_reply(e): print(f"[control] {who}: {b.action} {r['name']}: sent; the printer is slow to answer, checking its state",flush=True)
+  elif said: print(f"[control] {who}: {b.action} {r['name']}: the printer answered \"{said}\"; checking its state",flush=True)
+  else:
    print(f"[control] {who}: {b.action} {r['name']} failed: {type(e).__name__}: {e}",flush=True)
    raise HTTPException(502,control_error(e))
-  print(f"[control] {who}: {b.action} {r['name']}: sent; the printer is slow to answer, checking its state",flush=True)
  # Confirm it: the printer must report the new state. Never say "Paused." on hope alone.
  end=time.time()+CONFIRM_WAITS.get(b.action,CONFIRM_WAIT); after=None; last=None
  while True:
@@ -277,7 +291,10 @@ def control(pid:int,b:ControlIn,request:Request):
  after=last or after
  if after['state'] in CONFIRMED[b.action]:
   print(f"[control] {who}: {b.action} {r['name']}: done",flush=True)
-  return {'status':'done','action':b.action,'printer':after}
+  return {'status':'done','action':b.action,'printer':after,'note':said}
+ if said:
+  print(f"[control] {who}: {b.action} {r['name']}: not done; the printer said \"{said}\"",flush=True)
+  raise HTTPException(502,f"{r['name']} answered: {said}")
  detail=''
  if t=='bambu':
   w=bambu_watchers.get(pid); replies=[x for x in (w.replies if w else []) if x[0]>=time.time()-CONFIRM_WAIT-BAMBU_WAIT]
@@ -356,7 +373,7 @@ def list_printer_files(pid:int,request:Request):
  try: return {'files':printer_files(r)}
  except Exception as e: raise HTTPException(502,control_error(e))
 
-async def confirm_started(r,name,who):
+async def confirm_started(r,name,who,said=None):
  # The printer must report printing; never say "Printing" on hope alone
  end=time.time()+START_WAIT; after=last=None
  while True:
@@ -367,7 +384,10 @@ async def confirm_started(r,name,who):
  after=last or after
  if after['state']=='printing':
   print(f"[control] {who}: {name} started on {r['name']}",flush=True)
-  return {'status':'done','name':name,'printer':after}
+  return {'status':'done','name':name,'printer':after,'note':said}
+ if said:
+  print(f"[control] {who}: {name} on {r['name']}: not started; the printer said \"{said}\"",flush=True)
+  raise HTTPException(502,f"{r['name']} answered: {said}")
  print(f"[control] {who}: {name} on {r['name']}: start not confirmed (still {after['state']})",flush=True)
  said='didn\'t answer in time' if not after.get('connected',True) else f"still says it's {after['state']}"
  return {'status':'unconfirmed','name':name,'message':f"{name} was sent to {r['name']}, which hasn't confirmed it's printing yet ({said}). It may still be starting; this panel updates when it does.",'printer':after}
@@ -384,6 +404,7 @@ async def print_stored(pid:int,b:StartFile,request:Request):
  state=(await run_in_threadpool(snapshot,r,False))['state']
  if state not in ('idle','complete'): raise HTTPException(409,f"{r['name']} is {state}. A print can start when it's idle or finished.")
  base=clean_url(r['base_url']); who=(getattr(request.state,'who',None) or {}).get('username') or '?'
+ said=None
  try:
   if r['printer_type']=='moonraker':
    await run_in_threadpool(post_json,base+'/printer/print/start?filename='+urllib.parse.quote(b.path))
@@ -391,12 +412,14 @@ async def print_stored(pid:int,b:StartFile,request:Request):
    key=vault.decrypt(r['api_key'])
    await run_in_threadpool(post_json,base+'/api/files/local/'+urllib.parse.quote(b.path),{'command':'select','print':True},{'X-Api-Key':key} if key else {})
  except Exception as e:
-  if not slow_reply(e):
+  said=printer_said(e)
+  if not (slow_reply(e) or said):
    print(f"[control] {who}: start {b.path} on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
    raise HTTPException(502,control_error(e))
-  print(f"[control] {who}: start {b.path} on {r['name']}: sent; the printer is slow to answer, checking its state",flush=True)
+  why=f'the printer answered "{said}"' if said else 'sent; the printer is slow to answer'
+  print(f"[control] {who}: start {b.path} on {r['name']}: {why}, checking its state",flush=True)
  print(f"[control] {who}: start {b.path} on {r['name']}",flush=True)
- return await confirm_started(r,b.path.rsplit('/',1)[-1],who)
+ return await confirm_started(r,b.path.rsplit('/',1)[-1],who,said)
 
 @app.put('/api/printers/{pid}/print')
 async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear:bool=False):

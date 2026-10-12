@@ -795,7 +795,7 @@ function PrintControls({ printer, onDone }) {
   const run = async action => {
     setBusy(true); setMsg(null);
     // LayerHound waits for the printer to report the new state; "unconfirmed" means it didn't
-    try { const r = await controlPrinter(printer.id, action); setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, action } : { ok: true, text: CONTROL_TEXT[action].done }); onDone(); }
+    try { const r = await controlPrinter(printer.id, action); setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, action } : { ok: true, text: CONTROL_TEXT[action].done + (r.note ? ` The printer also reported: ${r.note}` : "") }); onDone(); }
     catch (e) { setMsg({ ok: false, text: e.message }); }
     setBusy(false); setAsking(null);
   };
@@ -861,7 +861,7 @@ function StartPrint({ printer, onDone }) {
       let r;
       if (source === "printer") { setBusy("starting"); r = await startPrinterFile(printer.id, chosen); }
       else { setBusy({ progress: 0 }); r = await sendPrintFile(printer.id, upload, startNow, p => setBusy(p < 1 ? { progress: p } : "starting")); }
-      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}.` : `Printing ${r.name}.` });
+      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: (r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}.` : `Printing ${r.name}.`) + (r.note ? ` The printer also reported: ${r.note}` : "") });
       setClear(false); onDone();
       if (r.status === "uploaded") { setUpload(null); setFiles(null); }
     } catch (e) { setMsg({ ok: false, text: e.message }); }

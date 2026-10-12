@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import asyncio, json, os, platform, re, socket, sqlite3, ssl, sys, threading, time, urllib.parse, urllib.request
+import asyncio, json, os, platform, re, socket, sqlite3, ssl, sys, threading, time, urllib.error, urllib.parse, urllib.request
 import paho.mqtt.client as mqtt
 import psutil
 from fastapi import FastAPI, HTTPException, Request
@@ -185,6 +185,7 @@ CONTROL_PAST={'pause':'paused','resume':'resumed','cancel':'cancelled'}
 BAMBU_COMMAND={'pause':'pause','resume':'resume','cancel':'stop'}
 BAMBU_WAIT=6; CONFIRM_WAIT=20
 # The state that shows each action worked
+CONFIRM_WAITS={'cancel':45}   # cancel routines move the head and cool down first
 CONFIRMED={'pause':('paused',),'resume':('printing',),'cancel':('idle','complete','error')}   # never 'offline': that's just a slow answer
 BAMBU_SILENT=("{name} didn't respond and is still {state}. Bambu firmware from 2025 on ignores pause and stop from other apps "
  "unless the printer is in LAN Only mode with Developer Mode on (on the printer's screen: Settings, then LAN Only / Developer Mode). "
@@ -201,10 +202,18 @@ def confirm_read(r):
   except Exception as e: print('history error:',e,flush=True)
  return x
 
+CONTROL_TIMEOUT=30   # how long to wait for a printer to answer a command
 def post_json(u,body=None,headers=None):
  data=json.dumps(body).encode() if body is not None else b''
  r=urllib.request.Request(u,data=data,method='POST',headers={'Content-Type':'application/json',**(headers or {})})
- with urllib.request.urlopen(r,timeout=TIMEOUT+4) as x: return x.status
+ with urllib.request.urlopen(r,timeout=CONTROL_TIMEOUT) as x: return x.status
+
+def slow_reply(e):
+ # The command reached the printer, but its answer is slow (some Klipper printers, like the Elegoo
+ # Neptune 4, only answer once their start or cancel routine is well under way). Not a failure:
+ # whether it worked shows in the printer's state. (Not reaching the printer at all comes as a
+ # URLError instead.)
+ return isinstance(e,TimeoutError) and not isinstance(e,urllib.error.URLError)
 
 def control_moonraker(base,action):
  post_json(f"{base}/printer/print/{action}")
@@ -254,10 +263,12 @@ def control(pid:int,b:ControlIn,request:Request):
   elif t=='octoprint': control_octoprint(base,vault.decrypt(r['api_key']),b.action)
   else: control_bambu(pid,b.action)
  except Exception as e:
-  print(f"[control] {who}: {b.action} {r['name']} failed: {type(e).__name__}: {e}",flush=True)
-  raise HTTPException(502,control_error(e))
+  if not slow_reply(e):
+   print(f"[control] {who}: {b.action} {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+   raise HTTPException(502,control_error(e))
+  print(f"[control] {who}: {b.action} {r['name']}: sent; the printer is slow to answer, checking its state",flush=True)
  # Confirm it: the printer must report the new state. Never say "Paused." on hope alone.
- end=time.time()+CONFIRM_WAIT; after=None; last=None
+ end=time.time()+CONFIRM_WAITS.get(b.action,CONFIRM_WAIT); after=None; last=None
  while True:
   time.sleep(1.5)
   after=confirm_read(r)
@@ -380,8 +391,10 @@ async def print_stored(pid:int,b:StartFile,request:Request):
    key=vault.decrypt(r['api_key'])
    await run_in_threadpool(post_json,base+'/api/files/local/'+urllib.parse.quote(b.path),{'command':'select','print':True},{'X-Api-Key':key} if key else {})
  except Exception as e:
-  print(f"[control] {who}: start {b.path} on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
-  raise HTTPException(502,control_error(e))
+  if not slow_reply(e):
+   print(f"[control] {who}: start {b.path} on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+   raise HTTPException(502,control_error(e))
+  print(f"[control] {who}: start {b.path} on {r['name']}: sent; the printer is slow to answer, checking its state",flush=True)
  print(f"[control] {who}: start {b.path} on {r['name']}",flush=True)
  return await confirm_started(r,b.path.rsplit('/',1)[-1],who)
 
@@ -414,8 +427,10 @@ async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear
     await run_in_threadpool(send_file,base+'/api/files/local',{'select':'true' if start else 'false','print':'true' if start else 'false'},name,tmp,{'X-Api-Key':key} if key else {})
   except HTTPException: raise
   except Exception as e:
-   print(f"[control] {who}: send {name} to {r['name']} failed: {type(e).__name__}: {e}",flush=True)
-   raise HTTPException(502,control_error(e))
+   # A slow answer after the whole file went out is like a slow start: check the printer's state
+   if not (start and slow_reply(e)):
+    print(f"[control] {who}: send {name} to {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+    raise HTTPException(502,control_error(e))
  finally: tmp.unlink(missing_ok=True)
  print(f"[control] {who}: sent {name} ({got} bytes) to {r['name']}{', start' if start else ''}",flush=True)
  if not start: return {'status':'uploaded','name':name}

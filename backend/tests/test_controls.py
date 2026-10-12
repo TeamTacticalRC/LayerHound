@@ -33,6 +33,7 @@ def farm(client, monkeypatch):
         return 204
     monkeypatch.setattr(main, "post_json", post)
     monkeypatch.setattr(main, "CONFIRM_WAIT", 0)
+    monkeypatch.setattr(main, "CONFIRM_WAITS", {})
     ids["_obey"] = obey
     client.put("/api/settings", json={"printer_controls": True})
     yield ids, states, sent
@@ -279,3 +280,23 @@ def test_timeouts_are_not_a_cancel(client, farm, monkeypatch):
     monkeypatch.setattr(main, "snapshot", snapshot)
     r = act(client, pid, "cancel").json()
     assert r["status"] == "unconfirmed" and "didn't answer in time" in r["message"]
+
+
+def test_slow_reply_is_not_a_failure(client, starting, monkeypatch):
+    # What the Elegoo did on the second test: it started (and later cancelled) the print, but only
+    # answered after LayerHound stopped waiting. A slow answer means "check the printer", not "failed".
+    import urllib.error
+    ids, states, sent, uploads = starting
+    pid = ids["moonraker"]
+    def slow(u, body=None, headers=None):
+        states[pid] = "printing" if "/print/start" in u else "idle"
+        raise TimeoutError("timed out")
+    monkeypatch.setattr(main, "post_json", slow)
+    r = client.post(f"/api/printers/{pid}/print", json={"path": "shelf/new.gcode", "bed_clear": True}).json()
+    assert r["status"] == "done"
+    assert act(client, pid, "cancel").json()["status"] == "done"
+    # Not reaching the printer at all is still an error
+    def unreachable(u, body=None, headers=None): raise urllib.error.URLError(TimeoutError("timed out"))
+    monkeypatch.setattr(main, "post_json", unreachable)
+    states[pid] = "printing"
+    assert act(client, pid, "pause").status_code == 502

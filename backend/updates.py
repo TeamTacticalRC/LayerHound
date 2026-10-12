@@ -18,7 +18,7 @@ from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import APIRouter, HTTPException
-import settings
+import problems, settings
 
 router=APIRouter(prefix='/api/updates')
 RELEASES_REPO='TeamTacticalRC/layerhound-releases'
@@ -120,7 +120,8 @@ def _auto_loop():
  while True:
   try:
    if auto_due(): auto_update()
-  except Exception as e: print(f'[updates] automatic update failed: {e}',flush=True)
+  except Exception as e:
+   print(f'[updates] automatic update failed: {e}',flush=True); problems.record('update',f'The automatic update check failed: {e}')
   time.sleep(AUTO_EVERY)
 
 # ---- Job state (shared with updater.py through a file) -------------------------------------
@@ -134,8 +135,14 @@ def read_job():
 def write_job(**job):
  tmp=DIR/'state.json.tmp'; tmp.write_text(json.dumps(job)); tmp.replace(DIR/'state.json')
 
+_noted_job=[None]
 def status():
  cur=settings.APP_VERSION; latest=state['latest']; job=read_job()
+ # An install that failed in the updater (a separate process): note it once
+ if job and job.get('phase')=='failed' and job.get('started')!=_noted_job[0]:
+  _noted_job[0]=job.get('started')
+  why=str(job.get('error') or 'unknown error').rstrip('.')
+  problems.record('update',f"Updating to v{job.get('version')} didn't work: {why}."+(f" LayerHound went back to v{job.get('from_version')}." if job.get('rolled_back') else ''))
  available=bool(latest and newer(latest['version'],cur))
  manifest=(latest or {}).get('manifest') or {}
  reason=None
@@ -169,6 +176,7 @@ def _install(latest,auto=False):
   if r.returncode!=0: raise RuntimeError(f"Couldn't start the updater: {r.stderr.strip() or 'unknown error'}")
  except Exception as e:
   write_job(**base,phase='failed',error=str(e),finished=time.time())
+  problems.record('update',f"Updating to v{version} failed: {e}")
 
 # ---- API -----------------------------------------------------------------------------------
 @router.get('')

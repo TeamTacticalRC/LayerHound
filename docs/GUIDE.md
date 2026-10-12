@@ -204,12 +204,17 @@ It asks for a new password, and signs that account out everywhere. `layerhound u
 - Use **Settings → About & maintenance → Shut down board** first, then unplug once the activity light stops blinking. Pulling the power while LayerHound is writing can damage the SD card.
 
 **Something else**
+- **Settings → Recent problems** lists what went wrong lately, in plain words: printers that couldn't be reached, commands that failed, updates that didn't work, and crashes (in LayerHound or in the dashboard page). Click **Technical details** for more. It's kept on your board only.
 - **Settings → About & maintenance → Restart dashboard** fixes most temporary problems.
-- Then tell us, using **Send feedback**.
+- Then tell us, using **Send feedback** (tick **Include recent problems**), or report it publicly on GitHub (see below).
 
 ## Feedback and help
 
 Use **Send feedback** in the menu for ideas, problems or questions. It goes straight to Team Tactical RC, only when you press Send. It includes your message, the LayerHound version, and basic system details you can see and switch off. Add your email if you'd like a reply.
+
+- **Include recent problems:** for a problem report, you can include the list from Settings → Recent problems. Printer names, addresses, serial numbers and emails are replaced first, and **Show exactly what's included** shows the text before you send it.
+- **Public bug reports:** [GitHub Issues](https://github.com/TeamTacticalRC/LayerHound/issues). **Settings → Recent problems → Report a bug on GitHub** opens the bug report form with the version and recent problems filled in (the same scrubbed text); you review it on GitHub before submitting. Reports there are public, so leave out anything private.
+- **Security problems:** please report them privately, not as a public issue: see [SECURITY.md](../SECURITY.md).
 
 ## Good to know
 

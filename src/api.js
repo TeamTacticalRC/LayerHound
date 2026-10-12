@@ -56,6 +56,10 @@ export const login=(username,password,remember)=>req('/api/auth/login',{method:'
 export const logout=()=>req('/api/auth/logout',{method:'POST'});
 export const recoverPassword=(username,recovery_key,password)=>req('/api/auth/recover',{method:'POST',body:JSON.stringify({username,recovery_key,password})});
 export const getLightbar=layout=>req(`/api/lightbar${layout?`?layout=${layout}`:''}`);
+export const getProblems=(shareable=false)=>req(`/api/problems${shareable?'?shareable_text=true':''}`);
+export const clearProblems=()=>req('/api/problems',{method:'DELETE'});
+// A crash in this page: tell LayerHound (Recent problems). Fire and forget; never throws.
+export function reportPageError(message,detail,page){try{fetch('/api/problems/report',{method:'POST',headers:HEADERS,body:JSON.stringify({message:String(message).slice(0,500),detail:detail?String(detail).slice(0,4000):null,page:page||null})}).catch(()=>{})}catch{}}
 export const getRemote=()=>req('/api/remote');
 export const remoteAction=what=>req(`/api/remote/${what}`,{method:'POST'});
 export const getRecovery=()=>req('/api/auth/recovery');

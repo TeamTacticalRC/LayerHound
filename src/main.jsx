@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -2972,6 +2972,55 @@ function UpdatesSection({ onSaved }) {
   );
 }
 
+// Public bug reports: GitHub Issues on the open-source repo, with the bug-report form prefilled
+// (version, setup and recent problems, scrubbed; the owner reviews it on GitHub before submitting)
+const GITHUB_ISSUES = "https://github.com/TeamTacticalRC/LayerHound/issues";
+function githubBugUrl({ setup, problems }) {
+  const q = new URLSearchParams({ template: "bug_report.yml", version: APP_VERSION.replace(/^v/, ""), setup: setup || "", problems: (problems || "").slice(0, 3500) });
+  return `${GITHUB_ISSUES}/new?${q}`;
+}
+
+// Recent problems (problems.py): what went wrong on this LayerHound, in plain language. Admins only.
+function ProblemsSection() {
+  const [data, setData] = useState(null);
+  const [all, setAll] = useState(false);
+  const [open, setOpen] = useState(null);
+  const [error, setError] = useState("");
+  const load = useCallback(() => getProblems(true).then(setData).catch(e => setError(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  if (!data) return null;
+  const items = all ? data.problems : data.problems.slice(0, 8);
+  const clear = async () => { try { await clearProblems(); load(); } catch (e) { setError(e.message); } };
+  return (
+    <Section title={<span className="flex items-center gap-2"><AlertTriangle size={16} className="text-violet-400" /> Recent problems</span>}
+      sub="What went wrong on this LayerHound lately: printers that couldn't be reached, commands that failed, updates, and crashes. Kept on this board only.">
+      {!data.problems.length ? <div className="flex items-center gap-2 text-sm text-slate-300"><CircleCheck size={15} className="text-emerald-300" /> Nothing has gone wrong lately.</div> : (
+        <ul className="divide-y divide-white/6">
+          {items.map(p => (
+            <li key={p.id} className="py-2.5">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-[11px] text-slate-400">{p.source_label}</span>
+                <span className="min-w-0 flex-1 text-sm text-slate-200">{p.message}{p.count > 1 && <span className="ml-1.5 text-xs text-slate-500">×{p.count}</span>}</span>
+                <span className="text-xs text-slate-500">{fmtDate(p.last * 1000, { dateStyle: "medium", timeStyle: "short" })}</span>
+              </div>
+              {p.detail && (open === p.id
+                ? <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/25 p-2 text-[11px] text-slate-400">{p.detail}</pre>
+                : <button onClick={() => setOpen(p.id)} className="mt-1 text-xs text-slate-500 hover:text-slate-300">Technical details</button>)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {data.problems.length > 8 && <button onClick={() => setAll(v => !v)} className="mt-2 text-xs text-violet-300 hover:text-violet-200">{all ? "Show fewer" : `Show all ${data.problems.length}`}</button>}
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/6 pt-3">
+        <a href={githubBugUrl({ problems: data.shareable })} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5"><ExternalLink size={14} /> Report a bug on GitHub</a>
+        {data.problems.length > 0 && <button onClick={clear} className="rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-white/5">Clear the list</button>}
+        <span className="text-xs text-slate-600">GitHub reports are public. Names, addresses and serial numbers are left out, and you see the report before sending it.</span>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+    </Section>
+  );
+}
+
 function AboutSection() {
   const [about, setAbout] = useState(null);
   const [confirm, setConfirm] = useState(false);
@@ -3508,6 +3557,7 @@ function SettingsPage({ onSaved, onRestored }) {
           <FanSection onSaved={onSaved} />
           <HotspotSection onSaved={onSaved} />
           <AboutSection />
+          <ProblemsSection />
           <UsageStatsSection onSaved={onSaved} />
         </> : <>
           <AppearanceSection />
@@ -3543,7 +3593,12 @@ function FeedbackPage({ printers }) {
   const [includeDetails, setIncludeDetails] = useState(true);
   const [server, setServer] = useState(null);
   const [state, setState] = useState(null); // null | "sending" | "sent" | {error}
-  useEffect(() => { getServer().then(setServer).catch(() => {}); }, []);
+  // Recent problems (admins can read them), scrubbed; included only if the owner ticks it
+  const [problems, setProblems] = useState(null);
+  const [includeProblems, setIncludeProblems] = useState(null);
+  const [showProblems, setShowProblems] = useState(false);
+  useEffect(() => { getServer().then(setServer).catch(() => {}); if (isAdmin()) getProblems(true).then(setProblems).catch(() => {}); }, []);
+  const withProblems = (includeProblems ?? type === "problem") && !!problems?.problems.length;
   const counts = printers.reduce((acc, p) => ({ ...acc, [p.model || p.type]: (acc[p.model || p.type] || 0) + 1 }), {});
   const details = [
     server ? `${server.os} (${server.arch})` : null,
@@ -3556,7 +3611,7 @@ function FeedbackPage({ printers }) {
     if (!message.trim()) return;
     setState("sending");
     const f = FEEDBACK_FORM.fields;
-    const body = new URLSearchParams({ [f.type]: FEEDBACK_TYPES.find(([k]) => k === type)[1], [f.message]: message.trim(), [f.email]: email.trim(), [f.version]: version, [f.details]: includeDetails ? details : "" });
+    const body = new URLSearchParams({ [f.type]: FEEDBACK_TYPES.find(([k]) => k === type)[1], [f.message]: message.trim(), [f.email]: email.trim(), [f.version]: version, [f.details]: [includeDetails ? details : "", withProblems ? `Recent problems:\n${problems.shareable.slice(0, 3000)}` : ""].filter(Boolean).join("\n\n") });
     try {
       // Google doesn't let other sites read its reply, so a sent message can't be confirmed beyond reaching Google
       await fetch(`https://docs.google.com/forms/d/e/${FEEDBACK_FORM.id}/formResponse`, { method: "POST", mode: "no-cors", body });
@@ -3595,8 +3650,14 @@ function FeedbackPage({ printers }) {
               <div className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-3 text-xs">
                 <Toggle checked={includeDetails} onChange={setIncludeDetails} label="Include system details" hint="Helps track down problems. No names, addresses or passwords." />
                 <div className="mt-1 text-slate-500">Sent with your message: <span className="text-slate-300">LayerHound {version}{includeDetails ? ` · ${details}` : ""}</span></div>
+                {problems?.problems.length > 0 && <>
+                  <div className="mt-3 border-t border-white/6 pt-2"><Toggle checked={withProblems} onChange={setIncludeProblems} label={`Include recent problems (${problems.problems.length})`} hint="What went wrong lately, from Settings → Recent problems. Printer names, addresses and serial numbers are replaced." /></div>
+                  {withProblems && (showProblems
+                    ? <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/25 p-2 text-[11px] text-slate-400">{problems.shareable}</pre>
+                    : <button type="button" onClick={() => setShowProblems(true)} className="mt-1 text-slate-500 hover:text-slate-300">Show exactly what's included</button>)}
+                </>}
               </div>
-              <p className="mt-3 text-xs text-slate-600">Sent through Google Forms. Nothing is sent unless you press Send.</p>
+              <p className="mt-3 text-xs text-slate-600">Sent through Google Forms. Nothing is sent unless you press Send.{type === "problem" && <> Prefer a public bug report? <a href={githubBugUrl({ setup: includeDetails ? details : "", problems: withProblems ? problems.shareable : "" })} target="_blank" rel="noreferrer" className="text-violet-300 hover:text-violet-200">Report it on GitHub</a>.</>}</p>
             </Section>
           </form>
         )}
@@ -4088,4 +4149,28 @@ function Dashboard({ onSignOut, onSignIn }) {
 }
 
 applyTheme();
-createRoot(document.getElementById("root")).render(<><UpdateBanner /><App /></>);
+// Crashes in this page go to Recent problems (Settings), so they don't go unseen
+addEventListener("error", e => reportPageError(e.message || "Script error", e.error?.stack, location.hash.slice(1) || null));
+addEventListener("unhandledrejection", e => { const r = e.reason; if (r?.message === "Please sign in") return; reportPageError(r?.message || String(r), r?.stack, location.hash.slice(1) || null); });
+
+// If a part of the dashboard crashes, show a way out instead of a blank page
+class CrashGuard extends React.Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error, info) { reportPageError(error?.message || String(error), `${error?.stack ?? ""}\n${info?.componentStack ?? ""}`, location.hash.slice(1) || null); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--lh-bg)] p-6 text-center text-slate-200">
+        <div className="max-w-sm">
+          <AlertTriangle size={28} className="mx-auto text-amber-300" />
+          <h1 className="mt-3 text-lg font-semibold text-white">Something went wrong on this page</h1>
+          <p className="mt-1 text-sm text-slate-400">It's been noted in Settings → Recent problems. Reloading usually fixes it.</p>
+          <button onClick={() => location.reload()} className="mt-4 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400">Reload</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+createRoot(document.getElementById("root")).render(<><UpdateBanner /><CrashGuard><App /></CrashGuard></>);

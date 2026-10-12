@@ -5,7 +5,7 @@ from pathlib import Path
 import http.client, json, os, re, socket, ssl, threading, time, urllib.error, urllib.parse, urllib.request
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import network, vault
+import network, problems, vault
 
 router=APIRouter(prefix='/api/services')
 CHECK_EVERY=60; STATS_EVERY=300; DOCKER_TTL=15
@@ -240,6 +240,6 @@ def restart(cid:str):
  try: docker('POST',f'/containers/{cid}/restart?t=10')
  except FileNotFoundError: raise HTTPException(404,'Docker is not installed on this server')
  except Exception as e:
-  print(f'[docker] restart {cid}: {type(e).__name__}: {e}',flush=True)
+  print(f'[docker] restart {cid}: {type(e).__name__}: {e}',flush=True); problems.record('service',f"Restarting a Docker container failed",f'{type(e).__name__}: {e}')
   raise HTTPException(502,"Docker couldn't restart that container. See the service log.")
  _docker_cache['at']=0; _count_cache['at']=0; return {'status':'restarted','id':cid}

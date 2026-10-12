@@ -138,7 +138,9 @@ def save(changes):
  _load()
  for fn in after_save:
   try: fn(clean)
-  except Exception as e: print(f'[settings] after-save hook failed: {e}',flush=True)
+  except Exception as e:
+   print(f'[settings] after-save hook failed: {e}',flush=True)
+   import problems; problems.crash('applying settings',e)
  return all_settings()
 
 @router.get('')

@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in LayerHound isn't working.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. **This is public**: leave out passwords, access codes, addresses and anything else private.
+        Tip: in LayerHound, **Settings → Recent problems → Report a bug on GitHub** fills in the version and recent problems for you (with names and addresses left out).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen again
+      placeholder: |
+        1. Open Print Farm
+        2. Click the printer
+        3. ...
+  - type: input
+    id: version
+    attributes:
+      label: LayerHound version
+      description: Settings → Updates, or the bottom of the menu.
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is LayerHound installed?
+      options:
+        - LayerHound board
+        - On my own Linux machine (install script)
+        - Docker
+        - Something else
+    validations:
+      required: true
+  - type: checkboxes
+    id: printers
+    attributes:
+      label: Printers involved
+      options:
+        - label: Klipper (Moonraker)
+        - label: Bambu Lab
+        - label: OctoPrint
+        - label: No printer involved
+  - type: textarea
+    id: setup
+    attributes:
+      label: System details
+      description: Board or computer, printer models and firmware, browser.
+  - type: textarea
+    id: problems
+    attributes:
+      label: Recent problems
+      description: From Settings → Recent problems, if anything is listed.
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else?
+      description: Screenshots help a lot (drag them in here).

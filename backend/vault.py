@@ -40,7 +40,9 @@ def decrypt(value):
  except InvalidToken:
   # Encrypted with a different key: the database was copied from another install, or the key file
   # was replaced. The secret can't be recovered; re-enter it on the Print Farm or Services page.
-  if value not in _warned: _warned.add(value); print('[vault] a stored secret was encrypted with a different key; re-enter it',flush=True)
+  if value not in _warned:
+   _warned.add(value); print('[vault] a stored secret was encrypted with a different key; re-enter it',flush=True)
+   import problems; problems.record('system',"A saved access code or key can't be read (it was saved with a different encryption key). Re-enter it in Edit printer or Services.")
   return None
 
 def migrate(db):

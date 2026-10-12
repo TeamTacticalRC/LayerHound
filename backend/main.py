@@ -10,8 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import auth, discovery, fan, history, hotspot, lightbar, remote, stats, updates, vault, media, network, services, settings, storage, wifi
-from fastapi.responses import Response
+import auth, discovery, fan, history, hotspot, lightbar, problems, remote, stats, updates, vault, media, network, services, settings, storage, wifi
+from fastapi.responses import JSONResponse, Response
 
 # LAYERHOUND_* settings; the older TTRC_* names still work
 def env(name): return os.environ.get(f'LAYERHOUND_{name}') or os.environ.get(f'TTRC_{name}')
@@ -27,6 +27,12 @@ app.middleware('http')(auth.middleware)
 # While the setup hotspot is on, send phones to the setup page (runs before the sign-in check)
 app.middleware('http')(hotspot.middleware)
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
+
+# Anything unexpected: note it in Recent problems (Settings -> About & maintenance), and answer plainly
+@app.exception_handler(Exception)
+async def crashed(request,e):
+ problems.crash(f'{request.method} {request.url.path}',e)
+ return JSONResponse({'detail':"Something went wrong in LayerHound. It's listed in Settings -> About & maintenance -> Recent problems."},status_code=500)
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def db():
@@ -171,7 +177,9 @@ def snapshot(r,grace=True):
   if grace and prev and time.time()-prev[0]<OFFLINE_GRACE: x=prev[1]
   else:
    detail=f'{type(e).__name__}: {e}'
-   if _logged_errors.get(key)!=detail: _logged_errors[key]=detail; print(f"[printer] {r['name']}: {detail}",flush=True)
+   if _logged_errors.get(key)!=detail:
+    _logged_errors[key]=detail; print(f"[printer] {r['name']}: {detail}",flush=True)
+    problems.record('printer',f"{r['name']}: {printer_error(e)}",detail)
    x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=printer_error(e))
  return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
   'camera_url':r['camera_url'],'has_camera':media.has_camera(r),**x,'updated_at':now()}
@@ -182,6 +190,7 @@ def snapshot(r,grace=True):
 # and logged to the service log.
 CONTROL_ALLOWED={'pause':('printing',),'resume':('paused',),'cancel':('printing','paused')}
 CONTROL_PAST={'pause':'paused','resume':'resumed','cancel':'cancelled'}
+CONTROL_TEXT_PAST={'pause':'pausing','resume':'resuming','cancel':'cancelling'}
 BAMBU_COMMAND={'pause':'pause','resume':'resume','cancel':'stop'}
 BAMBU_WAIT=6; CONFIRM_WAIT=20
 # The state that shows each action worked
@@ -280,6 +289,7 @@ def control(pid:int,b:ControlIn,request:Request):
   elif said: print(f"[control] {who}: {b.action} {r['name']}: the printer answered \"{said}\"; checking its state",flush=True)
   else:
    print(f"[control] {who}: {b.action} {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+   problems.record('control',f"{r['name']}: {CONTROL_TEXT_PAST.get(b.action,b.action)} failed: {control_error(e)}",f'{type(e).__name__}: {e}')
    raise HTTPException(502,control_error(e))
  # Confirm it: the printer must report the new state. Never say "Paused." on hope alone.
  end=time.time()+CONFIRM_WAITS.get(b.action,CONFIRM_WAIT); after=None; last=None
@@ -294,6 +304,7 @@ def control(pid:int,b:ControlIn,request:Request):
   return {'status':'done','action':b.action,'printer':after,'note':said}
  if said:
   print(f"[control] {who}: {b.action} {r['name']}: not done; the printer said \"{said}\"",flush=True)
+  problems.record('control',f"{r['name']}: {CONTROL_TEXT_PAST.get(b.action,b.action)} didn't happen; the printer answered: {said}")
   raise HTTPException(502,f"{r['name']} answered: {said}")
  detail=''
  if t=='bambu':
@@ -303,6 +314,7 @@ def control(pid:int,b:ControlIn,request:Request):
  elif not after.get('connected',True): msg=f"Sent, but {r['name']} didn't answer in time to confirm it. This panel updates when it does."
  else: msg=f"Sent, but {r['name']} still says it's {after['state']}. It may take a moment; this panel updates when it changes."
  print(f"[control] {who}: {b.action} {r['name']}: not confirmed (still {after['state']}){detail}",flush=True)
+ problems.record('control',f"{r['name']}: {CONTROL_TEXT_PAST.get(b.action,b.action)} wasn't confirmed (it still said {after['state']})",detail.strip() or None)
  return {'status':'unconfirmed','action':b.action,'message':msg,'printer':after}
 
 # ---- Sending a file and starting it (printer controls, phase 2) ---------------------------
@@ -375,6 +387,7 @@ def list_printer_files(pid:int,request:Request):
  try: return {'files':printer_files(r)}
  except Exception as e:
   print(f"[control] listing files on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+  problems.record('control',f"{r['name']}: couldn't list its files: {control_error(e)}",f'{type(e).__name__}: {e}')
   raise HTTPException(502,control_error(e))
 
 async def confirm_started(r,name,who,said=None):
@@ -391,8 +404,10 @@ async def confirm_started(r,name,who,said=None):
   return {'status':'done','name':name,'printer':after,'note':said}
  if said:
   print(f"[control] {who}: {name} on {r['name']}: not started; the printer said \"{said}\"",flush=True)
+  problems.record('control',f"{r['name']}: a print didn't start; the printer answered: {said}")
   raise HTTPException(502,f"{r['name']} answered: {said}")
  print(f"[control] {who}: {name} on {r['name']}: start not confirmed (still {after['state']})",flush=True)
+ problems.record('control',f"{r['name']}: a print start wasn't confirmed (it still said {after['state']})")
  said='didn\'t answer in time' if not after.get('connected',True) else f"still says it's {after['state']}"
  return {'status':'unconfirmed','name':name,'message':f"{name} was sent to {r['name']}, which hasn't confirmed it's printing yet ({said}). It may still be starting; this panel updates when it does.",'printer':after}
 
@@ -419,6 +434,7 @@ async def print_stored(pid:int,b:StartFile,request:Request):
   said=printer_said(e)
   if not (slow_reply(e) or said):
    print(f"[control] {who}: start {b.path} on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+   problems.record('control',f"{r['name']}: starting a print failed: {control_error(e)}",f'{type(e).__name__}: {e}')
    raise HTTPException(502,control_error(e))
   why=f'the printer answered "{said}"' if said else 'sent; the printer is slow to answer'
   print(f"[control] {who}: start {b.path} on {r['name']}: {why}, checking its state",flush=True)
@@ -457,6 +473,7 @@ async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear
    # A slow answer after the whole file went out is like a slow start: check the printer's state
    if not (start and slow_reply(e)):
     print(f"[control] {who}: send {name} to {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+    problems.record('control',f"{r['name']}: sending a file failed: {control_error(e)}",f'{type(e).__name__}: {e}')
     raise HTTPException(502,control_error(e))
  finally: tmp.unlink(missing_ok=True)
  print(f"[control] {who}: sent {name} ({got} bytes) to {r['name']}{', start' if start else ''}",flush=True)
@@ -544,6 +561,7 @@ updates.configure(DB_PATH.parent/'data'); app.include_router(updates.router)
 settings.configure(db); fan.configure(); app.include_router(settings.router); settings.after_restore.append(bambu_stop_all); settings.set_paths(DB_PATH,storage.FILES_ROOT)
 storage.configure(db,disks); app.include_router(storage.router)
 app.include_router(wifi.router); app.include_router(hotspot.router); hotspot.configure(); app.include_router(remote.router); lightbar.configure(lambda: printers()); app.include_router(lightbar.router)
+problems.configure(DB_PATH.parent/'data',lambda: [(r['name'],MODELS.get(r['printer_type'],'').split(' ')[0] or 'Printer') for r in printer_rows()]); app.include_router(problems.router)
 network.configure(db); app.include_router(network.router)
 services.configure(db); app.include_router(services.router)
 vault.migrate(db)
@@ -564,6 +582,7 @@ def database_check():
   c=db(); n=c.execute('SELECT COUNT(*) FROM printers').fetchone()[0]; c.close(); return {'ok':True,'printers':n}
  except Exception as e:
   print(f'[database] check failed: {type(e).__name__}: {e}',flush=True)
+  problems.record('system',"The database couldn't be read",f'{type(e).__name__}: {e}')
   return {'ok':False,'error':"The database couldn't be read. See the service log."}
 
 @app.get('/api/system')

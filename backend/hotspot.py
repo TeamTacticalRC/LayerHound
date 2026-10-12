@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-import auth, settings, wifi
+import auth, problems, settings, wifi
 
 router=APIRouter(prefix='/api/hotspot')
 SSID=CON='LayerHound-Setup'; GATEWAY='10.42.0.1'; SUBNET=ipaddress.ip_network('10.42.0.0/24')
@@ -55,7 +55,7 @@ def start(reason):
   '802-11-wireless.mode','ap','802-11-wireless.band','bg','ipv4.method','shared','ipv4.addresses',f'{GATEWAY}/24','ipv6.method','disabled')
  if code==0: code,_,err=wifi.nmcli('--wait','20','connection','up','id',CON,timeout=30)
  if code!=0:
-  print(f'[hotspot] could not start: {err}',flush=True); wifi.nmcli('connection','delete','id',CON); return False
+  print(f'[hotspot] could not start: {err}',flush=True); problems.record('hotspot',"The setup hotspot couldn't start",err); wifi.nmcli('connection','delete','id',CON); return False
  state.update(active=True,reason=reason,since=time.time())
  print(f'[hotspot] started ({reason})',flush=True); return True
 
@@ -173,7 +173,7 @@ def join(ssid,password):
    print(f'[hotspot] joined {ssid}',flush=True); return
   if not was_saved: wifi.nmcli('connection','delete','id',ssid)
   state.update(joining=None,last_error=f"Couldn't join {ssid}: {wifi.friendly(err)}.")
-  print(f'[hotspot] joining {ssid} failed: {err}',flush=True)
+  print(f'[hotspot] joining {ssid} failed: {err}',flush=True); problems.record('hotspot',f"Joining the Wi-Fi network {ssid} failed",err)
   # Bring the hotspot back so the phone can try again
   wifi.nmcli('--wait','20','connection','up','id',CON,timeout=30)
 

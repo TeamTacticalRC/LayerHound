@@ -1,0 +1,24 @@
+name: Idea or feature request
+description: Something you'd like LayerHound to do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like LayerHound to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help?
+      description: What you're trying to get done, and how you do it today.
+  - type: checkboxes
+    id: printers
+    attributes:
+      label: Printers it's about
+      options:
+        - label: Klipper (Moonraker)
+        - label: Bambu Lab
+        - label: OctoPrint
+        - label: Not printer-specific

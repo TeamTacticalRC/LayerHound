@@ -13,7 +13,7 @@
 import getpass, json, os, socket, subprocess, threading, time
 import segno
 from fastapi import APIRouter, HTTPException
-import settings
+import problems, settings
 
 router=APIRouter(prefix='/api/remote')
 TAILSCALE='tailscale'
@@ -104,7 +104,7 @@ def turn_off():
  # Keeps the sign-in: turning it back on doesn't need the Tailscale account again
  _require(); r=run('down')
  if r.returncode!=0:
-  print(f'[remote] tailscale down: {r.stderr.strip()}',flush=True)
+  print(f'[remote] tailscale down: {r.stderr.strip()}',flush=True); problems.record('remote',"Turning remote access off failed",r.stderr.strip())
   raise HTTPException(500,"Couldn't turn remote access off. See the service log.")
  return {'available':True,**summarize(ts_status())}
 
@@ -118,6 +118,6 @@ def sign_out():
   _up=None
  r=run('logout',timeout=30)
  if r.returncode!=0:
-  print(f'[remote] tailscale logout: {r.stderr.strip()}',flush=True)
+  print(f'[remote] tailscale logout: {r.stderr.strip()}',flush=True); problems.record('remote',"Signing out of Tailscale failed",r.stderr.strip())
   raise HTTPException(500,"Couldn't sign out of Tailscale. See the service log.")
  return {'available':True,**summarize(ts_status())}

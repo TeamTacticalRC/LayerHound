@@ -19,7 +19,8 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: var(--lh-bg); }
-button { font: inherit; }
+/* In the base layer, so text-size utilities on buttons (text-xs, text-sm) still apply */
+@layer base { button { font: inherit; } }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--lh-sunken); }
 ::-webkit-scrollbar-thumb { background: var(--lh-scroll-thumb); border-radius: 8px; }

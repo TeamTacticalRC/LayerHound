@@ -94,8 +94,10 @@ PUBLIC={('GET','/api/health'),('GET','/api/auth/status'),('POST','/api/auth/logi
  ('GET','/api/hotspot'),('POST','/api/hotspot/connect')}
 # Changes any signed-in user may make to their own account
 SELF_SERVICE={('POST','/api/auth/password')}
+# Anyone signed in (including view-only accounts and wall screens) may report a crash in their page
+ANY_SIGNED_IN={('POST','/api/problems/report')}
 # Reads that are admin-only because they contain secrets
-ADMIN_READS=('/api/settings/backup','/api/auth/users','/api/auth/keys','/api/auth/recovery','/api/remote')
+ADMIN_READS=('/api/settings/backup','/api/auth/users','/api/auth/keys','/api/auth/recovery','/api/remote','/api/problems')
 
 async def middleware(request:Request,call_next):
  path=request.url.path; method=request.method
@@ -107,7 +109,7 @@ async def middleware(request:Request,call_next):
  if not has_users(): return JSONResponse({'detail':'setup_required'},status_code=401)
  who=principal(request)
  if not who: return JSONResponse({'detail':'login_required'},status_code=401)
- if (changing and (method,path) not in SELF_SERVICE or path.startswith(ADMIN_READS)) and who['role']!='admin':
+ if (changing and (method,path) not in SELF_SERVICE|ANY_SIGNED_IN or path.startswith(ADMIN_READS) and (method,path) not in ANY_SIGNED_IN) and who['role']!='admin':
   return JSONResponse({'detail':'Only an admin can do that'},status_code=403)
  if (method,path) in SELF_SERVICE and who['kind']!='user':
   return JSONResponse({'detail':'Sign in to change your password'},status_code=403)

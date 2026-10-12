@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/TeamTacticalRC/LayerHound/security/advisories/new
+    about: Please report security problems privately, not as a public issue (see SECURITY.md).
+  - name: Owner's guide
+    url: https://github.com/TeamTacticalRC/LayerHound/blob/main/docs/GUIDE.md
+    about: Setup, troubleshooting and how-tos. For a private question, use Send feedback in the LayerHound menu.

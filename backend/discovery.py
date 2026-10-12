@@ -12,7 +12,7 @@
 import json, re, socket, threading, time, urllib.error, urllib.parse, urllib.request
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import network, settings
+import network, problems, settings
 
 router=APIRouter(prefix='/api/discovery')
 SCAN_EVERY=24*3600; FIRST_SCAN_DELAY=90; ANNOUNCE_PORT=2021
@@ -86,7 +86,7 @@ def _loop():
  while True:
   try:
    if settings.get('printer_discovery') and time.time()-_last['scan']>=SCAN_EVERY: scan_now()
-  except Exception as e: print(f'[discovery] scan failed: {e}',flush=True)
+  except Exception as e: print(f'[discovery] scan failed: {e}',flush=True); problems.crash('looking for printers',e)
   time.sleep(600)
 
 def after_setup():

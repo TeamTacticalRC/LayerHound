@@ -182,3 +182,25 @@ def test_start_a_print(browser, base_url):
     api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
     assert not page.problems.items, page.problems.items
     page.context.close()
+
+
+def test_recent_problems_and_feedback(browser, base_url):
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    api(page, "DELETE", "/api/problems")
+    # A crash in the page reaches Recent problems (as a page would report it)
+    assert api(page, "POST", "/api/problems/report", {"message": "TypeError: card is undefined", "detail": "at Card", "page": "printers"})["status"] == 200
+    page.reload(); open_page(page, "Settings")
+    section = page.locator("section", has_text="Recent problems")
+    section.get_by_text("card is undefined", exact=False).wait_for()
+    link = section.get_by_role("link", name="Report a bug on GitHub").get_attribute("href")
+    assert link.startswith("https://github.com/TeamTacticalRC/LayerHound/issues/new?template=bug_report.yml") and "card+is+undefined" in link
+    # Send feedback offers to include them for a problem report, and shows exactly what's included
+    open_page(page, "Send feedback")
+    page.get_by_role("radio", name="Problem").click()
+    page.get_by_text("Include recent problems (1)").wait_for()
+    page.get_by_role("button", name="Show exactly what's included").click()
+    page.get_by_text("[Dashboard page]", exact=False).wait_for()
+    api(page, "DELETE", "/api/problems")
+    assert not page.problems.items, page.problems.items
+    page.context.close()

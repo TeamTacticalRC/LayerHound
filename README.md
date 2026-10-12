@@ -63,7 +63,7 @@ Then open **http://THIS-MACHINE:8080**. The image is `ghcr.io/teamtacticalrc/lay
 | Camera | ✅ if Klipper lists one, or set a Camera URL | ✅ built-in camera, found automatically | Set a Camera URL |
 | Imported print history | ✅ | — (recorded from now on) | — (recorded from now on) |
 
-Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its edit form. LayerHound **never starts prints**. An admin can turn on **Settings → Printer controls** to pause, resume or cancel a print from its detail panel (off by default, admins only, each action confirmed first, and logged to the service log).
+Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its edit form. Controlling printers is **optional and off by default**. In **Settings → Printer controls** an admin can allow pausing, resuming and cancelling prints and, separately, starting them (a file already on a Klipper or OctoPrint printer, or an uploaded one, after confirming the bed is clear). Admins only, each action confirmed first, checked against the printer's state, and logged to the service log.
 
 ## Screenshots
 

@@ -153,3 +153,32 @@ def test_print_controls(browser, base_url):
     api(page, "PUT", "/api/settings", {"printer_controls": False})
     assert not page.problems.items, page.problems.items
     page.context.close()
+
+
+def test_start_a_print(browser, base_url):
+    # An idle printer with two files on it (faked in the browser), and a faked confirmed start
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    fake = {"id": 4243, "name": "Shelf Klipper", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "idle",
+            "progress": 0, "nozzle": 25, "bed": 24, "base_url": "http://127.0.0.1:9"}
+    files = [{"path": "shelf/car_shelf.gcode", "name": "car_shelf.gcode", "size": 812345, "modified": 1760000000},
+             {"path": "cube.gcode", "name": "cube.gcode", "size": 1234, "modified": 1750000000}]
+    page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
+    page.route("**/api/printers/4243/files", lambda r: r.fulfill(json={"files": files}))
+    started = []
+    page.route("**/api/printers/4243/print", lambda r: (started.append(r.request.post_data_json), r.fulfill(json={"status": "done", "name": "car_shelf.gcode", "printer": {**fake, "state": "printing"}})))
+    assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
+    page.reload(); open_page(page, "Print Farm"); page.get_by_text("Shelf Klipper").first.click()
+    page.get_by_text("Start a print").wait_for()
+    page.get_by_label("Search the printer's files").fill("shelf")
+    assert page.get_by_role("radio", name="cube.gcode").count() == 0
+    page.get_by_role("radio", name="car_shelf.gcode").click()
+    start = page.get_by_role("button", name="Start print")
+    assert start.is_disabled()                       # the bed isn't confirmed clear yet
+    page.get_by_text("The bed is clear and ready to print.").click()
+    start.click()
+    page.get_by_text("Printing car_shelf.gcode.").wait_for()
+    assert started == [{"path": "shelf/car_shelf.gcode", "bed_clear": True}]
+    api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
+    assert not page.problems.items, page.problems.items
+    page.context.close()

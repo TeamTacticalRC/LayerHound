@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -820,6 +820,83 @@ function PrintControls({ printer, onDone }) {
   );
 }
 
+// Start a print (Settings -> Printer controls -> Also allow starting prints): a file already on the
+// printer, or one uploaded from this device. The bed must be confirmed clear; "Printing." only once
+// the printer says so.
+function StartPrint({ printer, onDone }) {
+  const [source, setSource] = useState("printer");
+  const [files, setFiles] = useState(null);
+  const [search, setSearch] = useState("");
+  const [chosen, setChosen] = useState(null);
+  const [upload, setUpload] = useState(null);
+  const [startNow, setStartNow] = useState(true);
+  const [clear, setClear] = useState(false);
+  const [busy, setBusy] = useState(null);   // null | {progress} | "starting"
+  const [msg, setMsg] = useState(null);
+  const enabled = prefs.printer_controls && prefs.printer_start;
+  useEffect(() => { if (enabled && source === "printer" && files === null) getPrinterFiles(printer.id).then(r => setFiles(r.files)).catch(e => { setFiles([]); setMsg({ ok: false, text: e.message }); }); }, [enabled, source, files, printer.id]);
+  if (!enabled) return <p className="mt-3 text-xs text-slate-600">To start prints from here, turn on Settings → Printer controls → Also allow starting prints.</p>;
+  const starting = source === "printer" || startNow;
+  const ready = (source === "printer" ? !!chosen : !!upload) && (!starting || clear) && !busy;
+  const shown = (files ?? []).filter(f => f.path.toLowerCase().includes(search.toLowerCase()));
+  const go = async () => {
+    setMsg(null);
+    try {
+      let r;
+      if (source === "printer") { setBusy("starting"); r = await startPrinterFile(printer.id, chosen); }
+      else { setBusy({ progress: 0 }); r = await sendPrintFile(printer.id, upload, startNow, p => setBusy(p < 1 ? { progress: p } : "starting")); }
+      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message } : { ok: true, text: r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}.` : `Printing ${r.name}.` });
+      setClear(false); onDone();
+      if (r.status === "uploaded") { setUpload(null); setFiles(null); }
+    } catch (e) { setMsg({ ok: false, text: e.message }); }
+    setBusy(null);
+  };
+  return (
+    <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5" data-admin>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-wider text-slate-600">Start a print</div>
+        <Segmented label="File source" value={source} onChange={v => { setSource(v); setMsg(null); }} options={[["printer", "On the printer"], ["upload", "Upload"]]} />
+      </div>
+      {source === "printer" ? (
+        <div className="mt-3">
+          <input className={inputClass} placeholder="Search files" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search the printer's files" />
+          <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/8" role="radiogroup" aria-label="Files on the printer">
+            {files === null ? <div className="flex items-center gap-2 p-3 text-sm text-slate-500"><Loader2 size={14} className="animate-spin" /> Loading files…</div>
+              : !shown.length ? <div className="p-3 text-sm text-slate-500">{files.length ? "No files match." : "No G-code files on the printer."}</div>
+              : shown.map(f => (
+                <button key={f.path} type="button" role="radio" aria-checked={chosen === f.path} onClick={() => setChosen(f.path)}
+                  className={`block w-full border-b border-white/6 px-3 py-2 text-left last:border-0 ${chosen === f.path ? "bg-violet-500/12" : "hover:bg-white/[.03]"}`}>
+                  <div className="truncate text-sm text-white">{f.name}</div>
+                  <div className="truncate text-[11px] text-slate-500">{[f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : null, f.size ? formatBytes(f.size) : null, f.modified ? fmtDate(f.modified * 1000, { dateStyle: "medium" }) : null].filter(Boolean).join(" · ")}</div>
+                </button>
+              ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 px-4 py-4 text-sm text-slate-300 hover:bg-white/[.03]">
+            <CloudUpload size={16} /> {upload ? `${upload.name} (${formatBytes(upload.size)})` : "Choose a sliced G-code file"}
+            <input type="file" accept=".gcode,.gco,.g,.bgcode" className="sr-only" onChange={e => setUpload(e.target.files?.[0] ?? null)} aria-label="G-code file to upload" />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={startNow} onChange={e => setStartNow(e.target.checked)} className="accent-violet-500" /> Start printing right away</label>
+        </div>
+      )}
+      {starting && (
+        <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/6 p-3 text-sm text-amber-100">
+          <input type="checkbox" checked={clear} onChange={e => setClear(e.target.checked)} className="mt-0.5 accent-violet-500" />
+          <span>The bed is clear and ready to print.{printer.hasCamera ? " Check the camera above." : ""}</span>
+        </label>
+      )}
+      {busy?.progress !== undefined && <div className="mt-3 h-1.5 rounded-full bg-white/6"><div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${Math.round(busy.progress * 100)}%` }} /></div>}
+      {busy === "starting" && <p className="mt-3 flex items-center gap-2 text-xs text-slate-400"><Loader2 size={13} className="animate-spin" /> {starting ? "Waiting for the printer to start…" : "Sending to the printer…"}</p>}
+      <button onClick={go} disabled={!ready} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-40">
+        <Play size={16} /> {source === "printer" ? "Start print" : startNow ? "Upload and print" : "Upload"}
+      </button>
+      {msg && <p className={`mt-3 text-xs ${msg.ok ? "text-emerald-300" : msg.warn ? "text-amber-200" : "text-red-300"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -874,6 +951,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
       </div>
       {!isDemo && isAdmin() && (printer.state === "printing" || printer.state === "paused") && <PrintControls printer={printer} onDone={onRemoved} />}
       {printer.hasCamera && !isDemo && <CameraView printer={printer} />}
+      {!isDemo && isAdmin() && (printer.state === "idle" || printer.state === "complete") && printer.type !== "bambu" && <StartPrint printer={printer} onDone={onRemoved} />}
       <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
         <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : "Connected"}</div>
@@ -2637,11 +2715,14 @@ function DiscoverySection({ onSaved }) {
 // Pause / resume / cancel from a printer's detail panel. Off until an admin turns it on.
 function PrinterControlsSection({ onSaved }) {
   const [on, setOn] = useState(!!prefs.printer_controls);
+  const [startOn, setStartOn] = useState(!!prefs.printer_start);
   const [error, setError] = useState("");
   const set = async v => { setOn(v); setError(""); try { onSaved(await saveSettings({ printer_controls: v })); } catch (e) { setOn(!v); setError(e.message); } };
+  const setStart = async v => { setStartOn(v); setError(""); try { onSaved(await saveSettings({ printer_start: v })); } catch (e) { setStartOn(!v); setError(e.message); } };
   return (
     <Section title={<span className="flex items-center gap-2"><Pause size={16} className="text-violet-400" /> Printer controls</span>} sub="Pause, resume or cancel a print from LayerHound, for example from your phone when a print fails while you're away.">
-      <Toggle checked={on} onChange={set} label="Allow pausing, resuming and cancelling prints" hint="Admins only: view-only accounts, wall screens and the status light never can. Each action asks you to confirm first. LayerHound never starts prints." />
+      <Toggle checked={on} onChange={set} label="Allow pausing, resuming and cancelling prints" hint="Admins only: view-only accounts, wall screens and the status light never can. Each action asks you to confirm first." />
+      {on && <div className="border-l-2 border-white/8 pl-3"><Toggle checked={startOn} onChange={setStart} label="Also allow starting prints" hint="Start a file that's already on the printer, or upload one, from the printer's panel (Klipper and OctoPrint). You confirm the bed is clear first, with the camera shown. Only start a print you'd be comfortable leaving: you may not be there to watch it." /></div>}
       <p className="mt-1 text-xs text-slate-500">LayerHound checks that the printer really paused or stopped, and tells you if it didn't. Bambu Lab printers on firmware from 2025 on ignore controls from other apps unless they're in LAN Only mode with Developer Mode on.</p>
       {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
     </Section>

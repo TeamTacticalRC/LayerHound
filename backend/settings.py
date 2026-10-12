@@ -52,6 +52,8 @@ SCHEMA={
  'time_zone':('',str,(0,64)),
  # Pause / resume / cancel prints from the dashboard (main.py): off until an admin turns it on
  'printer_controls':(False,bool,None),
+ # Also send a G-code file to a printer and start it (needs printer_controls too): off until turned on
+ 'printer_start':(False,bool,None),
  # Setup hotspot when offline (hotspot.py): auto = on for single-board computers, off for PCs
  'setup_hotspot':('auto',str,('auto','on','off')),
  # Printer suggestions (discovery.py): scan once a day; optionally add Klipper printers without asking

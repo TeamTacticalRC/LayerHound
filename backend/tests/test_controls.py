@@ -130,3 +130,123 @@ def test_only_admins(client, farm):
     k = new_client(); k.headers["Authorization"] = f"Bearer {key}"
     assert act(k, ids["moonraker"], "pause").status_code == 403
     assert sent == []
+
+
+# ---- Phase 2: printer files, sending a file and starting it --------------------------------
+@pytest.fixture
+def starting(client, farm, monkeypatch):
+    ids, states, sent = farm
+    client.put("/api/settings", json={"printer_start": True})
+    for pid in ids.values():
+        if isinstance(pid, int): states[pid] = "idle"
+    monkeypatch.setattr(main, "START_WAIT", 0); monkeypatch.setattr(main, "START_POLL", 0)
+    uploads = []
+    def send_file(url, fields, name, path, headers=None):
+        uploads.append((url, fields, name, path.read_bytes(), headers))
+        if fields.get("print") == "true":   # the printer starts it
+            states[ids["moonraker" if "/server/files" in url else "octoprint"]] = "printing"
+        return 201
+    monkeypatch.setattr(main, "send_file", send_file)
+    yield ids, states, sent, uploads
+    client.put("/api/settings", json={"printer_start": False})
+
+
+def upload(c, pid, data=b"G28\nG1 X10\n", name="cube.gcode", **q):
+    qs = "&".join(f"{k}={str(v).lower()}" for k, v in q.items())
+    return c.put(f"/api/printers/{pid}/print?name={name}&{qs}", content=data)
+
+
+def test_multipart_body(tmp_path):
+    from email.parser import BytesParser
+    from email.policy import default
+    f = tmp_path / "x.gcode"; f.write_bytes(b"G28\n" * 1000)
+    chunks, ctype, size = main.multipart({"root": "gcodes", "print": "true"}, "x.gcode", f)
+    body = b"".join(chunks)
+    assert len(body) == size
+    msg = BytesParser(policy=default).parsebytes(b"Content-Type: " + ctype.encode() + b"\r\n\r\n" + body)
+    parts = {p.get_param("name", header="content-disposition"): p for p in msg.iter_parts()}
+    assert parts["root"].get_content().strip() == "gcodes" and parts["print"].get_content().strip() == "true"
+    assert parts["file"].get_filename() == "x.gcode" and parts["file"].get_payload(decode=True) == b"G28\n" * 1000
+
+
+def test_send_needs_its_own_switch(client, farm):
+    ids, states, sent = farm
+    states[ids["moonraker"]] = "idle"
+    assert upload(client, ids["moonraker"], start=True, bed_clear=True).status_code == 403   # printer_start is off
+    assert client.get(f"/api/printers/{ids['moonraker']}/files").status_code == 403
+
+
+def test_upload_and_start_klipper(client, starting):
+    ids, states, sent, uploads = starting
+    r = upload(client, ids["moonraker"], start=True, bed_clear=True).json()
+    assert r["status"] == "done"
+    url, fields, name, data, _ = uploads[-1]
+    assert url == "http://127.0.0.1:9/server/files/upload" and fields == {"root": "gcodes", "print": "true"} and name == "cube.gcode" and data == b"G28\nG1 X10\n"
+    # Upload only
+    states[ids["moonraker"]] = "idle"
+    assert upload(client, ids["moonraker"]).json()["status"] == "uploaded" and uploads[-1][1]["print"] == "false"
+
+
+def test_upload_and_start_octoprint(client, starting):
+    ids, states, sent, uploads = starting
+    assert upload(client, ids["octoprint"], start=True, bed_clear=True).json()["status"] == "done"
+    url, fields, _, _, headers = uploads[-1]
+    assert url.endswith("/api/files/local") and fields == {"select": "true", "print": "true"} and headers == {"X-Api-Key": "OCTOKEY"}
+
+
+def test_start_safety_checks(client, starting):
+    ids, states, sent, uploads = starting
+    assert upload(client, ids["moonraker"], start=True).status_code == 400                        # bed not confirmed clear
+    assert upload(client, ids["moonraker"], name="evil.sh", start=True, bed_clear=True).status_code == 400
+    assert upload(client, ids["moonraker"], data=b"", start=True, bed_clear=True).status_code == 400
+    states[ids["moonraker"]] = "printing"
+    r = upload(client, ids["moonraker"], start=True, bed_clear=True)
+    assert r.status_code == 409 and "printing" in r.json()["detail"]                                # never on top of a print
+    assert upload(client, ids["bambu"], start=True, bed_clear=True).status_code == 409                # Bambu: not yet
+    assert uploads == []
+    # A name with folders or odd characters becomes a plain file name
+    states[ids["moonraker"]] = "idle"
+    upload(client, ids["moonraker"], name="..%2F..%2Fetc%2Fcube%3B.gcode")
+    assert uploads[-1][2] == "cube_.gcode"
+
+
+def test_start_not_confirmed(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    monkeypatch.setattr(main, "send_file", lambda *a, **k: 201)   # took the file, but doesn't start
+    r = upload(client, ids["moonraker"], start=True, bed_clear=True).json()
+    assert r["status"] == "unconfirmed" and "still says it's idle" in r["message"]
+
+
+def test_printer_files_and_start_one(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    def get_json(u, headers=None):
+        if "/server/files/list" in u:
+            return {"result": [{"path": "old.gcode", "modified": 100, "size": 5}, {"path": "shelf/new.gcode", "modified": 200, "size": 9},
+                               {"path": "notes.txt", "modified": 300, "size": 1}]}
+        return {"files": [{"type": "folder", "children": [{"type": "machinecode", "name": "a.gcode", "path": "parts/a.gcode", "date": 5, "size": 1}]},
+                          {"type": "model", "name": "b.stl", "path": "b.stl", "date": 9}]}
+    monkeypatch.setattr(main, "get_json", get_json)
+    files = client.get(f"/api/printers/{ids['moonraker']}/files").json()["files"]
+    assert [f["path"] for f in files] == ["shelf/new.gcode", "old.gcode"] and files[0]["name"] == "new.gcode"   # newest first, G-code only
+    assert [f["path"] for f in client.get(f"/api/printers/{ids['octoprint']}/files").json()["files"]] == ["parts/a.gcode"]
+    # Start one: Klipper by file name; OctoPrint select-and-print
+    sent.clear()
+    import main as m
+    def post(u, body=None, headers=None):
+        sent.append((u, body, headers)); states[ids["moonraker" if "/printer/print/start" in u else "octoprint"]] = "printing"; return 204
+    monkeypatch.setattr(m, "post_json", post)
+    assert client.post(f"/api/printers/{ids['moonraker']}/print", json={"path": "shelf/new.gcode"}).status_code == 400   # bed not confirmed
+    r = client.post(f"/api/printers/{ids['moonraker']}/print", json={"path": "shelf/new.gcode", "bed_clear": True}).json()
+    assert r["status"] == "done" and sent[-1][0] == "http://127.0.0.1:9/printer/print/start?filename=shelf/new.gcode"
+    client.post(f"/api/printers/{ids['octoprint']}/print", json={"path": "parts/a.gcode", "bed_clear": True})
+    assert sent[-1][0].endswith("/api/files/local/parts/a.gcode") and sent[-1][1] == {"command": "select", "print": True}
+    assert client.post(f"/api/printers/{ids['moonraker']}/print", json={"path": "../secret.gcode", "bed_clear": True}).status_code in (400, 409)
+
+
+def test_viewers_cannot_send_or_list(client, starting):
+    ids, states, sent, uploads = starting
+    client.post("/api/auth/users", json={"username": "sendviewer", "password": "send viewer 12", "role": "viewer"})
+    v = new_client(); v.post("/api/auth/login", json={"username": "sendviewer", "password": "send viewer 12"})
+    assert upload(v, ids["moonraker"], start=True, bed_clear=True).status_code == 403
+    assert v.get(f"/api/printers/{ids['moonraker']}/files").status_code == 403
+    assert uploads == []

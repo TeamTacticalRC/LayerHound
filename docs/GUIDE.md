@@ -87,12 +87,19 @@ Tips:
 - **Cameras:** Bambu P1 and A1 cameras, and Klipper cameras, are found automatically. For any other camera, add its snapshot or stream address as the printer's **Camera URL**.
 - **Arrange the cards** to match your bench: **Print Farm → Reorder**.
 
-LayerHound **watches** your printers, and never starts a print.
+LayerHound **watches** your printers. Controlling them is optional and off by default.
 
-**Pausing or cancelling from LayerHound (optional, off by default).** Turn on **Settings → Printer controls**, and a printing printer's detail panel (click it on the Print Farm page) shows **Pause** / **Resume** and **Cancel print**. Handy with Remote access: an alert on your phone, and you can stop a failing print before it wastes a spool.
+**Pausing or cancelling from LayerHound.** Turn on **Settings → Printer controls**, and a printing printer's detail panel (click it on the Print Farm page) shows **Pause** / **Resume** and **Cancel print**. Handy with Remote access: an alert on your phone, and you can stop a failing print before it wastes a spool.
 - Admins only. View-only accounts, wall screens and the status light never can.
 - Every action asks you to confirm first. A cancelled print can't be resumed.
 - **Bambu Lab:** firmware from 2025 on ignores pause and stop from other apps unless the printer is in **LAN Only mode** with **Developer Mode** on. LayerHound checks that the printer actually paused or stopped, and tells you if it didn't. Otherwise use the printer's screen or Bambu Handy.
+
+**Starting a print from LayerHound (Klipper and OctoPrint).** With Printer controls on, also turn on **Also allow starting prints**. An idle or finished printer's panel then shows **Start a print**:
+- **On the printer:** the G-code files already stored on it, newest first, with a search box. Pick one.
+- **Upload:** send a sliced G-code file from your computer or phone, and start it right away or just store it on the printer.
+- Before starting, you tick **The bed is clear and ready to print**, with the printer's camera shown above. Only start a print you'd be comfortable leaving running; you may not be there to watch it.
+- LayerHound says **Printing** only once the printer reports it's printing.
+- Not for Bambu Lab printers yet: use Bambu Studio or Bambu Handy.
 
 ## Around the dashboard
 

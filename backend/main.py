@@ -2,11 +2,12 @@ from datetime import datetime, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import json, os, platform, re, socket, sqlite3, ssl, sys, threading, time, urllib.parse, urllib.request
+import asyncio, json, os, platform, re, socket, sqlite3, ssl, sys, threading, time, urllib.parse, urllib.request
 import paho.mqtt.client as mqtt
 import psutil
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import auth, discovery, fan, history, hotspot, lightbar, remote, stats, updates, vault, media, network, services, settings, storage, wifi
@@ -261,6 +262,147 @@ def control(pid:int,b:ControlIn,request:Request):
  else: msg=f"Sent, but {r['name']} still says it's {after['state']}. Check the printer."
  print(f"[control] {who}: {b.action} {r['name']}: not confirmed (still {after['state']}){detail}",flush=True)
  return {'status':'unconfirmed','action':b.action,'message':msg,'printer':after}
+
+# ---- Sending a file and starting it (printer controls, phase 2) ---------------------------
+# Off unless an admin turns on both Settings -> Printer controls and "Allow sending files and
+# starting prints". Klipper and OctoPrint only (Bambu firmware refuses other apps outside LAN Only
+# with Developer Mode). The file streams to the board, then on to the printer; starting needs the
+# owner to confirm the bed is clear, and "Printing" is only reported once the printer says so.
+PRINT_EXT=('.gcode','.gco','.g','.bgcode'); MAX_PRINT_FILE=1024*2**20; START_WAIT=25; UPLOAD_TIMEOUT=600; START_POLL=2
+
+def print_name(name):
+ # Just the file's own name, safe for the printer's file list
+ n=re.sub(r'[^\w .()+\-]','_',Path(str(name or '')).name).strip()
+ if not n.lower().endswith(PRINT_EXT): raise HTTPException(400,'Choose a sliced G-code file (.gcode)')
+ if len(n)>120: n=n[:120-len(Path(n).suffix)]+Path(n).suffix
+ return n
+
+def multipart(fields,name,path):
+ # (body chunks, content type) for a multipart upload: form fields first, then the file, streamed
+ boundary='----layerhound'+os.urandom(12).hex()
+ head=''.join(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n' for k,v in fields.items())
+ head+=f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
+ tail=f'\r\n--{boundary}--\r\n'
+ size=len(head.encode())+path.stat().st_size+len(tail.encode())
+ def chunks():
+  yield head.encode()
+  with open(path,'rb') as f:
+   while True:
+    b=f.read(256*1024)
+    if not b: break
+    yield b
+  yield tail.encode()
+ return chunks(),f'multipart/form-data; boundary={boundary}',size
+
+def send_file(url,fields,name,path,headers=None):
+ body,ctype,size=multipart(fields,name,path)
+ r=urllib.request.Request(url,data=body,method='POST',headers={'Content-Type':ctype,'Content-Length':str(size),**(headers or {})})
+ with urllib.request.urlopen(r,timeout=UPLOAD_TIMEOUT) as x: return x.status
+
+def start_printer_row(pid,request):
+ # Shared checks for listing, sending and starting files: both settings on, an admin, Klipper or OctoPrint
+ if not (settings.get('printer_controls') and settings.get('printer_start')):
+  raise HTTPException(403,'Sending files to printers is off. An admin can turn it on in Settings -> Printer controls.')
+ if (getattr(request.state,'who',None) or {}).get('role')!='admin': raise HTTPException(403,'Only an admin can do that')
+ c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
+ if not r: raise HTTPException(404,'Printer not found')
+ if r['printer_type']=='bambu': raise HTTPException(409,"Starting prints on Bambu Lab printers isn't supported yet. Use Bambu Studio or Bambu Handy.")
+ return r
+
+def printer_files(r):
+ # The printer's own stored files, newest first: [{path, name, size, modified}]
+ base=clean_url(r['base_url'])
+ if r['printer_type']=='moonraker':
+  rows=[{'path':f['path'],'size':f.get('size'),'modified':f.get('modified')} for f in get_json(base+'/server/files/list?root=gcodes').get('result',[])]
+ else:
+  key=vault.decrypt(r['api_key']); out=[]
+  def walk(items):
+   for f in items:
+    if f.get('type')=='folder': walk(f.get('children') or [])
+    elif f.get('type')=='machinecode': out.append({'path':f.get('path') or f.get('name'),'size':f.get('size'),'modified':f.get('date')})
+  walk(get_json(base+'/api/files/local?recursive=true',{'X-Api-Key':key} if key else {}).get('files',[]))
+  rows=out
+ rows=[{**x,'name':x['path'].rsplit('/',1)[-1]} for x in rows if str(x['path']).lower().endswith(PRINT_EXT)]
+ return sorted(rows,key=lambda x:-(x['modified'] or 0))[:500]
+
+@app.get('/api/printers/{pid}/files')
+def list_printer_files(pid:int,request:Request):
+ r=start_printer_row(pid,request)
+ try: return {'files':printer_files(r)}
+ except Exception as e: raise HTTPException(502,control_error(e))
+
+async def confirm_started(r,name,who):
+ # The printer must report printing; never say "Printing" on hope alone
+ end=time.time()+START_WAIT
+ while True:
+  await asyncio.sleep(START_POLL)
+  after=await run_in_threadpool(check,r)
+  if after['state']=='printing' or time.time()>=end: break
+ if after['state']=='printing':
+  print(f"[control] {who}: {name} started on {r['name']}",flush=True)
+  return {'status':'done','name':name,'printer':after}
+ print(f"[control] {who}: {name} on {r['name']}: start not confirmed (still {after['state']})",flush=True)
+ return {'status':'unconfirmed','name':name,'message':f"{name} was sent to {r['name']}, but it still says it's {after['state']}. Check the printer.",'printer':after}
+
+class StartFile(BaseModel):
+ path:str=Field(min_length=1,max_length=500); bed_clear:bool=False
+
+@app.post('/api/printers/{pid}/print')
+async def print_stored(pid:int,b:StartFile,request:Request):
+ # Start a file that's already on the printer
+ r=start_printer_row(pid,request)
+ if not b.bed_clear: raise HTTPException(400,'Confirm that the bed is clear before starting a print')
+ if not b.path.lower().endswith(PRINT_EXT) or '..' in b.path.split('/'): raise HTTPException(400,'Choose a G-code file from the printer')
+ state=(await run_in_threadpool(snapshot,r,False))['state']
+ if state not in ('idle','complete'): raise HTTPException(409,f"{r['name']} is {state}. A print can start when it's idle or finished.")
+ base=clean_url(r['base_url']); who=(getattr(request.state,'who',None) or {}).get('username') or '?'
+ try:
+  if r['printer_type']=='moonraker':
+   await run_in_threadpool(post_json,base+'/printer/print/start?filename='+urllib.parse.quote(b.path))
+  else:
+   key=vault.decrypt(r['api_key'])
+   await run_in_threadpool(post_json,base+'/api/files/local/'+urllib.parse.quote(b.path),{'command':'select','print':True},{'X-Api-Key':key} if key else {})
+ except Exception as e:
+  print(f"[control] {who}: start {b.path} on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+  raise HTTPException(502,control_error(e))
+ print(f"[control] {who}: start {b.path} on {r['name']}",flush=True)
+ return await confirm_started(r,b.path.rsplit('/',1)[-1],who)
+
+@app.put('/api/printers/{pid}/print')
+async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear:bool=False):
+ # Upload a file to the printer (raw body, streamed), and start it if asked
+ r=start_printer_row(pid,request)
+ name=print_name(name)
+ if start and not bed_clear: raise HTTPException(400,'Confirm that the bed is clear before starting a print')
+ size=int(request.headers.get('content-length') or 0)
+ if size>MAX_PRINT_FILE: raise HTTPException(413,'That file is larger than 1 GB')
+ state=(await run_in_threadpool(snapshot,r,False))['state']
+ if state not in ('idle','complete'): raise HTTPException(409,f"{r['name']} is {state}. Files can be sent when it's idle or finished.")
+ tmp_dir=DB_PATH.parent/'data'/'uploads'; tmp_dir.mkdir(parents=True,exist_ok=True)
+ tmp=tmp_dir/f'.{os.urandom(6).hex()}.part'; who=(getattr(request.state,'who',None) or {}).get('username') or '?'
+ try:
+  got=0
+  with open(tmp,'wb') as f:
+   async for chunk in request.stream():
+    got+=len(chunk)
+    if got>MAX_PRINT_FILE: raise HTTPException(413,'That file is larger than 1 GB')
+    f.write(chunk)
+  if not got: raise HTTPException(400,'The file is empty')
+  base=clean_url(r['base_url'])
+  try:
+   if r['printer_type']=='moonraker':
+    await run_in_threadpool(send_file,base+'/server/files/upload',{'root':'gcodes','print':'true' if start else 'false'},name,tmp)
+   else:
+    key=vault.decrypt(r['api_key'])
+    await run_in_threadpool(send_file,base+'/api/files/local',{'select':'true' if start else 'false','print':'true' if start else 'false'},name,tmp,{'X-Api-Key':key} if key else {})
+  except HTTPException: raise
+  except Exception as e:
+   print(f"[control] {who}: send {name} to {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+   raise HTTPException(502,control_error(e))
+ finally: tmp.unlink(missing_ok=True)
+ print(f"[control] {who}: sent {name} ({got} bytes) to {r['name']}{', start' if start else ''}",flush=True)
+ if not start: return {'status':'uploaded','name':name}
+ return await confirm_started(r,name,who)
 
 # Which build of the dashboard is being served: the hashed name of its main script, which changes
 # with every build. Open tabs compare it with their own to offer a reload after an update.

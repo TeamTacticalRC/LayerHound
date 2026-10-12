@@ -8,6 +8,10 @@ export const getPrinters=()=>req('/api/printers');
 export const createPrinter=p=>req('/api/printers',{method:'POST',body:JSON.stringify(p)});
 export const deletePrinter=id=>req(`/api/printers/${id}`,{method:'DELETE'});
 export const controlPrinter=(id,action)=>req(`/api/printers/${id}/control`,{method:'POST',body:JSON.stringify({action})});
+export const getPrinterFiles=id=>req(`/api/printers/${id}/files`);
+export const startPrinterFile=(id,path)=>req(`/api/printers/${id}/print`,{method:'POST',body:JSON.stringify({path,bed_clear:true})});
+// Upload a G-code file to a printer (streamed, with progress), and start it if asked
+export function sendPrintFile(id,file,start,onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('PUT',`/api/printers/${id}/print?name=${encodeURIComponent(file.name)}&start=${start}&bed_clear=${start}`);x.setRequestHeader('X-Requested-With','LayerHound');x.upload.onprogress=e=>e.lengthComputable&&onProgress(e.loaded/e.total);x.onload=()=>{if(x.status<300)resolve(JSON.parse(x.responseText));else{let m=`Upload failed (${x.status})`;try{m=JSON.parse(x.responseText).detail||m}catch{}reject(Error(m))}};x.onerror=()=>reject(Error('Network error during upload'));x.send(file)})}
 export const testPrinter=id=>req(`/api/printers/${id}/test`,{method:'POST'});
 export const updatePrinter=(id,p)=>req(`/api/printers/${id}`,{method:'PUT',body:JSON.stringify(p)});
 export const reorderPrinters=ids=>req('/api/printers/order',{method:'PUT',body:JSON.stringify({ids})});

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -490,24 +490,59 @@ function RecoveryKeyCard({ recoveryKey, farmName, onContinue, continueLabel = "C
   );
 }
 
+// On a LayerHound card, the board's own login still has its maker's password, so setup asks for a
+// new one too (backend/board.py). Using the admin password is the easy choice and the default.
+const NEW_BOARD_PW = { same: true, password: "", confirm: "" };
+function boardPasswordProblem(b) {
+  if (b.same) return "";
+  if (b.password.length < 8) return "The board password needs at least 8 characters.";
+  if (b.password !== b.confirm) return "The board passwords don't match.";
+  return "";
+}
+function BoardPasswordFields({ user, value, onChange }) {
+  const set = k => v => onChange({ ...value, [k]: v });
+  return (
+    <div className="space-y-3 border-t border-white/6 pt-4" data-testid="board-password">
+      <div className="text-xs text-slate-500">The board also has its own login, <span className="font-mono text-slate-300">{user}</span>, for advanced use like SSH. It still has the factory password, so LayerHound sets a new one now.</div>
+      <label className="flex items-center gap-2 text-sm text-slate-300">
+        <input type="checkbox" checked={value.same} onChange={e => set("same")(e.target.checked)} className="accent-violet-500" /> Use the admin password for the board too
+      </label>
+      {!value.same && <>
+        <Field label="Board password" hint="At least 8 characters."><PasswordInput value={value.password} onChange={set("password")} autoComplete="new-password" /></Field>
+        <Field label="Type it again"><PasswordInput value={value.confirm} onChange={set("confirm")} autoComplete="new-password" /></Field>
+      </>}
+    </div>
+  );
+}
+const BoardPasswordWarning = ({ error }) => error ? <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/6 px-3 py-2 text-sm text-amber-100">The board password wasn't set: {error} You can set it from the dashboard.</div> : null;
+
 // First run: no accounts exist yet. Name the farm and create the admin account.
-function WelcomeScreen({ farmName, onDone }) {
+function WelcomeScreen({ farmName, boardUser, onDone }) {
   const [f, setF] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "", usage_stats: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [recoveryKey, setRecoveryKey] = useState(null);
+  const [board, setBoard] = useState(NEW_BOARD_PW);
+  const [boardError, setBoardError] = useState("");
   const set = k => v => setF(x => ({ ...x, [k]: v }));
   const submit = async e => {
     e.preventDefault(); setError("");
     if (f.password.length < 8) return setError("Passwords need at least 8 characters.");
     if (f.password !== f.confirm) return setError("The passwords don't match.");
+    if (boardUser && boardPasswordProblem(board)) return setError(boardPasswordProblem(board));
     if (!f.usage_stats) return setError("Choose whether to share anonymous usage stats.");
     setBusy(true);
-    try { const r = await setupLayerHound({ farm_name: f.farm_name.trim() || "My Print Farm", username: f.username.trim(), password: f.password, usage_stats: f.usage_stats }); if (r.recovery_key) setRecoveryKey(r.recovery_key); else onDone(); }
+    try {
+      const r = await setupLayerHound({ farm_name: f.farm_name.trim() || "My Print Farm", username: f.username.trim(), password: f.password, usage_stats: f.usage_stats,
+        ...(boardUser ? { board_password: board.same ? f.password : board.password } : {}) });
+      if (r.board_password && !r.board_password.set) setBoardError(r.board_password.error || "Something went wrong.");
+      if (r.recovery_key) setRecoveryKey(r.recovery_key); else onDone();
+    }
     catch (err) { setError(err.message); setBusy(false); }
   };
   if (recoveryKey) return (
     <AuthShell title="Save your recovery key" sub="One last thing.">
+      <BoardPasswordWarning error={boardError} />
       <RecoveryKeyCard recoveryKey={recoveryKey} farmName={f.farm_name.trim()} onContinue={onDone} continueLabel="Go to my dashboard" />
     </AuthShell>
   );
@@ -523,6 +558,7 @@ function WelcomeScreen({ farmName, onDone }) {
             <Field label="Type it again"><PasswordInput value={f.confirm} onChange={set("confirm")} autoComplete="new-password" /></Field>
           </div>
         </div>
+        {boardUser && <BoardPasswordFields user={boardUser} value={board} onChange={setBoard} />}
         <StatsChoice value={f.usage_stats} onChange={set("usage_stats")} />
         {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
         <button type="submit" disabled={busy || !f.usage_stats} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
@@ -601,7 +637,7 @@ function LoginScreen({ farmName, onDone, onCancel }) {
 
 // Shown to a phone on the "LayerHound-Setup" hotspot: pick the home Wi-Fi, and on a new board
 // also name the farm and create the admin account, all in one go
-function HotspotScreen({ setupRequired, farmName, onDone }) {
+function HotspotScreen({ setupRequired, farmName, boardUser, onDone }) {
   const [info, setInfo] = useState(null);
   const [net, setNet] = useState({ ssid: "", other: false, password: "" });
   const [acct, setAcct] = useState({ farm_name: farmName && farmName !== "My Print Farm" ? farmName : "", username: "admin", password: "", confirm: "", usage_stats: null });
@@ -610,6 +646,8 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
   const [joining, setJoining] = useState(null);
   const [created, setCreated] = useState(false);
   const [recoveryKey, setRecoveryKey] = useState(null);
+  const [board, setBoard] = useState(NEW_BOARD_PW);
+  const [boardError, setBoardError] = useState("");
   useEffect(() => { getHotspot().then(setInfo).catch(e => setError(e.message)); }, []);
   const chosen = info?.networks?.find(n => n.ssid === net.ssid);
   const needsPassword = net.other || (chosen?.secure && !chosen?.saved);
@@ -620,13 +658,16 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
     if (setupRequired && !created) {
       if (acct.password.length < 8) return setError("The admin password needs at least 8 characters.");
       if (acct.password !== acct.confirm) return setError("The admin passwords don't match.");
+      if (boardUser && boardPasswordProblem(board)) return setError(boardPasswordProblem(board));
       if (!acct.usage_stats) return setError("Choose whether to share anonymous usage stats.");
     }
     setBusy(true);
     if (setupRequired && !created) {
       // Show the recovery key while the phone is still on the hotspot; joining Wi-Fi drops it off
       try {
-        const r = await setupLayerHound({ farm_name: acct.farm_name.trim() || "My Print Farm", username: acct.username.trim(), password: acct.password, usage_stats: acct.usage_stats });
+        const r = await setupLayerHound({ farm_name: acct.farm_name.trim() || "My Print Farm", username: acct.username.trim(), password: acct.password, usage_stats: acct.usage_stats,
+          ...(boardUser ? { board_password: board.same ? acct.password : board.password } : {}) });
+        if (r.board_password && !r.board_password.set) setBoardError(r.board_password.error || "Something went wrong.");
         setCreated(true); setBusy(false);
         if (r.recovery_key) return setRecoveryKey(r.recovery_key);
       } catch (err) { setError(err.message); setBusy(false); onDone(); return; }
@@ -640,6 +681,7 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
   };
   if (recoveryKey) return (
     <AuthShell title="Save your recovery key" sub="Before LayerHound joins your Wi-Fi.">
+      <BoardPasswordWarning error={boardError} />
       <RecoveryKeyCard recoveryKey={recoveryKey} farmName={acct.farm_name.trim()} onContinue={() => { setRecoveryKey(null); join(); }} continueLabel={`Join ${net.ssid.trim()}`} />
     </AuthShell>
   );
@@ -687,9 +729,10 @@ function HotspotScreen({ setupRequired, farmName, onDone }) {
             <Field label="Username"><input className={inputClass} maxLength={40} value={acct.username} onChange={e => setAcct(x => ({ ...x, username: e.target.value }))} autoComplete="username" autoCapitalize="none" /></Field>
             <Field label="Password" hint="At least 8 characters."><PasswordInput value={acct.password} onChange={v => setAcct(x => ({ ...x, password: v }))} autoComplete="new-password" /></Field>
             <Field label="Type it again"><PasswordInput value={acct.confirm} onChange={v => setAcct(x => ({ ...x, confirm: v }))} autoComplete="new-password" /></Field>
-            <StatsChoice value={acct.usage_stats} onChange={v => setAcct(x => ({ ...x, usage_stats: v }))} />
           </div>
         )}
+        {setupRequired && boardUser && <BoardPasswordFields user={boardUser} value={board} onChange={setBoard} />}
+        {setupRequired && <StatsChoice value={acct.usage_stats} onChange={v => setAcct(x => ({ ...x, usage_stats: v }))} />}
         {error && <div className="rounded-lg border border-red-500/20 bg-red-500/6 px-3 py-2 text-sm text-red-200">{error}</div>}
         <button type="submit" disabled={busy || !info} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50">
           {busy && <Loader2 size={15} className="animate-spin" />} {busy ? "Connecting…" : setupRequired ? "Finish setup" : "Connect"}
@@ -759,8 +802,8 @@ function App() {
     </AuthShell>
   );
   // On the setup hotspot: Wi-Fi setup (plus the admin account on a new board). Once accounts exist, an admin signs in first.
-  if (status.on_hotspot && (status.setup_required || status.user?.role === "admin") && !signingIn) return <HotspotScreen setupRequired={status.setup_required} farmName={status.farm_name} onDone={check} />;
-  if (status.setup_required) return <WelcomeScreen farmName={status.farm_name} onDone={signedIn} />;
+  if (status.on_hotspot && (status.setup_required || status.user?.role === "admin") && !signingIn) return <HotspotScreen setupRequired={status.setup_required} farmName={status.farm_name} boardUser={status.board_password_needed ? status.board_user : null} onDone={check} />;
+  if (status.setup_required) return <WelcomeScreen farmName={status.farm_name} boardUser={status.board_password_needed ? status.board_user : null} onDone={signedIn} />;
   if (!status.user || signingIn) return <LoginScreen farmName={status.farm_name} onDone={signedIn} onCancel={status.user ? () => setSigningIn(false) : null} />;
   // key: a different person signing in gets a fresh dashboard
   return <Dashboard key={`${status.user.kind}:${status.user.username}`} onSignOut={signOut} onSignIn={() => setSigningIn(true)} />;
@@ -3223,6 +3266,41 @@ function RecoveryPrompt() {
   );
 }
 
+// A card whose board login still has its maker's password (setup couldn't set it): ask the admin
+// on the dashboard until it's done. Not dismissable: the default password is a way into the board.
+function BoardPasswordPrompt() {
+  const [user, setUser] = useState(null);
+  const [f, setF] = useState({ board: "", confirm: "", password: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => { if (isAdmin() && session.user?.kind === "user") getAuthStatus().then(s => s.board_password_needed && setUser(s.board_user)).catch(() => {}); }, []);
+  if (!user) return null;
+  if (done) return <section className="mb-6 rounded-2xl border border-emerald-400/25 bg-emerald-500/[.06] p-5 text-sm text-emerald-100">The board password is set. Sign in to the board as <span className="font-mono">{user}</span> with it.</section>;
+  const submit = async e => {
+    e.preventDefault(); setError("");
+    if (f.board.length < 8) return setError("The board password needs at least 8 characters.");
+    if (f.board !== f.confirm) return setError("The board passwords don't match.");
+    setBusy(true);
+    try { await setBoardPassword(f.password, f.board); setDone(true); }
+    catch (err) { setError(err.message); }
+    setBusy(false);
+  };
+  return (
+    <section className="mb-6 rounded-2xl border border-amber-400/25 bg-amber-500/[.06] p-5" data-testid="board-password-prompt">
+      <h2 className="flex items-center gap-2 font-semibold text-white"><Lock size={17} className="text-amber-300" /> Set the board password</h2>
+      <p className="mt-1 text-sm text-slate-400">The board's own login, <span className="font-mono text-slate-300">{user}</span>, still has its factory password, so anyone on your network could sign in to the board. Choose a new one.</p>
+      <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-3 sm:items-end">
+        <Field label="New board password"><PasswordInput value={f.board} onChange={v => setF(x => ({ ...x, board: v }))} autoComplete="new-password" placeholder="8+ characters" /></Field>
+        <Field label="Type it again"><PasswordInput value={f.confirm} onChange={v => setF(x => ({ ...x, confirm: v }))} autoComplete="new-password" /></Field>
+        <Field label="Your LayerHound password" hint="To confirm it's you."><PasswordInput value={f.password} onChange={v => setF(x => ({ ...x, password: v }))} autoComplete="current-password" /></Field>
+        <button type="submit" disabled={busy || !f.board || !f.password} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-50 sm:col-start-3">{busy ? "Setting…" : "Set board password"}</button>
+        {error && <div className="text-xs text-red-300 sm:col-span-3">{error}</div>}
+      </form>
+    </section>
+  );
+}
+
 // Remote access with Tailscale (board only): sign in with the owner's own Tailscale account, then
 // reach the dashboard from anywhere on their private Tailscale network
 const Qr = ({ svg, label }) => <div className="w-32 shrink-0 rounded-lg bg-[#fff] p-1.5 [&>svg]:block [&>svg]:h-auto [&>svg]:w-full" role="img" aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} />;
@@ -4107,7 +4185,7 @@ function Dashboard({ onSignOut, onSignIn }) {
                   <Metric icon={HardDrive} label="Storage" value={system ? `${Math.round(system.storage_percent)}%` : "—"} sub={system ? `${system.storage_used_gb} GB / ${system.storage_total_gb} GB` : "Waiting for API"} progress={system?.storage_percent ?? 0} />
                 </section>
 
-                <div className="mt-8"><RecoveryPrompt /><StatsPrompt onSaved={applySettings} /><PrinterSuggestions onAdded={refreshPrinters} noPrinters={printers.length === 0} /></div>
+                <div className="mt-8"><BoardPasswordPrompt /><RecoveryPrompt /><StatsPrompt onSaved={applySettings} /><PrinterSuggestions onAdded={refreshPrinters} noPrinters={printers.length === 0} /></div>
 
                 <section className="mt-2">
                   <div className="mb-4 flex items-center justify-between">

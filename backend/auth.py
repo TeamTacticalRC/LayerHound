@@ -13,7 +13,7 @@ import base64, hashlib, hmac, ipaddress, secrets, sqlite3, threading, time
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-import settings
+import board, settings
 
 router=APIRouter(prefix='/api/auth')
 COOKIE='lh_session'; CSRF_HEADER='x-requested-with'
@@ -161,14 +161,18 @@ def recovery_matches(c,key):
 # ---- API ----------------------------------------------------------------------------------
 @router.get('/status')
 def status(request:Request):
- who=principal(request) if has_users() else None
- return {'setup_required':not has_users(),'user':who and {'username':who['username'],'role':who['role'],'kind':who['kind']},
+ setup_required=not has_users(); who=principal(request) if not setup_required else None
+ # A card that still has its maker's board password (board.py): only told to whoever is setting it up
+ board_pw=board.needed() and (setup_required or bool(who and who['role']=='admin' and who['kind']=='user'))
+ return {'setup_required':setup_required,'user':who and {'username':who['username'],'role':who['role'],'kind':who['kind']},
+  'board_password_needed':board_pw,**({'board_user':board.user()} if board_pw else {}),
   'farm_name':settings.get('farm_name'),'accent':settings.get('accent'),
   # Phones on the setup hotspot get the Wi-Fi setup screen
   'on_hotspot':bool(request.client) and request.client.host.startswith('10.42.0.')}
 
 class Setup(BaseModel):
  farm_name:str=Field(min_length=1,max_length=40); username:str; password:str
+ board_password:str|None=Field(None,max_length=200)   # on a card: the board's own login (board.py)
  usage_stats:str|None=None   # the owner's answer to sharing anonymous stats: 'yes' or 'no'
 
 @router.post('/setup')
@@ -177,6 +181,10 @@ def setup(b:Setup,request:Request,response:Response):
  if has_users(): raise HTTPException(409,'Setup is already done. Sign in instead.')
  if not is_local(request.client.host if request.client else ''): raise HTTPException(403,'Set up LayerHound from a device on the same network')
  username=validate_username(b.username); validate_password(b.password)
+ board_pw=board.needed()
+ if board_pw:
+  if not b.board_password: raise HTTPException(400,'Choose a password for the board too')
+  validate_password(b.board_password)
  settings.save({'farm_name':b.farm_name,**({'usage_stats':b.usage_stats} if b.usage_stats in ('yes','no') else {})})
  c=_db()
  try:
@@ -187,7 +195,12 @@ def setup(b:Setup,request:Request,response:Response):
  for fn in after_setup:   # e.g. start looking for printers right away
   try: fn()
   except Exception as e: print(f'[auth] after-setup hook failed: {e}',flush=True)
- return {'status':'ok','user':{'username':username,'role':'admin'},'recovery_key':recovery_key}
+ out={'status':'ok','user':{'username':username,'role':'admin'},'recovery_key':recovery_key}
+ if board_pw:
+  # The account is made either way; if the board password didn't take, Settings -> System offers it again
+  err=board.set_password(b.board_password)
+  out['board_password']={'set':err is None,**({'error':err} if err else {})}
+ return out
 
 class Login(BaseModel):
  username:str=Field(max_length=40); password:str=Field(max_length=200); remember:bool=False
@@ -243,6 +256,23 @@ def make_recovery_key(b:NewRecovery,request:Request):
  c=_db(); r=c.execute('SELECT password_hash FROM users WHERE id=?',(who['id'],)).fetchone()
  if not r or not check_password(b.password,r['password_hash']): c.close(); raise HTTPException(400,'Your password is wrong')
  key=new_recovery_key(c); c.commit(); c.close(); return {'recovery_key':key}
+
+class BoardPassword(BaseModel):
+ password:str=Field(max_length=200); board_password:str=Field(max_length=200)
+
+@router.post('/board-password')
+def set_board_password(b:BoardPassword,request:Request):
+ # Settings -> System, while a card still has its maker's board password. Needs the admin's own
+ # LayerHound password, like making a recovery key.
+ who=request.state.who
+ if who['kind']!='user' or who['role']!='admin': raise HTTPException(403,'Only an admin can set the board password')
+ if not board.needed(): raise HTTPException(409,'The board password is already set. Change it on the board itself (passwd).')
+ c=_db(); r=c.execute('SELECT password_hash FROM users WHERE id=?',(who['id'],)).fetchone(); c.close()
+ if not r or not check_password(b.password,r['password_hash']): raise HTTPException(400,'Your password is wrong')
+ validate_password(b.board_password)
+ err=board.set_password(b.board_password)
+ if err: raise HTTPException(502,err)
+ return {'status':'set'}
 
 class ChangePassword(BaseModel):
  current:str=Field(max_length=200); new:str=Field(max_length=200)

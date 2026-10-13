@@ -164,6 +164,9 @@ WantedBy=multi-user.target
 EOF
 chroot "$root" systemctl enable --quiet layerhound-firstboot.service
 
+# The setup page asks for a board password while this mark is there (backend/board.py)
+echo radxa > "$root/etc/layerhound/board-password-needed"; chmod 644 "$root/etc/layerhound/board-password-needed"
+
 say "Naming the board $HOSTNAME_ON_CARD (http://$HOSTNAME_ON_CARD.local)"
 echo "$HOSTNAME_ON_CARD" > "$root/etc/hostname"
 sed -i -E "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t$HOSTNAME_ON_CARD/" "$root/etc/hosts"

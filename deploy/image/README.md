@@ -17,7 +17,7 @@ It downloads the tested Radxa OS image and the latest LayerHound release, checks
 ## What's different from a normal install
 
 - **Nothing secret is in the image.** Each card makes its own LayerHound encryption key, install ID, database and SSH host keys the first time it starts (`firstboot.sh`). The build stops if any of these are found in the image.
-- **The board account (`radxa`) still has Radxa's default password,** expired: the first sign-in (over SSH or with a keyboard) asks for a new one. Radxa's second default account, `rock`, is locked. LayerHound's own sign-in is separate and made in the setup page.
+- **The board's own login (`radxa`) is set on the setup page.** The card starts with Radxa's default password, so LayerHound's first-run setup also asks for a board password (the admin password, unless the owner picks another), and a small root helper ([`board-password.sh`](../board-password.sh)) sets it, once. If that doesn't work, the dashboard asks the admin until it's set. Until then the default password is expired, so a sign-in over SSH or with a keyboard asks for a new one. Radxa's second default account, `rock`, is locked. LayerHound's own sign-in is separate and made in the setup page.
 - **The board is named `layerhound`.** A second LayerHound board on the same network shows up as `layerhound-2.local`.
 - **No desktop:** the card starts without Radxa's desktop (`--keep-desktop` keeps it).
 - **Tailscale is installed** and off until the owner connects it in Settings → Network.
@@ -26,6 +26,6 @@ It downloads the tested Radxa OS image and the latest LayerHound release, checks
 
 1. Write the image to a spare microSD card (balenaEtcher or Raspberry Pi Imager).
 2. Put it in a ROCK 4D, plug in Ethernet and power, wait 2–3 minutes, open `http://layerhound.local`.
-3. Check: the first-run setup appears; LayerHound runs as `layerhound`; `ssh radxa@layerhound.local` asks for a new password; `/etc/layerhound/first-boot-done` exists; the partition grew to the whole card (`df -h /`).
+3. Check: the first-run setup appears; LayerHound runs as `layerhound`; setup asks for a board password, and `ssh radxa@layerhound.local` works with it (no "change your password"); `/etc/layerhound/first-boot-done` exists; the partition grew to the whole card (`df -h /`).
 4. Without Ethernet: the **LayerHound-Setup** Wi-Fi appears and the setup page opens on a phone.
 5. Write a second card from the same image and check the two have different keys (`sudo sha256sum /var/lib/layerhound/data/secret.key /etc/ssh/ssh_host_ed25519_key.pub`).

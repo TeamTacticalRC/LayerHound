@@ -68,6 +68,9 @@ sudo chmod 750 "$DATA_DIR"
 
 echo "==> Code ($APP_DIR)"
 sudo install -o root -g root -m 755 "$SRC_DIR/deploy/install-code.sh" /usr/local/sbin/layerhound-install-code
+# Setting the board password from the setup page, once, on a card that still has the maker's default
+# (it does nothing on other boards: see board-password.sh)
+sudo install -o root -g root -m 755 "$SRC_DIR/deploy/board-password.sh" /usr/local/sbin/layerhound-board-password
 sudo /usr/local/sbin/layerhound-install-code "$SRC_DIR"
 
 # Moving an install from before 1.4 (in the owner's home folder) over, once
@@ -96,11 +99,13 @@ fi
 sudo chown -R "$SVC_USER:$SVC_USER" "$DATA_DIR"
 sudo find "$DATA_DIR/data" -name secret.key -exec chmod 600 {} +
 
-# Drive health needs root, so allow exactly the read-only health command and nothing else.
+# Drive health needs root, so allow exactly the read-only health command and nothing else; and the
+# one-time board password helper (which refuses once the board password has been set).
 # For quick deploys from a development computer (deploy.sh), also the code installer, for the owner.
 SUDOERS=/etc/sudoers.d/layerhound
 {
   echo "$SVC_USER ALL=(root) NOPASSWD: /usr/sbin/smartctl --json -a /dev/*"
+  echo "$SVC_USER ALL=(root) NOPASSWD: /usr/local/sbin/layerhound-board-password"
   if [ -n "${LAYERHOUND_DEV_DEPLOY:-}" ]; then
     echo "$OWNER ALL=(root) NOPASSWD: /usr/local/sbin/layerhound-install-code $OWNER_HOME/layerhound-src"
     echo "$OWNER ALL=(root) NOPASSWD: $(command -v systemctl) restart $SERVICE.service"

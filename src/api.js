@@ -64,6 +64,7 @@ export const getRemote=()=>req('/api/remote');
 export const remoteAction=what=>req(`/api/remote/${what}`,{method:'POST'});
 export const getRecovery=()=>req('/api/auth/recovery');
 export const makeRecoveryKey=password=>req('/api/auth/recovery',{method:'POST',body:JSON.stringify({password})});
+export const setBoardPassword=(password,board_password)=>req('/api/auth/board-password',{method:'POST',body:JSON.stringify({password,board_password})});
 export const changePassword=(current,next)=>req('/api/auth/password',{method:'POST',body:JSON.stringify({current,new:next})});
 export const getUsers=()=>req('/api/auth/users');
 export const addUser=u=>req('/api/auth/users',{method:'POST',body:JSON.stringify(u)});

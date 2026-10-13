@@ -230,3 +230,50 @@ def test_settings_tabs(browser, base_url):
     assert page.get_by_role("tab", name="Printers").get_attribute("aria-selected") == "true"
     assert not page.problems.items, page.problems.items
     page.context.close()
+
+
+def test_board_password_on_a_card(browser, base_url):
+    # A LayerHound card still has its maker's board password: setup asks for a new one
+    import json
+    page = new_page(browser, base_url)
+    card = {"setup_required": True, "user": None, "board_password_needed": True, "board_user": "radxa", "farm_name": "My Print Farm", "accent": None, "on_hotspot": False}
+    sent = []
+    page.route("**/api/auth/status", lambda r: r.fulfill(json=card))
+    page.route("**/api/auth/setup", lambda r: (sent.append(json.loads(r.request.post_data)), r.fulfill(json={
+        "status": "ok", "user": {"username": "admin", "role": "admin"}, "recovery_key": "ABCD-EFGH-JKLM-NPQR",
+        "board_password": {"set": False, "error": "The board is still finishing its first start. Try again in a minute."}})))
+    page.reload(); page.get_by_role("heading", name="Welcome to LayerHound").wait_for()
+    fields = page.get_by_test_id("board-password")
+    fields.get_by_text("radxa").wait_for()
+    passwords = page.locator("input[type=password]")
+    passwords.nth(0).fill("admin password 1"); passwords.nth(1).fill("admin password 1")
+    # A separate board password, checked like the admin one
+    fields.get_by_label("Use the admin password for the board too").uncheck()
+    fields.locator("input[type=password]").nth(0).fill("board password 1")
+    fields.locator("input[type=password]").nth(1).fill("board password X")
+    page.get_by_role("radio", name="No thanks").click()
+    page.get_by_role("button", name="Finish setup").click()
+    page.get_by_text("The board passwords don't match.").wait_for()
+    assert sent == []
+    fields.locator("input[type=password]").nth(1).fill("board password 1")
+    page.get_by_role("button", name="Finish setup").click()
+    page.get_by_role("heading", name="Save your recovery key").wait_for()
+    assert sent[0]["board_password"] == "board password 1" and sent[0]["password"] == "admin password 1"
+    # If the board couldn't take it yet, the owner is told it'll be offered on the dashboard
+    page.get_by_text("The board password wasn't set", exact=False).wait_for()
+    page.unroute("**/api/auth/status"); page.unroute("**/api/auth/setup")
+
+    # The dashboard asks the admin until it's set
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    signed_in = {**card, "setup_required": False, "user": {"username": ADMIN["username"], "role": "admin", "kind": "user"}}
+    page.route("**/api/auth/status", lambda r: r.fulfill(json=signed_in))
+    page.route("**/api/auth/board-password", lambda r: r.fulfill(json={"status": "set"}))
+    page.goto(base_url); page.wait_for_load_state("networkidle")
+    prompt = page.get_by_test_id("board-password-prompt")
+    prompt.get_by_role("heading", name="Set the board password").wait_for()
+    boxes = prompt.locator("input[type=password]")
+    boxes.nth(0).fill("board password 2"); boxes.nth(1).fill("board password 2"); boxes.nth(2).fill(ADMIN["password"])
+    prompt.get_by_role("button", name="Set board password").click()
+    page.get_by_text("The board password is set.", exact=False).wait_for()
+    assert not page.problems.items, page.problems.items
+    page.context.close()

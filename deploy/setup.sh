@@ -15,7 +15,12 @@
 #
 # LAYERHOUND_DEV_DEPLOY=1 (deploy.sh does this) also lets the owner's account install code from
 # ~/layerhound-src without a password, for quick deploys from a development computer.
+#
+# LAYERHOUND_IMAGE_BUILD=1 (deploy/image/build-image.sh does this) sets up a card image instead
+# of a running board: run as root inside the image (chroot), it installs and enables everything but
+# starts nothing, and LayerHound's keys and database are only created when the card first starts.
 set -euo pipefail
+IMAGE="${LAYERHOUND_IMAGE_BUILD:-}"
 
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"      # where this copy of LayerHound came from
 APP_DIR=/opt/layerhound
@@ -30,7 +35,7 @@ SERVICE=layerhound
 
 # After renaming a board (hostnamectl), /etc/hosts may still list the old name, which makes
 # sudo print "unable to resolve host". Add the current name if it's missing.
-if ! grep -qE "[[:space:]]$(hostname)([[:space:]]|$)" /etc/hosts; then
+if [ -z "$IMAGE" ] && ! grep -qE "[[:space:]]$(hostname)([[:space:]]|$)" /etc/hosts; then
   echo "127.0.1.1 $(hostname)" | sudo tee -a /etc/hosts >/dev/null
 fi
 
@@ -45,7 +50,7 @@ $APT update -qq
 # rsync puts the code in place
 $APT install -y -qq python3 python3-venv python3-pip avahi-daemon smartmontools iputils-ping iproute2 curl rsync >/dev/null
 # Announce the board's current name (it may have just been renamed) as <hostname>.local
-sudo systemctl restart avahi-daemon
+[ -n "$IMAGE" ] || sudo systemctl restart avahi-daemon
 
 python3 -c "import sys; sys.exit(sys.version_info < (3, 10))" || { echo "!! Python 3.10 or newer is required" >&2; exit 1; }
 
@@ -128,12 +133,15 @@ echo "address=/#/10.42.0.1" | sudo tee /etc/NetworkManager/dnsmasq-shared.d/laye
 # Remote access (remote.py, Settings -> Remote access): Tailscale, from Tailscale's official
 # installer. It stays idle until the owner connects it. Installed on single-board computers only;
 # on other machines LayerHound uses Tailscale if the owner already has it.
-if ! command -v tailscale >/dev/null && [ -r /proc/device-tree/model ]; then
+if ! command -v tailscale >/dev/null && { [ -r /proc/device-tree/model ] || [ -n "$IMAGE" ]; }; then
   echo "==> Installing Tailscale (for remote access; off until you connect it)"
   curl -fsSL --max-time 300 https://tailscale.com/install.sh | sudo sh >/dev/null \
     || echo "   (skipped: couldn't install Tailscale; run the install again later for remote access)"
 fi
-if command -v tailscale >/dev/null; then
+if [ -n "$IMAGE" ]; then
+  # The card's first start gives LayerHound control of Tailscale (it needs Tailscale running)
+  command -v tailscale >/dev/null && systemctl enable --quiet tailscaled
+elif command -v tailscale >/dev/null; then
   sudo systemctl enable --now --quiet tailscaled
   # Let LayerHound's account connect and disconnect Tailscale (only that), without root
   sudo tailscale set --operator="$SVC_USER" || echo "   (couldn't give LayerHound control of Tailscale)"
@@ -153,8 +161,10 @@ fi
 sudo tee /etc/udev/rules.d/60-layerhound-fan.rules >/dev/null <<RULE
 SUBSYSTEM=="hwmon", ATTR{name}=="pwmfan", RUN+="/bin/chgrp $SVC_USER /sys%p/pwm1", RUN+="/bin/chmod g+w /sys%p/pwm1"
 RULE
-sudo udevadm control --reload
-sudo udevadm trigger --subsystem-match=hwmon --attr-match=name=pwmfan --action=change || true
+if [ -z "$IMAGE" ]; then
+  sudo udevadm control --reload
+  sudo udevadm trigger --subsystem-match=hwmon --attr-match=name=pwmfan --action=change || true
+fi
 sudo tee /usr/local/sbin/layerhound-fan-full >/dev/null <<'SCRIPT'
 #!/bin/sh
 for d in /sys/class/hwmon/hwmon*; do
@@ -214,7 +224,7 @@ sudo chmod 755 /usr/local/bin/layerhound
 
 # Another program (a web server, another app) may already use the port. LayerHound itself is fine:
 # that's a reinstall or update.
-if ! systemctl is-active --quiet "$SERVICE" && ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
+if [ -z "$IMAGE" ] && ! systemctl is-active --quiet "$SERVICE" && ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
   echo "!! Port $PORT is already used by another program on this machine." >&2
   echo "   Choose another port: run the installer again with --port 8080 (or deploy with LAYERHOUND_PORT=8080)." >&2
   exit 1
@@ -248,6 +258,14 @@ PrivateTmp=yes
 [Install]
 WantedBy=multi-user.target
 EOF
+if [ -n "$IMAGE" ]; then
+  # A card image: enabled for its first start, nothing started now
+  systemctl enable --quiet $SERVICE
+  sha256sum "$SRC_DIR/deploy/setup.sh" | cut -d' ' -f1 > "$CONF_DIR/setup.sha256"
+  echo "$PORT" > "$CONF_DIR/port"
+  echo "==> LayerHound is set up in the image"
+  exit 0
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable --quiet $SERVICE
 sudo systemctl restart $SERVICE

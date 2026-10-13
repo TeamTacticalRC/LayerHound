@@ -75,6 +75,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: bash -n deploy/deploy.sh && bash -n deploy/setup.sh
+        run: bash -n deploy/deploy.sh && bash -n deploy/setup.sh && bash -n deploy/image/build-image.sh
       - name: ShellCheck (errors only)
-        run: shellcheck --severity=error deploy/*.sh
+        run: shellcheck --severity=error deploy/*.sh deploy/image/*.sh

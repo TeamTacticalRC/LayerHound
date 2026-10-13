@@ -49,3 +49,16 @@ Use `MAJOR.MINOR.PATCH`:
 Pushing the release tag (the script does this) makes GitHub build the Docker image for Intel/AMD and ARM, and publish it as `ghcr.io/teamtacticalrc/layerhound` with the version, `MAJOR.MINOR` and `latest` tags. Check the **Docker image** run under the repository's Actions tab.
 
 The package is public: GitHub linked it to the public LayerHound repository automatically when v1.1.0 was published. Anyone can pull it without signing in. If a future image ever can't be pulled, check its visibility under the package's **Package settings** on GitHub.
+
+## The card image
+
+Pushing the release tag also makes GitHub build the **LayerHound card image** for the ROCK 4D (`.github/workflows/card-image.yml`, on one of GitHub's free arm64 machines). It waits for the release to be published, builds the image from the signed package with [`deploy/image/build-image.sh`](deploy/image/README.md), and uploads `layerhound-X.Y.Z-rock-4d.img.xz` and its `.sha256` to the release, as a free download. Check the **Card image** run under the Actions tab. It takes about 30–60 minutes.
+
+To build one by hand (for example, for a release published before this existed, or to test), open **Actions → Card image → Run workflow** and enter the version. Without **Upload**, the image is kept on the run for 3 days instead.
+
+**One-time setup: the upload token.** The image is built in this repo but uploaded to `layerhound-releases`, so the workflow needs a token for it:
+1. On GitHub: **Settings → Developer settings → Fine-grained personal access tokens → Generate new token**.
+2. Resource owner: **TeamTacticalRC**. Repository access: **Only select repositories → layerhound-releases**. Permissions: **Contents: Read and write** (nothing else). Choose an expiry (a year is fine; renew it when GitHub emails you).
+3. In this repo: **Settings → Secrets and variables → Actions → New repository secret**, named `RELEASES_TOKEN`, with the token as its value.
+
+Without it, everything builds but the upload step fails, saying the secret isn't set.

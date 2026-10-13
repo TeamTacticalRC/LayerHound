@@ -4,7 +4,7 @@ A microSD card image with LayerHound already installed: Radxa's own OS for the R
 
 ## Building it
 
-Run on an arm64 Linux computer (a ROCK 4D, a Raspberry Pi, or GitHub's arm64 runners) with about 15 GB free:
+Each release builds it automatically on GitHub and attaches it to the release (see [RELEASING.md](../../RELEASING.md#the-card-image)). To build one yourself, run on an arm64 Linux computer (a ROCK 4D, a Raspberry Pi, or GitHub's arm64 runners) with about 15 GB free:
 
 ```bash
 sudo deploy/image/build-image.sh

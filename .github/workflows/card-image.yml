@@ -1,0 +1,110 @@
+# The LayerHound card image for the ROCK 4D (deploy/image/README.md): built on one of GitHub's arm64
+# machines for each release, from the signed package in layerhound-releases, and uploaded next to it
+# as a free download.
+#
+# Runs by itself when a release tag is pushed (scripts/release.py does that, then publishes the
+# release, so this waits for the package). Can also be run by hand from the Actions tab for any
+# published release; it then keeps the image as a download on the run (3 days) unless "Upload" is
+# ticked.
+#
+# Uploading needs the RELEASES_TOKEN secret: a fine-grained token with "Contents: read and write"
+# on TeamTacticalRC/layerhound-releases only (see RELEASING.md).
+name: Card image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published release to build the card image for, e.g. 1.5.0"
+        required: true
+      publish:
+        description: "Upload the image to that release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the card image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      RELEASES: TeamTacticalRC/layerhound-releases
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Which release
+        id: which
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          v="${INPUT_VERSION:-${GITHUB_REF_NAME}}"; v="${v#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Not a release version: $v"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Building the card image for LayerHound $v"
+
+      - name: Make room (the image is about 11 GB unpacked)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / /mnt 2>/dev/null || df -h /
+          # Work wherever there's the most room
+          best=/; for d in /mnt "$RUNNER_TEMP"; do
+            [ -d "$d" ] && [ "$(df --output=avail -k "$d" | tail -1)" -gt "$(df --output=avail -k "$best" | tail -1)" ] && best="$d"
+          done
+          echo "WORK=$best/lh-image-work" >> "$GITHUB_ENV"
+          echo "Working in $best"
+
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xz-utils parted gdisk e2fsprogs rsync openssl curl python3 >/dev/null
+
+      - name: Get the signed release package
+        env:
+          V: ${{ steps.which.outputs.version }}
+        run: |
+          mkdir -p pkg
+          # scripts/release.py pushes the tag first, then publishes the release: wait for it (up to 30 minutes)
+          for i in $(seq 60); do
+            gh release download "v$V" --repo "$RELEASES" --dir pkg --clobber \
+              --pattern "layerhound-$V.tar.gz" --pattern "layerhound-$V.tar.gz.sig" --pattern manifest.json 2>/dev/null && break
+            [ "$i" = 60 ] && { echo "::error::Release v$V isn't published in $RELEASES"; exit 1; }
+            echo "Waiting for release v$V to be published..."; sleep 30
+          done
+          want="$(python3 -c 'import json; print(json.load(open("pkg/manifest.json"))["sha256"])')"
+          echo "$want  pkg/layerhound-$V.tar.gz" | sha256sum -c -
+
+      - name: Build
+        env:
+          V: ${{ steps.which.outputs.version }}
+        run: sudo bash deploy/image/build-image.sh --package "pkg/layerhound-$V.tar.gz" --out out --work "$WORK"
+
+      - name: Check the size (GitHub allows 2 GB per release file)
+        run: |
+          ls -l out
+          size="$(stat -c %s out/*.img.xz)"
+          [ "$size" -lt 2000000000 ] || { echo "::error::The image is $size bytes, over GitHub's 2 GB limit for a release file"; exit 1; }
+
+      - name: Upload to the release
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          V: ${{ steps.which.outputs.version }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          [ -n "$GH_TOKEN" ] || { echo "::error::The RELEASES_TOKEN secret isn't set (see RELEASING.md)"; exit 1; }
+          gh release upload "v$V" out/*.img.xz out/*.img.xz.sha256 --repo "$RELEASES" --clobber
+          echo "Published: https://github.com/$RELEASES/releases/tag/v$V"
+
+      - name: Keep it on this run (for testing)
+        if: github.event_name != 'push' && !inputs.publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: card-image-${{ steps.which.outputs.version }}
+          path: out/*.img.xz*
+          retention-days: 3
+          compression-level: 0

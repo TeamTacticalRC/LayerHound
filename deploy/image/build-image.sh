@@ -13,6 +13,7 @@
 #                    release, downloaded and checked like install.sh does
 #   --base FILE      Radxa's OS image (.img.xz). Default: the tested image below, downloaded and checked
 #   --out DIR        where the image goes (default: the current folder)
+#   --work DIR       where to unpack while building, about 13 GB (default: /var/tmp)
 #   --source DIR     for testing only: an unpacked, unsigned LayerHound folder (e.g. deploy.sh's
 #                    ~/layerhound-src) instead of a signed package. Never sell or share these images
 #   --keep-desktop   keep Radxa's desktop starting (by default the card starts without it: LayerHound
@@ -37,13 +38,14 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 say() { printf '==> %s\n' "$*"; }
 fail() { printf '!! %s\n' "$*" >&2; exit 1; }
 
-package="" source="" base="" out="$PWD" keep_desktop=""
+package="" source="" base="" out="$PWD" work_in=/var/tmp keep_desktop=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --package) package="${2:-}"; shift 2 ;;
     --source) source="${2:-}"; shift 2 ;;
     --base) base="${2:-}"; shift 2 ;;
     --out) out="${2:-}"; shift 2 ;;
+    --work) work_in="${2:-}"; shift 2 ;;
     --keep-desktop) keep_desktop=1; shift ;;
     *) fail "Unknown option: $1" ;;
   esac
@@ -55,7 +57,7 @@ for tool in xz losetup parted sgdisk e2fsck resize2fs rsync openssl curl python3
 done
 mkdir -p "$out"; out="$(cd "$out" && pwd)"
 
-work="$(mktemp -d /var/tmp/layerhound-image.XXXXXX)"
+mkdir -p "$work_in"; work="$(mktemp -d "$work_in/layerhound-image.XXXXXX")"
 root="$work/root"; loop=""
 cleanup() {
   set +e

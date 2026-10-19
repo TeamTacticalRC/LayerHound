@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile, getPrintProgress } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -174,6 +174,7 @@ function normalizePrinter(p) {
     bedTarget: p.bed_target ?? 0,
     firmware: p.firmware ?? null,
     error: p.error ?? null,
+    weakLink: p.link === "weak" && normalizeState(p.state, p.connected) !== "offline",
     layer: p.layer ?? null,
     totalLayers: p.total_layers ?? null,
     hasThumbnail: !!p.has_thumbnail,
@@ -304,7 +305,7 @@ function PrinterCard({ printer, onSelect }) {
     <button onClick={() => onSelect(printer)} className={`group min-w-0 text-left rounded-2xl border ${border} ${bg} p-4 transition hover:-translate-y-0.5 hover:border-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}>
       <div className="truncate text-sm font-semibold text-white" title={printer.name}>{printer.name}</div>
       <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="truncate text-xs text-slate-500">{PRINTER_TYPES[printer.type]?.short ?? printer.model}</span>
+        <span className="truncate text-xs text-slate-500">{PRINTER_TYPES[printer.type]?.short ?? printer.model}{printer.weakLink && <span className="ml-1.5 text-amber-300/90" title="It's often slow to answer or drops out. Files take longer to send and may time out.">· Weak connection</span>}</span>
         <span className={`flex shrink-0 items-center gap-1.5 text-[9px] font-bold tracking-widest ${text}`}>
           <StatusDot good={printer.state !== "offline"} /> {label}
         </span>
@@ -884,10 +885,19 @@ function StartPrint({ printer, onDone }) {
   const [upload, setUpload] = useState(null);
   const [startNow, setStartNow] = useState(true);
   const [clear, setClear] = useState(false);
-  const [busy, setBusy] = useState(null);   // null | {progress} | "starting"
+  const [busy, setBusy] = useState(null);   // null | {progress} (uploading) | "starting"
+  const [sending, setSending] = useState(null);   // the board's progress sending an upload on to the printer
   const [msg, setMsg] = useState(null);
   const [listError, setListError] = useState("");
   const enabled = prefs.printer_controls && prefs.printer_start;
+  // While uploading, follow the file on its way from the board to the printer
+  const uploading = busy !== null && source === "upload";
+  useEffect(() => {
+    if (!uploading) { setSending(null); return; }
+    let live = true;
+    const t = setInterval(() => getPrintProgress(printer.id).then(r => live && setSending(r.upload)).catch(() => {}), 1000);
+    return () => { live = false; clearInterval(t); };
+  }, [uploading, printer.id]);
   useEffect(() => { if (enabled && source === "printer" && files === null && !listError) getPrinterFiles(printer.id).then(r => setFiles(r.files)).catch(e => setListError(e.message)); }, [enabled, source, files, listError, printer.id]);
   if (!enabled) return <p className="mt-3 text-xs text-slate-600">To start prints from here, turn on <SettingsLink tab="printers">Settings → Printer controls → Also allow starting prints</SettingsLink>.</p>;
   // After starting, once the printer is busy, just show how it went
@@ -960,12 +970,31 @@ function StartPrint({ printer, onDone }) {
           <span>The bed is clear and ready to print.{printer.hasCamera ? " Check the camera above." : ""}</span>
         </label>
       )}
-      {busy?.progress !== undefined && <div className="mt-3 h-1.5 rounded-full bg-white/6"><div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${Math.round(busy.progress * 100)}%` }} /></div>}
-      {busy === "starting" && <p className="mt-3 flex items-center gap-2 text-xs text-slate-400"><Loader2 size={13} className="animate-spin" /> {starting ? "Waiting for the printer to start…" : "Sending to the printer…"}</p>}
+      {source === "upload" && busy ? <UploadProgress printer={printer} browser={busy?.progress ?? 1} sending={sending} />
+        : busy === "starting" && <p className="mt-3 flex items-center gap-2 text-xs text-slate-400"><Loader2 size={13} className="animate-spin" /> Waiting for the printer to start…</p>}
       <button onClick={go} disabled={!ready} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-[#fff] hover:bg-violet-400 disabled:opacity-40">
         <Play size={16} /> {source === "printer" ? "Start print" : startNow ? "Upload and print" : "Upload"}
       </button>
       {msg && <p className={`mt-3 text-xs ${msg.ok ? "text-emerald-300" : msg.warn ? "text-amber-200" : "text-red-300"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
+// An upload's two legs: this device to the board, and the board on to the printer (the slow one on
+// a printer with weak Wi-Fi). The bar follows the printer leg once it's going.
+function UploadProgress({ printer, browser, sending }) {
+  const pct = sending?.total ? sending.sent / sending.total : browser;
+  const text = !sending ? `Uploading… ${Math.round(browser * 100)}%`
+    : sending.phase === "starting" ? "Waiting for the printer to start…"
+    : sending.phase === "checking" ? `${printer.name} is slow to answer. Checking the file arrived…`
+    : sending.phase === "retrying" ? `The connection to ${printer.name} dropped. Trying again… ${Math.round(pct * 100)}%`
+    : `Sending to ${printer.name}… ${Math.round(pct * 100)}%`;
+  const spin = !sending || sending.phase === "starting" || sending.phase === "checking";
+  return (
+    <div className="mt-3" data-testid="upload-progress">
+      <div className="h-1.5 rounded-full bg-white/6"><div className={`h-full rounded-full transition-all ${sending?.phase === "retrying" ? "bg-amber-400" : "bg-violet-500"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div>
+      <p className={`mt-2 flex items-center gap-2 text-xs ${sending?.phase === "retrying" ? "text-amber-200" : "text-slate-400"}`}>{spin && <Loader2 size={13} className="animate-spin" />} {text}</p>
+      {sending && browser < 1 && <p className="mt-1 text-[11px] text-slate-600">Still uploading from this device: {Math.round(browser * 100)}%</p>}
     </div>
   );
 }
@@ -1028,7 +1057,8 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
       {!isDemo && isAdmin() && (printer.state === "idle" || printer.state === "complete" || started) && printer.type !== "bambu" && <StartPrint printer={printer} onDone={() => { setStarted(true); onRemoved(); }} />}
       <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
-        <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : "Connected"}</div>
+        <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : printer.weakLink ? "Connected, but weak" : "Connected"}</div>
+        {printer.weakLink && <div className="mt-2 text-xs text-amber-200/90">{printer.name} often answers slowly or drops out, so files take longer to send and may time out. A stronger Wi-Fi signal (the router closer, or a cable if it has a network port) fixes it.</div>}
         {printer.firmware && <div className="mt-3 text-xs text-slate-600">Firmware {printer.firmware}</div>}
         {printer.state === "offline" && printer.error && <div className="mt-3 break-words text-xs text-red-300/80">{printer.error}</div>}
         {printer.eta && printer.eta !== "—" && <div className="mt-3 text-xs text-slate-600">Time left {printer.eta}</div>}

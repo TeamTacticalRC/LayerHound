@@ -167,11 +167,22 @@ def printer_error(e):
  if 'ssl' in text or 'certificate' in text: return 'A secure connection to the printer failed. Try http:// instead of https://.'
  return "Couldn't read the printer. Check the address and that it's on."
 
+# A printer whose network connection keeps dropping or crawling (a weak Wi-Fi signal) still shows
+# as connected most of the time, but files take ages to send and can time out. Over the last few
+# minutes of readings, this many slow or failed ones mark its connection as weak.
+LINK_WINDOW=300; LINK_SLOW=3; LINK_MIN_READS=6; LINK_WEAK_SHARE=0.25; link_log={}
+def link_note(key,ok,seconds):
+ log=link_log.setdefault(key,deque(maxlen=60)); log.append((time.time(),ok,seconds))
+ recent=[x for x in log if x[0]>time.time()-LINK_WINDOW]
+ if len(recent)<LINK_MIN_READS: return None
+ bad=sum(1 for _,good,dt in recent if not good or dt>LINK_SLOW)
+ return 'weak' if bad/len(recent)>=LINK_WEAK_SHARE else None
+
 def snapshot(r,grace=True):
- t=r['printer_type']; base=clean_url(r['base_url']); key=(r['id'],base)
+ t=r['printer_type']; base=clean_url(r['base_url']); key=(r['id'],base); began=time.time(); ok=False
  try:
   x=moonraker(base) if t=='moonraker' else bambu(r['id'],base,r['serial'],vault.decrypt(r['api_key'])) if t=='bambu' else octoprint(base,vault.decrypt(r['api_key']))
-  last_good[key]=(time.time(),x)
+  last_good[key]=(time.time(),x); ok=True
  except Exception as e:
   prev=last_good.get(key)
   if grace and prev and time.time()-prev[0]<OFFLINE_GRACE: x=prev[1]
@@ -181,7 +192,9 @@ def snapshot(r,grace=True):
     _logged_errors[key]=detail; print(f"[printer] {r['name']}: {detail}",flush=True)
     problems.record('printer',f"{r['name']}: {printer_error(e)}",detail)
    x=dict(connected=False,state='offline',raw_state='offline',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=printer_error(e))
- return {'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
+ # Bambu readings come from its own live connection (always instant), so only HTTP printers are judged
+ link=link_note(key,ok,time.time()-began) if t!='bambu' else None
+ return {'link':link,'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
   'camera_url':r['camera_url'],'has_camera':media.has_camera(r),**x,'updated_at':now()}
 
 # ---- Printer controls (pause / resume / cancel) -----------------------------------------
@@ -320,9 +333,13 @@ def control(pid:int,b:ControlIn,request:Request):
 # ---- Sending a file and starting it (printer controls, phase 2) ---------------------------
 # Off unless an admin turns on both Settings -> Printer controls and "Allow sending files and
 # starting prints". Klipper and OctoPrint only (Bambu firmware refuses other apps outside LAN Only
-# with Developer Mode). The file streams to the board, then on to the printer; starting needs the
-# owner to confirm the bed is clear, and "Printing" is only reported once the printer says so.
-PRINT_EXT=('.gcode','.gco','.g','.bgcode'); MAX_PRINT_FILE=1024*2**20; START_WAIT=45; UPLOAD_TIMEOUT=600; START_POLL=2
+# with Developer Mode). The file goes on to the printer while it's still arriving from the browser;
+# starting needs the owner to confirm the bed is clear, and "Printing" is only reported once the
+# printer says so. Printers on weak Wi-Fi (like an Elegoo far from the router) stall now and then:
+# an upload that makes no progress for UPLOAD_STALL seconds is tried once more, then stopped with a
+# plain explanation, and the dashboard shows how far it got (uploads, /print/progress).
+PRINT_EXT=('.gcode','.gco','.g','.bgcode'); MAX_PRINT_FILE=1024*2**20; START_WAIT=45; START_POLL=2
+UPLOAD_STALL=60; UPLOAD_TRIES=2; RETRY_PAUSE=5; ARRIVAL_WAIT=60; uploads={}
 
 def print_name(name):
  # Just the file's own name, safe for the printer's file list
@@ -331,27 +348,102 @@ def print_name(name):
  if len(n)>120: n=n[:120-len(Path(n).suffix)]+Path(n).suffix
  return n
 
-def multipart(fields,name,path):
- # (body chunks, content type) for a multipart upload: form fields first, then the file, streamed
+class Incoming:
+ # A file arriving from the browser that can be read while it's still being written, so it goes on
+ # to the printer at the same time (and can be read again from the start for a second try)
+ def __init__(self,path,size,done=False):
+  self.path=path; self.size=size; self.got=size if done else 0; self.done=done; self.failed=False; self.cond=threading.Condition()
+ @classmethod
+ def whole(cls,path): return cls(path,path.stat().st_size,True)
+ def wrote(self,n):
+  with self.cond: self.got+=n; self.cond.notify_all()
+ def finish(self,ok):
+  with self.cond: self.done=True; self.failed=not ok; self.cond.notify_all()
+ def read_all(self): return b''.join(self.chunks())
+ def chunks(self,step=256*1024):
+  with open(self.path,'rb') as f:
+   pos=0
+   while pos<self.size:
+    with self.cond:
+     while self.got<=pos and not self.done: self.cond.wait(1)
+     if self.failed: raise ConnectionError('The upload from this device stopped before the whole file arrived. Try again.')
+     ready=self.got-pos
+    if ready<=0: raise ConnectionError('The upload from this device was cut short. Try again.')
+    b=f.read(min(step,ready))
+    if not b: raise ConnectionError('The upload from this device was cut short. Try again.')
+    pos+=len(b); yield b
+
+def multipart(fields,name,src,progress=None):
+ # (body chunks, content type, length) for a multipart upload: form fields first, then the file,
+ # streamed. progress(file bytes sent, whole body sent) is called as it goes.
+ if isinstance(src,Path): src=Incoming.whole(src)
  boundary='----layerhound'+os.urandom(12).hex()
  head=''.join(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n' for k,v in fields.items())
  head+=f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: application/octet-stream\r\n\r\n'
  tail=f'\r\n--{boundary}--\r\n'
- size=len(head.encode())+path.stat().st_size+len(tail.encode())
+ size=len(head.encode())+src.size+len(tail.encode())
  def chunks():
+  sent=0
   yield head.encode()
-  with open(path,'rb') as f:
-   while True:
-    b=f.read(256*1024)
-    if not b: break
-    yield b
+  for b in src.chunks():
+   yield b; sent+=len(b)
+   if progress: progress(sent,False)
   yield tail.encode()
+  if progress: progress(sent,True)
  return chunks(),f'multipart/form-data; boundary={boundary}',size
 
-def send_file(url,fields,name,path,headers=None):
- body,ctype,size=multipart(fields,name,path)
+def send_file(url,fields,name,src,headers=None,progress=None):
+ body,ctype,size=multipart(fields,name,src,progress)
  r=urllib.request.Request(url,data=body,method='POST',headers={'Content-Type':ctype,'Content-Length':str(size),**(headers or {})})
- with urllib.request.urlopen(r,timeout=UPLOAD_TIMEOUT) as x: return x.status
+ # The timeout is per step, so it's how long the printer may go without taking any of the file
+ with urllib.request.urlopen(r,timeout=UPLOAD_STALL) as x: return x.status
+
+def stalled(e):
+ # The printer stopped taking the file (or never answered the connection): a weak network link
+ return isinstance(e,urllib.error.URLError) and isinstance(getattr(e,'reason',None),TimeoutError) or isinstance(e,TimeoutError)
+
+def deliver(r,name,src,start,job,who):
+ # Send the file to the printer, trying once more if the connection drops partway.
+ # Returns 'sent', or 'slow' when the whole file went out but the printer is slow to answer.
+ base=clean_url(r['base_url'])
+ if r['printer_type']=='moonraker': url,fields,headers=base+'/server/files/upload',{'root':'gcodes','print':'true' if start else 'false'},None
+ else:
+  key=vault.decrypt(r['api_key'])
+  url,fields,headers=base+'/api/files/local',{'select':'true' if start else 'false','print':'true' if start else 'false'},({'X-Api-Key':key} if key else {})
+ for attempt in range(1,UPLOAD_TRIES+1):
+  job.update(sent=0,attempt=attempt,phase='sending' if attempt==1 else 'retrying')
+  body_done=[False]
+  def progress(n,done): job['sent']=n; body_done[0]=done
+  try:
+   send_file(url,fields,name,src,headers,progress); return 'sent'
+  except Exception as e:
+   if src.failed: raise HTTPException(400,'The upload from this device stopped before the whole file arrived. Try again.')
+   if body_done[0] and slow_reply(e): return 'slow'   # all of it went out; the answer is just slow
+   said=printer_said(e)
+   if said or isinstance(e,urllib.error.HTTPError):
+    print(f"[control] {who}: {r['name']} refused {name}: {said or e}",flush=True)
+    problems.record('control',f"{r['name']}: it refused a file ({name}): {said or control_error(e)}",f'{type(e).__name__}: {e}')
+    raise HTTPException(502,f"{r['name']} refused the file: {said}" if said else control_error(e))
+   got=f"{job['sent']*100//max(1,src.size)}%"
+   print(f"[control] {who}: sending {name} to {r['name']} failed at {got} (try {attempt} of {UPLOAD_TRIES}): {type(e).__name__}: {e}",flush=True)
+   if attempt<UPLOAD_TRIES: time.sleep(RETRY_PAUSE); continue
+   if stalled(e):
+    msg=(f"{r['name']} stopped taking the file ({got} sent, then nothing for {UPLOAD_STALL} seconds), even on a second try. "
+         "Its network connection looks weak: move it closer to the router (or the router closer to it), or use a cable if it has a network port, then try again.")
+   else: msg=f"Sending the file to {r['name']} failed twice: {control_error(e)}"
+   problems.record('control',f"{r['name']}: sending {name} failed",f'{got} sent, {UPLOAD_TRIES} tries. {type(e).__name__}: {e}')
+   raise HTTPException(502,msg)
+
+def arrived(r,name,size):
+ # After a slow answer to an upload: is the file there, whole? (Checked a few times; the printer
+ # may still be saving it.)
+ end=time.time()+ARRIVAL_WAIT
+ while True:
+  try:
+   if any(f['path']==name and (not f.get('size') or f['size']==size) for f in printer_files(r)): return True
+  except Exception: pass
+  if time.time()>=end: return False
+  time.sleep(5)
 
 def start_printer_row(pid,request):
  # Shared checks for listing, sending and starting files: both settings on, an admin, Klipper or OctoPrint
@@ -445,42 +537,56 @@ async def print_stored(pid:int,b:StartFile,request:Request):
 
 @app.put('/api/printers/{pid}/print')
 async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear:bool=False):
- # Upload a file to the printer (raw body, streamed), and start it if asked
+ # Upload a file to the printer (raw body), passing it on as it arrives, and start it if asked
  r=start_printer_row(pid,request)
  name=print_name(name)
  if start and not bed_clear: raise HTTPException(400,'Confirm that the bed is clear before starting a print')
  size=int(request.headers.get('content-length') or 0)
  if size>MAX_PRINT_FILE: raise HTTPException(413,'That file is larger than 1 GB')
+ if not size: raise HTTPException(400,'The file is empty')
+ if pid in uploads: raise HTTPException(409,f"A file is already being sent to {r['name']}. Wait for it to finish.")
  state=(await run_in_threadpool(snapshot,r,False))['state']
  if state not in ('idle','complete'): raise HTTPException(409,f"{r['name']} is {state}. Files can be sent when it's idle or finished.")
  tmp_dir=DB_PATH.parent/'data'/'uploads'; tmp_dir.mkdir(parents=True,exist_ok=True)
  tmp=tmp_dir/f'.{os.urandom(6).hex()}.part'; who=(getattr(request.state,'who',None) or {}).get('username') or '?'
+ job=uploads[pid]={'name':name,'total':size,'received':0,'sent':0,'attempt':1,'phase':'sending'}
+ src=Incoming(tmp,size); tmp.touch()
+ sender=asyncio.ensure_future(run_in_threadpool(deliver,r,name,src,start,job,who))
  try:
-  got=0
-  with open(tmp,'wb') as f:
-   async for chunk in request.stream():
-    got+=len(chunk)
-    if got>MAX_PRINT_FILE: raise HTTPException(413,'That file is larger than 1 GB')
-    f.write(chunk)
-  if not got: raise HTTPException(400,'The file is empty')
-  base=clean_url(r['base_url'])
   try:
-   if r['printer_type']=='moonraker':
-    await run_in_threadpool(send_file,base+'/server/files/upload',{'root':'gcodes','print':'true' if start else 'false'},name,tmp)
-   else:
-    key=vault.decrypt(r['api_key'])
-    await run_in_threadpool(send_file,base+'/api/files/local',{'select':'true' if start else 'false','print':'true' if start else 'false'},name,tmp,{'X-Api-Key':key} if key else {})
-  except HTTPException: raise
-  except Exception as e:
-   # A slow answer after the whole file went out is like a slow start: check the printer's state
-   if not (start and slow_reply(e)):
-    print(f"[control] {who}: send {name} to {r['name']} failed: {type(e).__name__}: {e}",flush=True)
-    problems.record('control',f"{r['name']}: sending a file failed: {control_error(e)}",f'{type(e).__name__}: {e}')
-    raise HTTPException(502,control_error(e))
- finally: tmp.unlink(missing_ok=True)
- print(f"[control] {who}: sent {name} ({got} bytes) to {r['name']}{', start' if start else ''}",flush=True)
- if not start: return {'status':'uploaded','name':name}
- return await confirm_started(r,name,who)
+   got=0
+   with open(tmp,'wb') as f:
+    async for chunk in request.stream():
+     got+=len(chunk)
+     if got>size: raise HTTPException(400,'The file is bigger than the browser said it would be. Try again.')
+     if sender.done(): continue   # sending already failed: take the rest without keeping it, then say why
+     f.write(chunk); f.flush(); src.wrote(len(chunk)); job['received']=got
+   if got<size: raise HTTPException(400,'The upload from this device was cut short. Try again.')
+   src.finish(True)
+  except BaseException:
+   src.finish(False)
+   try: await sender
+   except Exception: pass
+   raise
+  outcome=await sender
+  if outcome=='slow' and not start:
+   job['phase']='checking'
+   if not await run_in_threadpool(arrived,r,name,size):
+    problems.record('control',f"{r['name']}: {name} was sent, but it didn't show up in its files")
+    raise HTTPException(502,f"The whole file was sent, but {r['name']} hasn't confirmed it arrived. Check its file list in a minute.")
+  print(f"[control] {who}: sent {name} ({size} bytes) to {r['name']}{', start' if start else ''}{' (slow answer)' if outcome=='slow' else ''}",flush=True)
+  if not start: return {'status':'uploaded','name':name}
+  job['phase']='starting'
+  return await confirm_started(r,name,who)
+ finally:
+  tmp.unlink(missing_ok=True); uploads.pop(pid,None)
+
+@app.get('/api/printers/{pid}/print/progress')
+def print_progress(pid:int,request:Request):
+ # How a file on its way to the printer is getting on, for the dashboard while it waits
+ start_printer_row(pid,request)
+ j=uploads.get(pid)
+ return {'upload':j and dict(j)}
 
 # Which build of the dashboard is being served: the hashed name of its main script, which changes
 # with every build. Open tabs compare it with their own to offer a reload after an update.

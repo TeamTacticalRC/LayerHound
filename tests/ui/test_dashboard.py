@@ -277,3 +277,39 @@ def test_board_password_on_a_card(browser, base_url):
     page.get_by_text("The board password is set.", exact=False).wait_for()
     assert not page.problems.items, page.problems.items
     page.context.close()
+
+
+def test_upload_progress_and_weak_connection(browser, base_url):
+    # A printer on weak Wi-Fi (faked in the browser): a "Weak connection" note, and an upload that
+    # shows the board's progress sending it on, including a retry
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    fake = {"id": 4245, "name": "Far Elegoo", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "idle",
+            "progress": 0, "nozzle": 25, "bed": 24, "base_url": "http://127.0.0.1:9", "link": "weak"}
+    page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
+    page.route("**/api/printers/4245/files", lambda r: r.fulfill(json={"files": []}))
+    progress = {"upload": {"name": "big.gcode", "total": 1000, "received": 1000, "sent": 400, "attempt": 2, "phase": "retrying"}}
+    page.route("**/api/printers/4245/print/progress", lambda r: r.fulfill(json=progress))
+    held = []
+    page.route("**/api/printers/4245/print?*", lambda r: held.append(r))   # answered later, like a slow upload
+    assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
+    page.reload(); open_page(page, "Print Farm")
+    page.get_by_text("Weak connection").first.wait_for()
+    page.get_by_text("Far Elegoo").first.click()
+    page.get_by_text("Connected, but weak").wait_for()
+    page.get_by_role("radio", name="Upload").click()
+    page.get_by_label("G-code file to upload").set_input_files({"name": "big.gcode", "mimeType": "text/plain", "buffer": b"G1 X1\n" * 1000})
+    page.get_by_label("Start printing right away").uncheck()
+    page.get_by_role("button", name="Upload", exact=True).click()
+    page.get_by_text("The connection to Far Elegoo dropped. Trying again… 40%").wait_for()
+    progress["upload"] = {**progress["upload"], "sent": 900, "phase": "sending"}
+    page.get_by_text("Sending to Far Elegoo… 90%").wait_for()
+    for _ in range(50):
+        if held: break
+        page.wait_for_timeout(100)
+    held[0].fulfill(json={"status": "uploaded", "name": "big.gcode"})
+    page.get_by_text("Uploaded big.gcode to Far Elegoo.").wait_for()
+    assert page.get_by_test_id("upload-progress").count() == 0
+    api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
+    assert not page.problems.items, page.problems.items
+    page.context.close()

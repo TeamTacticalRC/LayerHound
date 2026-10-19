@@ -1,5 +1,5 @@
 # Pause / resume / cancel from the dashboard, with stand-ins for the printers (nothing real is contacted).
-import json
+import json, urllib.error
 import pytest
 import main, settings, vault
 from conftest import new_client
@@ -142,8 +142,10 @@ def starting(client, farm, monkeypatch):
         if isinstance(pid, int): states[pid] = "idle"
     monkeypatch.setattr(main, "START_WAIT", 0); monkeypatch.setattr(main, "START_POLL", 0)
     uploads = []
-    def send_file(url, fields, name, path, headers=None):
-        uploads.append((url, fields, name, path.read_bytes(), headers))
+    def send_file(url, fields, name, src, headers=None, progress=None):
+        data = src.read_all()
+        if progress: progress(len(data), True)
+        uploads.append((url, fields, name, data, headers))
         if fields.get("print") == "true":   # the printer starts it
             states[ids["moonraker" if "/server/files" in url else "octoprint"]] = "printing"
         return 201
@@ -329,3 +331,153 @@ def test_file_list_gets_more_time(client, starting, monkeypatch):
     monkeypatch.setattr(main, "get_json", lambda u, headers=None, timeout=main.TIMEOUT: seen.append(timeout) or {"result": []})
     assert client.get(f"/api/printers/{ids['moonraker']}/files").status_code == 200
     assert seen == [main.FILES_TIMEOUT] and main.FILES_TIMEOUT >= 15
+
+
+# ---- Weak connections: a printer that stalls while taking a file (the Elegoo on weak Wi-Fi) -------
+def stall_then(results):
+    # A stand-in printer: each try takes some of the file, then does what the next result says
+    tries = []
+    def send_file(url, fields, name, src, headers=None, progress=None):
+        data = src.read_all()
+        how = results[len(tries)]; tries.append(how)
+        if how == "stall":
+            progress(len(data) // 2, False)
+            raise urllib.error.URLError(TimeoutError("timed out"))
+        progress(len(data), True)
+        if how == "slow": raise TimeoutError("timed out")   # took it all, answers late
+        return 201
+    return send_file, tries
+
+
+def test_a_stall_is_tried_again(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    send, tries = stall_then(["stall", "ok"])
+    monkeypatch.setattr(main, "send_file", send)
+    r = upload(client, ids["moonraker"], data=b"G1\n" * 1000)
+    assert r.status_code == 200 and r.json()["status"] == "uploaded" and tries == ["stall", "ok"]
+    assert main.uploads == {}
+
+
+def test_two_stalls_explain_the_weak_connection(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    send, tries = stall_then(["stall", "stall"])
+    monkeypatch.setattr(main, "send_file", send)
+    r = upload(client, ids["moonraker"], data=b"G1\n" * 1000, start=True, bed_clear=True)
+    assert r.status_code == 502 and tries == ["stall", "stall"]
+    detail = r.json()["detail"]
+    assert "stopped taking the file" in detail and "50% sent" in detail and "network connection looks weak" in detail
+    assert any("sending cube.gcode failed" in p["message"] for p in client.get("/api/problems").json()["problems"])
+    assert main.uploads == {}
+
+
+def test_a_refusal_is_not_tried_again(client, starting, monkeypatch):
+    import io
+    ids, states, sent, uploads = starting
+    tries = []
+    def refuse(url, fields, name, src, headers=None, progress=None):
+        tries.append(1)
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(b'{"error": {"message": "Not enough space"}}'))
+    monkeypatch.setattr(main, "send_file", refuse)
+    r = upload(client, ids["moonraker"])
+    assert r.status_code == 502 and "Not enough space" in r.json()["detail"] and len(tries) == 1
+
+
+def test_slow_answer_after_the_whole_file_checks_it_arrived(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    send, tries = stall_then(["slow"])
+    monkeypatch.setattr(main, "send_file", send)
+    data = b"G1\n" * 1000
+    monkeypatch.setattr(main, "printer_files", lambda r: [{"path": "cube.gcode", "name": "cube.gcode", "size": len(data)}])
+    assert upload(client, ids["moonraker"], data=data).json()["status"] == "uploaded"
+    # Not there (or only part of it): say so instead of claiming it arrived
+    send, tries = stall_then(["slow"])
+    monkeypatch.setattr(main, "send_file", send)
+    monkeypatch.setattr(main, "ARRIVAL_WAIT", 0)
+    monkeypatch.setattr(main, "printer_files", lambda r: [{"path": "cube.gcode", "name": "cube.gcode", "size": 7}])
+    r = upload(client, ids["moonraker"], data=data)
+    assert r.status_code == 502 and "hasn't confirmed it arrived" in r.json()["detail"]
+
+
+def test_one_upload_at_a_time_and_progress(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    pid = ids["moonraker"]
+    main.uploads[pid] = {"name": "big.gcode", "total": 100, "received": 100, "sent": 40, "attempt": 1, "phase": "sending"}
+    try:
+        assert client.get(f"/api/printers/{pid}/print/progress").json()["upload"]["sent"] == 40
+        r = upload(client, pid)
+        assert r.status_code == 409 and "already being sent" in r.json()["detail"]
+    finally:
+        main.uploads.pop(pid, None)
+    assert client.get(f"/api/printers/{pid}/print/progress").json() == {"upload": None}
+
+
+def test_incoming_file_is_read_while_it_arrives(tmp_path):
+    import threading, time as t
+    f = tmp_path / "x.part"; f.write_bytes(b"")
+    src = main.Incoming(f, 6)
+    out = []
+    reader = threading.Thread(target=lambda: out.append(src.read_all())); reader.start()
+    with open(f, "ab") as w:
+        for part in (b"G1", b"G2", b"G3"):
+            w.write(part); w.flush(); src.wrote(len(part)); t.sleep(0.05)
+    src.finish(True); reader.join(5)
+    assert out == [b"G1G2G3"]
+    # A browser that stops partway: the reader gives up instead of waiting forever
+    g = tmp_path / "y.part"; g.write_bytes(b"G1")
+    src = main.Incoming(g, 10); src.wrote(2); src.finish(False)
+    with pytest.raises(ConnectionError): src.read_all()
+
+
+def test_weak_connection_note():
+    key = ("weak-test", "http://x")
+    for _ in range(5): assert main.link_note(key, True, 0.2) is None
+    assert main.link_note(key, True, 0.2) is None          # enough readings, all good
+    for _ in range(2): main.link_note(key, False, 10)
+    assert main.link_note(key, True, 5) == "weak"            # 3 of 9 slow or failed
+    other = ("steady-test", "http://y")
+    for _ in range(20): main.link_note(other, True, 0.1)
+    assert main.link_note(other, True, 0.1) is None
+
+
+def test_real_upload_while_the_file_arrives_and_a_real_stall(tmp_path, monkeypatch):
+    # The real sending code against a stand-in printer on this computer: one that takes the whole
+    # file, and one that stops reading halfway (like the Elegoo when its Wi-Fi drops out)
+    import http.server, threading, time as t
+    from email.parser import BytesParser
+    from email.policy import default
+    got = {}
+    class Printer(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def do_POST(self):
+            n = int(self.headers["Content-Length"])
+            if self.path == "/stall":
+                self.rfile.read(n // 2); t.sleep(4); return   # takes half, then nothing
+            body = self.rfile.read(n)
+            msg = BytesParser(policy=default).parsebytes(b"Content-Type: " + self.headers["Content-Type"].encode() + b"\r\n\r\n" + body)
+            got["file"] = [p for p in msg.iter_parts() if p.get_filename()][0].get_payload(decode=True)
+            self.send_response(201); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Printer)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        # The file is still arriving (in three parts) while it's being sent on
+        data = b"G1 X1\n" * 400_000
+        f = tmp_path / "a.part"; f.write_bytes(b"")
+        src = main.Incoming(f, len(data)); seen = []
+        def arrive():
+            with open(f, "ab") as w:
+                for i in range(3):
+                    part = data[i * len(data) // 3:(i + 1) * len(data) // 3]
+                    w.write(part); w.flush(); src.wrote(len(part)); t.sleep(0.2)
+            src.finish(True)
+        threading.Thread(target=arrive).start()
+        assert main.send_file(url + "/upload", {"root": "gcodes"}, "a.gcode", src, progress=lambda n, done: seen.append((n, done))) == 201
+        assert got["file"] == data and seen[-1] == (len(data), True)
+        # Stops reading halfway: noticed after UPLOAD_STALL seconds, as a stall
+        monkeypatch.setattr(main, "UPLOAD_STALL", 1)
+        big = tmp_path / "b.part"; big.write_bytes(b"G1 X1\n" * 3_000_000)
+        with pytest.raises(Exception) as e:
+            main.send_file(url + "/stall", {"root": "gcodes"}, "b.gcode", main.Incoming.whole(big))
+        assert main.stalled(e.value)
+    finally:
+        server.shutdown()

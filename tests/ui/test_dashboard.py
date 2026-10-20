@@ -350,3 +350,107 @@ def test_update_bar_goes_away_after_reload(browser, base_url):
     page.wait_for_load_state("networkidle"); page.wait_for_timeout(1000)
     assert page.get_by_text("LayerHound has been updated.").count() == 0
     page.context.close()
+
+
+FAKE_FARM = [
+    {"id": 4301, "name": "Shelf U1", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "printing", "progress": 42,
+     "eta_seconds": 5400, "job": "car_shelf.gcode", "nozzle": 215, "bed": 60, "base_url": "http://127.0.0.1:9", "color": "teal"},
+    {"id": 4302, "name": "Far Elegoo", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "idle",
+     "progress": 0, "nozzle": 25, "bed": 24, "base_url": "http://127.0.0.1:9", "color": "orange", "link": "weak"},
+    {"id": 4303, "name": "Garage P1S", "printer_type": "bambu", "model": "Bambu Lab", "connected": False, "state": "offline",
+     "progress": 0, "base_url": "mqtts://127.0.0.1:8883"},
+]
+
+
+def signed_in_with_farm(browser, base_url, farm=FAKE_FARM, **kw):
+    page = new_page(browser, base_url, **kw)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    page.route("**/api/printers", lambda r: r.fulfill(json={"printers": farm}) if r.request.method == "GET" else r.continue_())
+    page.reload(); page.wait_for_load_state("networkidle")
+    return page
+
+
+def test_theme_packs(browser, base_url, admin_state):
+    page = signed_in_with_farm(browser, base_url)
+    open_page(page, "Settings"); page.get_by_role("tab", name="General").click()
+    themes = page.get_by_role("radiogroup", name="Theme", exact=True)
+    for name, pack in (("Workshop", "workshop"), ("Blueprint", "blueprint"), ("Terminal", "terminal"), ("High contrast", "contrast"), ("Daylight", "light"), ("Midnight", "dark")):
+        themes.get_by_role("radio", name=name).click()
+        assert page.evaluate("document.documentElement.dataset.pack") == pack
+        assert page.evaluate("document.documentElement.classList.contains('lh-light')") == (pack == "light")
+        open_page(page, "Dashboard"); page.get_by_text("Shelf U1").first.wait_for()
+        assert no_sideways_scroll(page), name
+        open_page(page, "Settings")
+    # A pack with its own accent uses it; remembered after a reload, before the page draws
+    themes.get_by_role("radio", name="Terminal").click()
+    assert page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--color-violet-400').trim()") == "#4ade80"
+    page.reload(); page.wait_for_load_state("networkidle")
+    assert page.evaluate("document.documentElement.dataset.pack") == "terminal"
+    page.get_by_role("radio", name="Dark").first.click()   # the sidebar's quick buttons still work
+    assert page.evaluate("document.documentElement.dataset.pack") == "dark"
+    assert not page.problems.items, page.problems.items
+    page.context.close()
+
+
+def test_compact_cards_and_color_tags(browser, base_url, admin_state):
+    page = signed_in_with_farm(browser, base_url)
+    card = page.get_by_test_id("printer-card").filter(has_text="Shelf U1").first
+    assert "rgb(20, 184, 166)" in card.inner_html()            # the teal tag
+    assert card.get_by_text("Nozzle").count() == 1              # comfortable: temperatures shown
+    open_page(page, "Settings"); page.get_by_role("tab", name="General").click()
+    page.get_by_role("radio", name="Compact").click()
+    open_page(page, "Dashboard")
+    card = page.get_by_test_id("printer-card").filter(has_text="Shelf U1").first
+    card.get_by_text("42% · 1h 30m").wait_for()
+    assert card.get_by_text("Nozzle").count() == 0
+    assert no_sideways_scroll(page)
+    # The color tag is set in Edit printer, from the color swatches
+    page.unroute("**/api/printers")
+    p = api(page, "POST", "/api/printers", {"name": "Tag Test", "printer_type": "moonraker", "base_url": "http://127.0.0.1:9"})["body"]
+    page.reload(); page.wait_for_load_state("networkidle")
+    open_page(page, "Print Farm"); page.get_by_test_id("printer-card").filter(has_text="Tag Test").first.click()
+    page.get_by_role("button", name="Edit printer").click()
+    page.get_by_role("radiogroup", name="Color tag").get_by_role("radio", name="Purple").click()
+    page.get_by_role("button", name="Save changes").click()
+    page.get_by_role("dialog").wait_for(state="detached")
+    assert any(x["id"] == p["id"] and x["color"] == "purple" for x in api(page, "GET", "/api/printers")["body"]["printers"])
+    api(page, "DELETE", f"/api/printers/{p['id']}")
+    page.evaluate("localStorage.removeItem('lh-cards')")
+    assert not page.problems.items, page.problems.items
+    page.context.close()
+
+
+def test_wall_screen(browser, base_url, admin_state):
+    page = signed_in_with_farm(browser, base_url)
+    page.get_by_role("button", name="Wall screen").click()
+    wall = page.get_by_test_id("wall-screen")
+    wall.wait_for()
+    assert page.get_by_role("button", name="Open menu").count() == 0 and wall.get_by_text("Shelf U1").count() == 1
+    wall.get_by_text("1 printing · 2 of 3 online").wait_for()
+    page.reload(); page.wait_for_load_state("networkidle")          # stays on after a reload
+    page.get_by_test_id("wall-screen").wait_for()
+    page.keyboard.press("Escape")
+    page.get_by_test_id("wall-screen").wait_for(state="detached")
+    # A bookmark with ?wall=1 opens straight into it
+    page.goto(base_url + "/?wall=1"); page.wait_for_load_state("networkidle")
+    page.get_by_test_id("wall-screen").wait_for()
+    page.get_by_role("button", name="Exit wall screen").click()
+    page.get_by_test_id("wall-screen").wait_for(state="detached")
+    assert not page.problems.items, page.problems.items
+    page.context.close()
+
+
+def test_confetti_when_a_print_finishes(browser, base_url, admin_state):
+    farm = [dict(FAKE_FARM[0])]
+    page = signed_in_with_farm(browser, base_url, farm=farm)
+    page.get_by_text("Shelf U1").first.wait_for()
+    farm[0].update(state="complete", progress=100)
+    page.evaluate("window.dispatchEvent(new Event('focus'))")
+    page.wait_for_function("window.__lhConfetti === 1", timeout=20000)   # the next printer check (every 10 s)
+    # Turned off: no confetti
+    page.evaluate("localStorage.setItem('lh-confetti', '0')")
+    farm[0].update(state="printing", progress=50); page.wait_for_timeout(11000)
+    farm[0].update(state="complete", progress=100); page.wait_for_timeout(11000)
+    assert page.evaluate("window.__lhConfetti") == 1
+    page.evaluate("localStorage.removeItem('lh-confetti')")
+    page.context.close()

@@ -165,7 +165,7 @@ def clear_history(kind:str):
 # ---- Backup / restore -------------------------------------------------------------------
 # Configuration only (printers, devices, services, settings). History is not included.
 # ids are kept so a restore stays linked to existing uptime history
-BACKUP_TABLES={'printers':['id','name','printer_type','base_url','api_key','serial','camera_url','enabled','sort_order','created_at','updated_at'],
+BACKUP_TABLES={'printers':['id','name','printer_type','base_url','api_key','serial','camera_url','color','enabled','sort_order','created_at','updated_at'],
  'net_devices':['id','name','host','kind','port','sort_order','created_at'],
  'services':['id','name','url','integration','token','sort_order','created_at']}
 SECRET_COLUMNS={'printers':('api_key',),'services':('token',)}

@@ -242,3 +242,14 @@ def test_unreachable_printer_shows_plain_reason(client):
     err = r.json()["error"]
     assert "Errno" not in err and "URLError" not in err and "refused" in err
     client.delete(f"/api/printers/{r.json()['id']}")
+
+
+def test_printer_color_tag(client):
+    p = client.post("/api/printers", json={"name": "Tagged", "printer_type": "moonraker", "base_url": UNREACHABLE, "color": "Teal"}).json()
+    assert p["color"] == "teal"
+    assert client.put(f"/api/printers/{p['id']}", json={"name": "Tagged 2"}).json()["color"] == "teal"   # kept when not sent
+    assert client.put(f"/api/printers/{p['id']}", json={"color": "pink"}).json()["color"] == "pink"
+    assert client.put(f"/api/printers/{p['id']}", json={"color": "chartreuse"}).status_code == 400
+    assert client.put(f"/api/printers/{p['id']}", json={"color": ""}).json()["color"] is None        # removed
+    assert any(x["id"] == p["id"] and x["color"] is None for x in client.get("/api/printers").json()["printers"])
+    client.delete(f"/api/printers/{p['id']}")

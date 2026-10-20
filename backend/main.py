@@ -46,15 +46,18 @@ def init():
  if 'serial' not in [r['name'] for r in c.execute('PRAGMA table_info(printers)')]: c.execute('ALTER TABLE printers ADD COLUMN serial TEXT')
  # v0.4.2: optional camera address for printers whose camera LayerHound can't find on its own
  if 'camera_url' not in [r['name'] for r in c.execute('PRAGMA table_info(printers)')]: c.execute('ALTER TABLE printers ADD COLUMN camera_url TEXT')
+ # v1.5: an optional color tag, to tell printers apart at a glance (PRINTER_COLORS)
+ if 'color' not in [r['name'] for r in c.execute('PRAGMA table_info(printers)')]: c.execute('ALTER TABLE printers ADD COLUMN color TEXT')
  c.commit(); c.close()
 init()
 # Printer access codes, API keys and service tokens are stored encrypted (see vault.py)
 KEY_PATH=Path(env('KEY') or DB_PATH.parent/'data'/'secret.key')
 vault.configure(KEY_PATH)
 class PrinterIn(BaseModel):
- name:str=Field(min_length=1,max_length=80); printer_type:str; base_url:str; api_key:str|None=None; serial:str|None=None; camera_url:str|None=None; enabled:bool=True
+ name:str=Field(min_length=1,max_length=80); printer_type:str; base_url:str; api_key:str|None=None; serial:str|None=None; camera_url:str|None=None; enabled:bool=True; color:str|None=None
 class PrinterUpdate(BaseModel):
  name:str|None=Field(default=None,min_length=1,max_length=80); printer_type:str|None=None; base_url:str|None=None; api_key:str|None=None; serial:str|None=None; camera_url:str|None=None
+ color:str|None=None   # "" removes the color tag
 class PrinterOrder(BaseModel):
  ids:list[int]
 
@@ -195,7 +198,7 @@ def snapshot(r,grace=True):
  # Bambu readings come from its own live connection (always instant), so only HTTP printers are judged
  link=link_note(key,ok,time.time()-began) if t!='bambu' else None
  return {'link':link,'id':r['id'],'name':r['name'],'printer_type':r['printer_type'],'model':MODELS.get(t,t),'base_url':base.rstrip('/'),'serial':r['serial'],'enabled':bool(r['enabled']),
-  'camera_url':r['camera_url'],'has_camera':media.has_camera(r),**x,'updated_at':now()}
+  'camera_url':r['camera_url'],'has_camera':media.has_camera(r),'color':r['color'] if 'color' in r.keys() else None,**x,'updated_at':now()}
 
 # ---- Printer controls (pause / resume / cancel) -----------------------------------------
 # Off unless an admin turns on Settings -> Printer controls. Admins only (the sign-in check refuses
@@ -746,13 +749,21 @@ def printers():
   if hit and hit[1]==r['base_url'] and time.time()-hit[0]<CACHE_MAX_AGE: out.append(hit[2])
   else: out.append(None); stale.append(r)
  fresh=iter(check_all(stale))
- # Keep display order; names come from the database so renames show immediately
- return {'printers':[{**(x or next(fresh)),'name':r['name']} for r,x in zip(rows,out)]}
+ # Keep display order; names and color tags come from the database so changes show immediately
+ return {'printers':[{**(x or next(fresh)),'name':r['name'],'color':r['color']} for r,x in zip(rows,out)]}
 @app.get('/api/printers/{pid}')
 def printer(pid:int,grace:bool=True):
  c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
  if not r: raise HTTPException(404,'Printer not found')
  return snapshot(r,grace)
+# A printer's color tag: one of these names (the dashboard draws them), or none
+PRINTER_COLORS=('red','orange','yellow','green','teal','sky','blue','purple','pink','gray')
+def printer_color(v):
+ v=(v or '').strip().lower()
+ if not v: return None
+ if v not in PRINTER_COLORS: raise HTTPException(400,'Unknown color tag')
+ return v
+
 def camera_url(v):
  # Optional camera address: a snapshot or MJPEG stream URL. Blank means "find it automatically".
  v=(v or '').strip()
@@ -765,7 +776,7 @@ def add(p:PrinterIn):
  if p.printer_type not in TYPES: raise HTTPException(400,'Invalid printer type')
  serial=(p.serial or '').strip().upper() or None
  if p.printer_type=='bambu' and not (serial and p.api_key): raise HTTPException(400,'Bambu printers need a serial number and access code')
- c=db(); t=now(); nxt=c.execute('SELECT COALESCE(MAX(sort_order),0)+1 FROM printers').fetchone()[0]; cur=c.execute('INSERT INTO printers(name,printer_type,base_url,api_key,serial,camera_url,enabled,created_at,updated_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)',(p.name.strip(),p.printer_type,clean_url(p.base_url).rstrip('/'),vault.encrypt(p.api_key),serial if p.printer_type=='bambu' else None,camera_url(p.camera_url),int(p.enabled),t,t,nxt)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(cur.lastrowid,)).fetchone(); c.close(); return snapshot(r)
+ c=db(); t=now(); nxt=c.execute('SELECT COALESCE(MAX(sort_order),0)+1 FROM printers').fetchone()[0]; cur=c.execute('INSERT INTO printers(name,printer_type,base_url,api_key,serial,camera_url,color,enabled,created_at,updated_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(p.name.strip(),p.printer_type,clean_url(p.base_url).rstrip('/'),vault.encrypt(p.api_key),serial if p.printer_type=='bambu' else None,camera_url(p.camera_url),printer_color(p.color),int(p.enabled),t,t,nxt)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(cur.lastrowid,)).fetchone(); c.close(); return snapshot(r)
 # Declared before the /{pid} routes so "order" isn't parsed as a printer id
 @app.put('/api/printers/order')
 def reorder(o:PrinterOrder):
@@ -781,7 +792,9 @@ def edit(pid:int,p:PrinterUpdate):
  serial=None if ptype!='bambu' else ((p.serial or '').strip().upper() or r['serial'])
  if ptype=='bambu' and not (serial and key): c.close(); raise HTTPException(400,'Bambu printers need a serial number and access code')
  cam=r['camera_url'] if p.camera_url is None else camera_url(p.camera_url)
- c.execute('UPDATE printers SET name=?,printer_type=?,base_url=?,api_key=?,serial=?,camera_url=?,updated_at=? WHERE id=?',(name,ptype,url,key,serial,cam,now(),pid)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close(); return snapshot(r)
+ try: color=r['color'] if p.color is None else printer_color(p.color)
+ except HTTPException: c.close(); raise
+ c.execute('UPDATE printers SET name=?,printer_type=?,base_url=?,api_key=?,serial=?,camera_url=?,color=?,updated_at=? WHERE id=?',(name,ptype,url,key,serial,cam,color,now(),pid)); c.commit(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close(); return snapshot(r)
 def printer_row(pid):
  c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()
  if not r: raise HTTPException(404,'Printer not found')

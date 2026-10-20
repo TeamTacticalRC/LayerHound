@@ -57,6 +57,48 @@ body { margin: 0; min-width: 320px; background: var(--lh-bg); }
   --color-emerald-300: #047857;
   --color-sky-300: #0369a1;
 }
+/* Theme packs (chosen per device; THEME_PACKS in main.jsx). Each redefines the surfaces and the
+   gray text scale; Workshop, Blueprint and Terminal bring their own accent color too (set from
+   main.jsx). Status colors (green, amber, red) keep their meaning in every theme. */
+.lh-surface { background-image: var(--lh-pattern, none); background-attachment: fixed; }
+:root[data-pack="workshop"] {
+  --lh-bg: #13100c; --lh-card: #1d1914; --lh-input: #0f0d0a; --lh-sunken: #171410;
+  --lh-grid: rgba(255,236,214,.07); --lh-grid-strong: rgba(255,236,214,.28); --lh-scroll-thumb: #3f372d;
+  color: #f2ebe2;
+  --color-white: #faf5ee; --color-slate-100: #f2ebe2; --color-slate-200: #e7e0d6; --color-slate-300: #d6cdc1;
+  --color-slate-400: #ada396; --color-slate-500: #8c8276; --color-slate-600: #6f665c; --color-slate-700: #463e35;
+}
+:root[data-pack="blueprint"] {
+  --lh-bg: #0a2140; --lh-card: #0f2d55; --lh-input: #0a2140; --lh-sunken: #0c2649;
+  --lh-grid: rgba(186,220,255,.10); --lh-grid-strong: rgba(186,220,255,.35); --lh-scroll-thumb: #2a4f80;
+  --lh-pattern: linear-gradient(rgba(186,220,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(186,220,255,.05) 1px, transparent 1px);
+  color: #eaf4ff;
+  --color-white: #f2f8ff; --color-slate-100: #e3efff; --color-slate-200: #d6e7fc; --color-slate-300: #bcd6f5;
+  --color-slate-400: #93b6e0; --color-slate-500: #7598c4; --color-slate-600: #5b7ca8; --color-slate-700: #23436d;
+}
+:root[data-pack="blueprint"] .lh-surface { background-size: 28px 28px; }
+:root[data-pack="terminal"] {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --lh-bg: #020602; --lh-card: #07120a; --lh-input: #030a05; --lh-sunken: #050e07;
+  --lh-grid: rgba(120,255,160,.08); --lh-grid-strong: rgba(120,255,160,.3); --lh-scroll-thumb: #1d4a2a;
+  --lh-pattern: repeating-linear-gradient(0deg, rgba(90,255,140,.035) 0 1px, transparent 1px 3px);
+  color: #c4ffd2;
+  --color-white: #d2ffdc; --color-slate-100: #c4ffd2; --color-slate-200: #b0f5c3; --color-slate-300: #8ee6a8;
+  --color-slate-400: #67c985; --color-slate-500: #4ea86b; --color-slate-600: #3a8553; --color-slate-700: #1b3d26;
+}
+:root[data-pack="contrast"] {
+  --lh-bg: #000; --lh-card: #0b0b0b; --lh-input: #000; --lh-sunken: #050505;
+  --lh-grid: rgba(255,255,255,.18); --lh-grid-strong: rgba(255,255,255,.5); --lh-scroll-thumb: #6b6b6b;
+  color: #fff;
+  --color-white: #fff; --color-slate-100: #fff; --color-slate-200: #f4f4f5; --color-slate-300: #e9e9ec;
+  --color-slate-400: #d4d4d8; --color-slate-500: #c4c4ca; --color-slate-600: #a8a8b0; --color-slate-700: #52525b;
+}
+/* High contrast: every outline clearly visible */
+:root[data-pack="contrast"] [class*="border-white/"] { border-color: rgb(255 255 255 / .45) !important; }
+
+/* Wall screen (per device): everything scales with the screen, for a TV or monitor across the room */
+:root.lh-wall { font-size: clamp(16px, 1.05vw, 30px); }
+
 /* Printer cards: columns follow the printer count (max 5 per row), cards grow
    when there are fewer printers up to --card-max, and every row is centered,
    including a partial last row. --cols-* are set inline by <PrinterGrid>. */

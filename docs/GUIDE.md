@@ -115,9 +115,14 @@ LayerHound **watches** your printers. Controlling them is optional and off by de
 | **Storage** | Drive health and space, and a shared **LayerHound Files** folder for uploads and downloads. |
 | **Network** | Internet health, devices you monitor, Wi-Fi settings and the network scan. |
 | **Services** | Quick links and health checks for your other home-lab apps, plus Home Assistant and Pi-hole stats. |
-| **Settings** | In tabs: **General** (farm name, light or dark mode, alerts), **Printers** (printer controls, discovery), **Accounts** (users, recovery key, your password), **Network** (remote access, setup hotspot) and **System** (updates, backups, recent problems, maintenance, fan, usage stats). |
+| **Settings** | In tabs: **General** (farm name, accent color, appearance, alerts), **Printers** (printer controls, discovery), **Accounts** (users, recovery key, your password), **Network** (remote access, setup hotspot) and **System** (updates, backups, recent problems, maintenance, fan, usage stats). |
 
-**Light or dark:** use the moon, sun and screen buttons under the logo. Each device remembers its own choice.
+**Make it yours** (**Settings → General → Appearance**; each device remembers its own choices):
+- **Theme:** Midnight (dark), Daylight (light), Workshop, Blueprint, Terminal, High contrast, or match the device's light or dark setting. The moon, sun and screen buttons under the logo switch between dark, light and match device quickly.
+- **Printer cards:** Comfortable, or Compact to fit more printers on a screen.
+- **Celebrate finished prints:** a short burst of confetti when a print finishes while the dashboard is open.
+- **Wall screen:** a big, read-only view of your printers with a clock and no menu, for a TV or monitor. Open it with the screen button at the top right, or bookmark `http://layerhound.local/?wall=1` on the screen that should always show it. Press Esc to leave.
+- **Color tags** are set per printer (**Edit printer → Color tag**), so every device shows them: a colored strip on the printer's card.
 
 **Cooling fan:** on the LayerHound board, the fan runs quietly when the board is cool and speeds up as it warms. Adjust it in **Settings → Cooling fan**.
 

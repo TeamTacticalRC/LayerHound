@@ -36,11 +36,13 @@ function applyPrefs(next) {
   Object.assign(prefs, next);
   const root = document.documentElement.style;
   const light = document.documentElement.classList.contains("lh-light");
-  const accent = ACCENTS[prefs.accent] ?? ACCENTS.violet;
+  // Some theme packs bring their own accent; otherwise the farm's accent color
+  const own = THEME_PACKS[document.documentElement.dataset.pack]?.accent;
+  const accent = own ?? ACCENTS[prefs.accent] ?? ACCENTS.violet;
   for (const shade of [200, 300, 400, 500]) {
     // Light mode: the pale accent shades are hard to read on white, so text uses the deeper 500
     if (light) root.setProperty(`--color-violet-${shade}`, accent[Math.max(shade, 500)]);
-    else if (prefs.accent === "violet" || !ACCENTS[prefs.accent]) root.removeProperty(`--color-violet-${shade}`);
+    else if (!own && (prefs.accent === "violet" || !ACCENTS[prefs.accent])) root.removeProperty(`--color-violet-${shade}`);
     else root.setProperty(`--color-violet-${shade}`, accent[shade]);
   }
   // Product name first, then the customer's farm name
@@ -56,15 +58,28 @@ function fmtTemp(c, digits = 1) {
 }
 const fmtDate = (d, opts) => new Date(d).toLocaleString([], { ...opts, hour12: prefs.time_format === "12" });
 
-// Light or dark is chosen per device (each browser remembers its own), not for the whole farm.
-// "system" follows the device's own light/dark setting.
+// The look is chosen per device (each browser remembers its own), not for the whole farm.
+// "dark" and "light" are Midnight and Daylight; "system" follows the device's light/dark setting.
+// The other packs' colors are in index.css (:root[data-pack=...]).
+const THEME_PACKS = {
+  dark: { label: "Midnight", about: "The classic dark look.", bg: "#090b12", card: "#11151f", text: "#e8eaf0" },
+  light: { label: "Daylight", about: "Light, for bright rooms.", bg: "#f3f5f8", card: "#ffffff", text: "#0f172a", light: true },
+  workshop: { label: "Workshop", about: "Warm charcoal and copper.", bg: "#13100c", card: "#1d1914", text: "#f2ebe2",
+    accent: { 200: "#fed7aa", 300: "#fdba74", 400: "#fb923c", 500: "#ea580c" } },
+  blueprint: { label: "Blueprint", about: "Deep blue with grid lines.", bg: "#0a2140", card: "#0f2d55", text: "#eaf4ff",
+    accent: { 200: "#a5f3fc", 300: "#67e8f9", 400: "#22d3ee", 500: "#0891b2" } },
+  terminal: { label: "Terminal", about: "Green on black, retro.", bg: "#020602", card: "#07120a", text: "#c4ffd2",
+    accent: { 200: "#bbf7d0", 300: "#86efac", 400: "#4ade80", 500: "#16a34a" } },
+  contrast: { label: "High contrast", about: "Brightest text, clearest outlines.", bg: "#000000", card: "#0b0b0b", text: "#ffffff" },
+};
 const THEMES = [["dark", "Dark", Moon], ["light", "Light", Sun], ["system", "Match device", Monitor]];
-function readTheme() { try { return localStorage.getItem("lh-theme") || "dark"; } catch { return "dark"; } }
+function readTheme() { try { const t = localStorage.getItem("lh-theme"); return t === "system" || THEME_PACKS[t] ? t : "dark"; } catch { return "dark"; } }
 const systemLight = () => window.matchMedia?.("(prefers-color-scheme: light)").matches;
 function applyTheme(choice = readTheme()) {
-  const light = choice === "light" || (choice === "system" && systemLight());
-  document.documentElement.classList.toggle("lh-light", light);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", light ? "#f3f5f8" : "#090b12");
+  const pack = choice === "system" ? (systemLight() ? "light" : "dark") : THEME_PACKS[choice] ? choice : "dark";
+  document.documentElement.classList.toggle("lh-light", !!THEME_PACKS[pack].light);
+  document.documentElement.dataset.pack = pack;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_PACKS[pack].bg);
   applyPrefs({});
 }
 function setTheme(choice) {
@@ -79,6 +94,30 @@ function useTheme() {
   useEffect(() => { const on = () => setLocal(readTheme()); window.addEventListener("lh-theme", on); return () => window.removeEventListener("lh-theme", on); }, []);
   return [theme, setTheme];
 }
+
+// Other per-device choices (card size, wall screen, confetti), remembered by this browser only
+const DEVICE_DEFAULTS = { "lh-cards": "comfortable", "lh-wall": "0", "lh-confetti": "1" };
+function readDevice(key) { try { return localStorage.getItem(key) ?? DEVICE_DEFAULTS[key]; } catch { return DEVICE_DEFAULTS[key]; } }
+function setDevice(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* this visit only */ }
+  if (key === "lh-wall") document.documentElement.classList.toggle("lh-wall", value === "1");
+  window.dispatchEvent(new CustomEvent("lh-device", { detail: key }));
+}
+function useDevice(key) {
+  const [v, setV] = useState(() => readDevice(key));
+  useEffect(() => { const on = () => setV(readDevice(key)); window.addEventListener("lh-device", on); return () => window.removeEventListener("lh-device", on); }, [key]);
+  return [v, value => setDevice(key, value)];
+}
+// A bookmark with ?wall=1 (e.g. for a TV) opens straight into the wall screen
+if (/[?&]wall=1/.test(location.search)) setDevice("lh-wall", "1");
+
+// A printer's color tag (stored with the printer, so the whole farm sees it)
+const PRINTER_COLORS = {
+  red: ["Red", "#ef4444"], orange: ["Orange", "#f97316"], yellow: ["Yellow", "#eab308"], green: ["Green", "#22c55e"], teal: ["Teal", "#14b8a6"],
+  sky: ["Sky", "#38bdf8"], blue: ["Blue", "#3b82f6"], purple: ["Purple", "#a855f7"], pink: ["Pink", "#ec4899"], gray: ["Gray", "#94a3b8"],
+};
+const tagColor = p => PRINTER_COLORS[p?.color]?.[1] ?? null;
+const ColorDot = ({ printer, size = 10 }) => tagColor(printer) && <span className="inline-block shrink-0 rounded-full" style={{ width: size, height: size, background: tagColor(printer) }} title={`${PRINTER_COLORS[printer.color][0]} tag`} />;
 
 // Three small buttons (dark / light / match device), used in the sidebar
 function ThemeButtons() {
@@ -180,6 +219,7 @@ function normalizePrinter(p) {
     hasThumbnail: !!p.has_thumbnail,
     hasCamera: !!p.has_camera,
     cameraUrl: p.camera_url ?? "",
+    color: PRINTER_COLORS[p.color] ? p.color : null,
   };
 }
 
@@ -291,7 +331,7 @@ function Metric({ icon: Icon, label, value, sub, progress }) {
   );
 }
 
-function PrinterCard({ printer, onSelect }) {
+function PrinterCard({ printer, onSelect, compact, readOnly }) {
   const styles = {
     printing: ["PRINTING", "text-violet-300", "border-violet-500/30", "bg-violet-500/8"],
     paused: ["PAUSED", "text-amber-300", "border-amber-500/25", "bg-amber-500/6"],
@@ -300,9 +340,27 @@ function PrinterCard({ printer, onSelect }) {
     offline: ["OFFLINE", "text-red-300", "border-red-500/20", "bg-red-500/6"],
   };
   const [label, text, border, bg] = styles[printer.state] ?? styles.idle;
+  const tag = tagColor(printer) && <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 rounded-t-2xl" style={{ background: tagColor(printer) }} />;
+  if (compact) return (
+    <button onClick={() => onSelect(printer)} data-testid="printer-card" className={`group relative min-w-0 overflow-hidden text-left rounded-2xl border ${border} ${bg} px-3 pb-2.5 pt-3 transition hover:border-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}>
+      {tag}
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-sm font-semibold text-white" title={printer.name}>{printer.name}</span>
+        <span className={`flex shrink-0 items-center gap-1 text-[9px] font-bold tracking-widest ${text}`}><StatusDot good={printer.state !== "offline"} /> {label}</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/6">
+        <div className={`h-full rounded-full ${printer.state === "printing" ? "bg-violet-500" : "bg-slate-600"}`} style={{ width: `${printer.progress}%` }} />
+      </div>
+      <div className="mt-1.5 flex justify-between gap-2 text-[11px] text-slate-500">
+        <span className="truncate" title={printer.job || undefined}>{printer.job || "No active job"}</span>
+        <span className="shrink-0 tabular-nums">{printer.state === "printing" || printer.state === "paused" ? `${printer.progress}% · ${printer.eta}` : printer.weakLink ? "Weak connection" : ""}</span>
+      </div>
+    </button>
+  );
 
   return (
-    <button onClick={() => onSelect(printer)} className={`group min-w-0 text-left rounded-2xl border ${border} ${bg} p-4 transition hover:-translate-y-0.5 hover:border-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}>
+    <button onClick={() => onSelect(printer)} data-testid="printer-card" className={`group relative min-w-0 overflow-hidden text-left rounded-2xl border ${border} ${bg} p-4 transition hover:-translate-y-0.5 hover:border-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}>
+      {tag}
       <div className="truncate text-sm font-semibold text-white" title={printer.name}>{printer.name}</div>
       <div className="mt-1 flex items-center justify-between gap-2">
         <span className="truncate text-xs text-slate-500">{PRINTER_TYPES[printer.type]?.short ?? printer.model}{printer.weakLink && <span className="ml-1.5 text-amber-300/90" title="It's often slow to answer or drops out. Files take longer to send and may time out.">· Weak connection</span>}</span>
@@ -330,9 +388,9 @@ function PrinterCard({ printer, onSelect }) {
         <div><div className="text-slate-600">Bed</div><div className="mt-1 font-medium text-slate-300">{printer.bed ? fmtTemp(printer.bed, 0) : "—"}</div></div>
         <div><div className="text-slate-600">ETA</div><div className="mt-1 font-medium text-slate-300">{printer.eta}</div></div>
       </div>
-      <div className="mt-3 flex items-center justify-end gap-1 text-xs text-slate-600 group-hover:text-slate-300">
+      {!readOnly && <div className="mt-3 flex items-center justify-end gap-1 text-xs text-slate-600 group-hover:text-slate-300">
         Details <ChevronRight size={14} />
-      </div>
+      </div>}
     </button>
   );
 }
@@ -414,7 +472,7 @@ function AccountBadge({ onSignOut, onSignIn }) {
 // Centered card used by the welcome and sign-in screens
 function AuthShell({ title, sub, children }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--lh-bg)] px-4 py-10 text-slate-200">
+    <div className="lh-surface flex min-h-screen items-center justify-center bg-[var(--lh-bg)] px-4 py-10 text-slate-200">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
           <img src="/brand/layerhound-mascot.png" alt="" className="h-20 w-20 object-contain" />
@@ -1047,7 +1105,7 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-xs uppercase tracking-widest text-violet-400">Printer detail</div>
-          <h2 className="mt-1 text-xl font-semibold text-white">{printer.name}</h2>
+          <h2 className="mt-1 flex items-center gap-2 text-xl font-semibold text-white"><ColorDot printer={printer} size={12} /> {printer.name}</h2>
           {printer.address && <div className="mt-1 text-xs text-slate-500">{printer.address}</div>}
         </div>
         <button onClick={close} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Close"><X size={20} /></button>
@@ -1126,9 +1184,18 @@ function Field({ label, hint, children }) {
 // Printer cards on the Dashboard and Print Farm pages. Never more columns than
 // printers (max 5 on wide screens), so a small farm gets larger, centered cards.
 // Layout rules live in .printer-grid in index.css.
-function PrinterGrid({ count, children }) {
+function PrinterGrid({ count, children, compact }) {
   const cols = max => Math.max(1, Math.min(count, max));
-  return <div className="printer-grid" style={{ "--cols-sm": cols(2), "--cols-lg": cols(3), "--cols-xl": cols(5) }}>{children}</div>;
+  return compact
+    ? <div className="printer-grid" style={{ "--cols-sm": cols(3), "--cols-lg": cols(5), "--cols-xl": cols(7), "--card-max": "16rem" }}>{children}</div>
+    : <div className="printer-grid" style={{ "--cols-sm": cols(2), "--cols-lg": cols(3), "--cols-xl": cols(5) }}>{children}</div>;
+}
+
+// The farm's printer cards, comfortable or compact (chosen per device in Settings -> Appearance)
+function FarmCards({ printers, onSelect, readOnly }) {
+  const [cards] = useDevice("lh-cards");
+  const compact = cards === "compact";
+  return <PrinterGrid count={printers.length} compact={compact}>{printers.map(p => <PrinterCard key={p.id} printer={p} onSelect={onSelect} compact={compact} readOnly={readOnly} />)}</PrinterGrid>;
 }
 
 const inputClass = "w-full rounded-lg border border-white/10 bg-[var(--lh-input)] px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-violet-400 focus:outline-none";
@@ -1147,8 +1214,8 @@ function splitAddress(url) {
 function PrinterFormModal({ printer, initial, onClose, onSaved }) {
   const editing = !!printer;
   const [form, setForm] = useState(() => editing
-    ? { name: printer.name, type: PRINTER_TYPES[printer.type] ? printer.type : "moonraker", ...splitAddress(printer.address), api_key: "", serial: printer.serial ?? "", camera_url: printer.cameraUrl ?? "" }
-    : { name: initial?.name ?? "", type: initial?.type ?? "moonraker", host: initial?.host ?? "", port: initial?.port ? String(initial.port) : "", api_key: "", serial: initial?.serial ?? "", camera_url: "" });
+    ? { name: printer.name, type: PRINTER_TYPES[printer.type] ? printer.type : "moonraker", ...splitAddress(printer.address), api_key: "", serial: printer.serial ?? "", camera_url: printer.cameraUrl ?? "", color: printer.color ?? "" }
+    : { name: initial?.name ?? "", type: initial?.type ?? "moonraker", host: initial?.host ?? "", port: initial?.port ? String(initial.port) : "", api_key: "", serial: initial?.serial ?? "", camera_url: "", color: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = key => e => setForm(f => ({ ...f, [key]: e.target.value }));
@@ -1181,6 +1248,7 @@ function PrinterFormModal({ printer, initial, onClose, onSaved }) {
     if (bambu) payload.serial = form.serial.trim();
     // Blank clears a custom camera address (LayerHound then looks for one automatically)
     if (editing || form.camera_url.trim()) payload.camera_url = form.camera_url.trim();
+    if (editing || form.color) payload.color = form.color;   // "" removes the tag
     try { await (editing ? updatePrinter(printer.id, payload) : createPrinter(payload)); onSaved(); onClose(); }
     catch (e) {
       const msg = typeof e.message === "string" && e.message !== "[object Object]" ? e.message : "The server rejected this printer. Check the uvicorn terminal for details.";
@@ -1225,6 +1293,16 @@ function PrinterFormModal({ printer, initial, onClose, onSaved }) {
               <input className={inputClass} type={form.type === "bambu" ? "password" : "text"} autoComplete="off" spellCheck={false} value={form.api_key} onChange={set("api_key")} />
             </Field>
           )}
+          <Field label="Color tag (optional)" hint="Shown on the printer's card, to tell printers apart at a glance.">
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Color tag">
+              <button type="button" role="radio" aria-checked={!form.color} aria-label="No color" title="No color" onClick={() => setForm(f => ({ ...f, color: "" }))}
+                className={`flex h-7 w-7 items-center justify-center rounded-full border text-slate-500 ${!form.color ? "border-violet-400 ring-2 ring-violet-400/40" : "border-white/15"}`}><Ban size={13} /></button>
+              {Object.entries(PRINTER_COLORS).map(([key, [label, hex]]) => (
+                <button key={key} type="button" role="radio" aria-checked={form.color === key} aria-label={label} title={label} onClick={() => setForm(f => ({ ...f, color: key }))}
+                  className={`h-7 w-7 rounded-full border-2 ${form.color === key ? "border-white ring-2 ring-violet-400/50" : "border-transparent"}`} style={{ background: hex }} />
+              ))}
+            </div>
+          </Field>
           <Field label="Camera URL (optional)" hint={form.type === "bambu" ? "Leave blank: Bambu P1 and A1 cameras are found automatically." : "Leave blank to use the camera Klipper lists, if any. Or paste a snapshot or MJPEG stream address."}>
             <input className={inputClass} autoComplete="off" spellCheck={false} placeholder="http://192.168.1.50/webcam/?action=snapshot" value={form.camera_url} onChange={set("camera_url")} />
           </Field>
@@ -1424,9 +1502,7 @@ function PrintFarmPage({ printers, usingDemo, printerError, onSelect, onAdd, onS
           <button data-admin onClick={onAdd} className="mt-5 flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-violet-400"><Plus size={16} /> Add printer</button>
         </div>
       ) : (
-        <PrinterGrid count={printers.length}>
-          {printers.map(p => <PrinterCard key={p.id} printer={p} onSelect={onSelect} />)}
-        </PrinterGrid>
+        <FarmCards printers={printers} onSelect={onSelect} />
       )}
     </>
   );
@@ -3188,11 +3264,56 @@ function AboutSection() {
   );
 }
 
+// A small preview of a theme: its background, a card, text lines and its accent
+function ThemeTile({ id, label, about, pack, selected, onPick }) {
+  const accent = pack.accent?.[400] ?? (ACCENTS[prefs.accent] ?? ACCENTS.violet)[400];
+  return (
+    <button type="button" role="radio" aria-checked={selected} aria-label={label} onClick={() => onPick(id)}
+      className={`rounded-xl border p-2 text-left transition ${selected ? "border-violet-400 ring-2 ring-violet-400/30" : "border-white/10 hover:border-white/25"}`}>
+      <div className="h-14 rounded-lg p-2" style={{ background: pack.bg }} aria-hidden="true">
+        <div className="h-full rounded-md p-1.5" style={{ background: pack.card, fontFamily: id === "terminal" ? "ui-monospace, monospace" : undefined }}>
+          <div className="h-1.5 w-1/2 rounded-full" style={{ background: pack.text, opacity: .85 }} />
+          <div className="mt-1.5 h-1.5 w-3/4 rounded-full" style={{ background: pack.text, opacity: .35 }} />
+          <div className="mt-1.5 h-1.5 w-1/3 rounded-full" style={{ background: accent }} />
+        </div>
+      </div>
+      <div className="mt-2 text-sm font-medium text-white">{label}</div>
+      <div className="text-[11px] leading-snug text-slate-500">{about}</div>
+    </button>
+  );
+}
+
 function AppearanceSection() {
   const [theme, choose] = useTheme();
+  const [cards, setCards] = useDevice("lh-cards");
+  const [confetti, setConfetti] = useDevice("lh-confetti");
+  const wallLink = `${location.origin}/?wall=1`;
+  const system = systemLight() ? THEME_PACKS.light : THEME_PACKS.dark;
   return (
     <Section title="Appearance" sub="Saved on this device only, so each screen can have its own.">
-      <Segmented label="Theme" value={theme} onChange={choose} options={THEMES.map(([v, label]) => [v, label])} />
+      <div className="text-xs font-medium text-slate-400">Theme</div>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Theme">
+        {Object.entries(THEME_PACKS).map(([id, pack]) => <ThemeTile key={id} id={id} label={pack.label} about={pack.about} pack={pack} selected={theme === id} onPick={choose} />)}
+        <ThemeTile id="system" label="Match device" about="Midnight or Daylight, following this device." pack={system} selected={theme === "system"} onPick={choose} />
+      </div>
+      <p className="mt-2 text-xs text-slate-600">Workshop, Blueprint and Terminal have their own accent color. The others use the farm's accent color (Settings → General → Farm).</p>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div><div className="text-sm text-slate-200">Printer cards</div><div className="text-xs text-slate-600">Compact fits more printers on a screen.</div></div>
+        <Segmented label="Printer cards" value={cards} onChange={setCards} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} />
+      </div>
+
+      <div className="mt-4">
+        <Toggle checked={confetti === "1"} onChange={v => setConfetti(v ? "1" : "0")} label="Celebrate finished prints" hint="A short burst of confetti when a print finishes while the dashboard is open (in the printer's color tag, if it has one)." />
+      </div>
+
+      <div className="mt-4 rounded-xl border border-white/8 bg-white/[.02] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><div className="text-sm text-slate-200">Wall screen</div><div className="text-xs text-slate-600">Big, read-only printer view with no menu, for a TV or monitor. Press Esc to leave.</div></div>
+          <button onClick={enterWallScreen} className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2 text-sm text-slate-200 hover:bg-white/[.06]"><Monitor size={14} /> Open wall screen</button>
+        </div>
+        <p className="mt-3 text-xs text-slate-600">For a screen that should always show it, bookmark <span className="select-all font-mono text-slate-400">{wallLink}</span>. Sign in there with a view-only account or an access key.</p>
+      </div>
     </Section>
   );
 }
@@ -4072,6 +4193,54 @@ function HistoryPage({ printers }) {
   );
 }
 
+// A print finishing while someone's watching gets a short burst of confetti, in the printer's color
+// tag if it has one (Settings -> Appearance; off for "reduce motion"). Loaded only when needed.
+function celebrate(printers) {
+  if (readDevice("lh-confetti") !== "1" || document.hidden || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const colors = printers.map(tagColor).filter(Boolean);
+  import("canvas-confetti").then(({ default: confetti }) => {
+    window.__lhConfetti = (window.__lhConfetti ?? 0) + 1;   // for the browser tests
+    confetti({ particleCount: 140, spread: 90, startVelocity: 40, origin: { y: 0.65 }, disableForReducedMotion: true, ...(colors.length ? { colors: [...colors, "#ffffff"] } : {}) });
+  }).catch(() => { /* just no confetti */ });
+}
+
+// Wall screen (per device): a read-only view for a TV or monitor across the room. Everything is
+// bigger (index.css scales the page with the screen), there's no menu, and it stays on after a
+// reload, so a wall display can be left on it. Esc or "Exit" goes back.
+function WallScreen({ printers, summary, onExit }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 10000); return () => clearInterval(t); }, []);
+  useEscape(onExit);
+  const printing = printers.filter(p => p.state === "printing").length;
+  const online = printers.filter(p => p.state !== "offline").length;
+  const tone = { good: "border-emerald-500/20 bg-emerald-500/8 text-emerald-300", warn: "border-amber-500/25 bg-amber-500/8 text-amber-200", bad: "border-red-500/25 bg-red-500/8 text-red-300" }[summary.tone];
+  return (
+    <div className="lh-surface min-h-screen bg-[var(--lh-bg)] p-4 text-slate-200 sm:p-8" data-testid="wall-screen">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <BrandMark />
+          <h1 className="truncate text-2xl font-semibold text-white">{prefs.farm_name}</h1>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${tone}`}><StatusDot tone={summary.tone} /> {summary.tone === "good" ? "All systems online" : summary.text}</span>
+          <span className="text-sm text-slate-400">{printing} printing · {online} of {printers.length} online</span>
+          <span className="text-3xl font-semibold tabular-nums text-white">{fmtDate(now, { hour: "numeric", minute: "2-digit" })}</span>
+          <button onClick={onExit} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-500 opacity-60 hover:text-white hover:opacity-100">Exit wall screen</button>
+        </div>
+      </header>
+      {printers.length ? <FarmCards printers={printers} onSelect={() => {}} readOnly /> : <p className="py-20 text-center text-slate-500">No printers yet.</p>}
+    </div>
+  );
+}
+function enterWallScreen() {
+  setDevice("lh-wall", "1");
+  document.documentElement.requestFullscreen?.().catch(() => { /* fine: the browser may not allow it */ });
+}
+function exitWallScreen() {
+  setDevice("lh-wall", "0");
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+}
+
 function Dashboard({ onSignOut, onSignIn }) {
   const [selected, setSelected] = useState(null);
   // Links elsewhere in the dashboard open a Settings tab directly (closing any open printer panel)
@@ -4166,8 +4335,22 @@ function Dashboard({ onSignOut, onSignIn }) {
   const placeholder = !['dashboard', 'printers', 'history', 'server', 'storage', 'network', 'services', 'settings', 'feedback'].includes(page);
   const title = PAGE_TITLES[page] ?? page;
 
+  // Prints that just finished (printing -> complete since the last check)
+  const lastStates = React.useRef(null);
+  useEffect(() => {
+    if (!livePrinters) return;
+    const before = lastStates.current;
+    lastStates.current = Object.fromEntries(livePrinters.map(p => [p.id, p.state]));
+    if (!before) return;
+    const done = livePrinters.filter(p => before[p.id] === "printing" && p.state === "complete");
+    if (done.length) celebrate(done);
+  }, [livePrinters]);
+
+  const [wall] = useDevice("lh-wall");
+  if (wall === "1") return <WallScreen printers={printers} summary={summary} onExit={exitWallScreen} />;
+
   return (
-    <div className="min-h-screen bg-[var(--lh-bg)] text-slate-200">
+    <div className="lh-surface min-h-screen bg-[var(--lh-bg)] text-slate-200">
       <div className="flex min-h-screen">
         <Sidebar page={page} setPage={setPage} open={menu} setOpen={setMenu} usingDemo={usingDemo} summary={summary} onSignOut={onSignOut} onSignIn={onSignIn} />
         <main className="min-w-0 flex-1">
@@ -4180,6 +4363,7 @@ function Dashboard({ onSignOut, onSignIn }) {
               </div>
             </div>
             <div className="flex items-center gap-3 text-xs">
+              <button onClick={enterWallScreen} title="Wall screen: big, read-only, for a TV or monitor" aria-label="Wall screen" className="hidden rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white sm:block"><Monitor size={17} /></button>
               <button onClick={() => setPage("dashboard")} className={`hidden max-w-[16rem] items-center gap-2 rounded-full border px-3 py-1.5 sm:flex ${{ good: "border-emerald-500/15 bg-emerald-500/6 text-emerald-300", warn: "border-amber-500/20 bg-amber-500/6 text-amber-200", bad: "border-red-500/20 bg-red-500/6 text-red-300" }[summary.tone]}`}><StatusDot tone={summary.tone} /> <span className="truncate">{summary.tone === "good" ? "All systems online" : summary.text}</span></button>
               <div className={`rounded-full border px-3 py-1.5 ${apiError ? "border-red-500/20 bg-red-500/5 text-red-300" : "border-violet-500/15 bg-violet-500/5 text-violet-300"}`}>{apiError ? "API offline" : <UpdatedAgo at={updatedAt} />}</div>
             </div>
@@ -4246,9 +4430,7 @@ function Dashboard({ onSignOut, onSignIn }) {
                       <Plus size={16} /> Add your first printer
                     </button>
                   ) : (
-                    <PrinterGrid count={printers.length}>
-                      {printers.map(p => <PrinterCard key={p.id} printer={p} onSelect={setSelected} />)}
-                    </PrinterGrid>
+                    <FarmCards printers={printers} onSelect={setSelected} />
                   )}
                 </section>
 

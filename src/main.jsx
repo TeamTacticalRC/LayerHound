@@ -763,12 +763,15 @@ function UpdateBanner() {
     return () => { stop = true; clearInterval(timer); window.removeEventListener("focus", onFocus); };
   }, []);
   if (!newer || hidden) return null;
+  // Fetch the page fresh first: a browser that saved an older copy (from before boards said not to)
+  // would otherwise reload straight back into it
+  const reload = async () => { try { await fetch("/", { cache: "reload" }); } catch { /* reload anyway */ } location.reload(); };
   return (
     <div role="status" className="fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-3">
       <div className="flex max-w-full items-center gap-3 rounded-xl border border-violet-400/30 bg-[var(--lh-card)] px-4 py-2.5 text-sm shadow-lg shadow-black/30">
         <RotateCw size={16} className="shrink-0 text-violet-400" />
         <span className="text-slate-200">LayerHound has been updated. Reload to get the new version.</span>
-        <button onClick={() => location.reload()} className="shrink-0 rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-medium text-[#fff] hover:bg-violet-400">Reload</button>
+        <button onClick={reload} className="shrink-0 rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-medium text-[#fff] hover:bg-violet-400">Reload</button>
         <button onClick={() => setHidden(true)} className="shrink-0 rounded-lg p-1 text-slate-500 hover:text-white" aria-label="Not now"><X size={15} /></button>
       </div>
     </div>

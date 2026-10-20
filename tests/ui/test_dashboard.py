@@ -334,3 +334,19 @@ def test_board_still_starting_up(browser, base_url):
     page.get_by_text("Can't reach LayerHound yet.").wait_for(state="detached", timeout=15000)
     assert page.get_by_role("heading").count() > 0           # whichever screen comes next (sign-in, setup, dashboard)
     ctx.close()
+
+
+def test_update_bar_goes_away_after_reload(browser, base_url):
+    # After an update the board serves a new build: the bar offers a reload, and the reload really
+    # gets the new page (the page is never reused from the browser's cache without asking)
+    import urllib.request
+    with urllib.request.urlopen(base_url + "/") as r: assert r.headers["Cache-Control"] == "no-cache"
+    page = new_page(browser, base_url)
+    page.route("**/api/health", lambda r: r.fulfill(json={"status": "ok", "version": "9.9.9", "build": "index-NEWER.js"}))
+    page.reload(); page.wait_for_load_state("networkidle")
+    page.get_by_text("LayerHound has been updated.").wait_for()
+    page.unroute("**/api/health")                     # the "new" build is what the board serves now
+    page.get_by_role("button", name="Reload").click()
+    page.wait_for_load_state("networkidle"); page.wait_for_timeout(1000)
+    assert page.get_by_text("LayerHound has been updated.").count() == 0
+    page.context.close()

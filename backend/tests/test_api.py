@@ -22,6 +22,21 @@ def test_build_id(tmp_path, monkeypatch):
     assert main.build_id() == "index-AbC_12-x.js"
 
 
+def test_page_is_always_checked_and_assets_are_kept(tmp_path):
+    # The page must never be reused from a browser's cache without asking (else the "updated" bar sticks)
+    import main
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<html></html>"); (tmp_path / "assets" / "index-AbC.js").write_text("x")
+    app = FastAPI(); app.mount("/", main.DashboardFiles(directory=tmp_path, html=True))
+    c = TestClient(app)
+    assert c.get("/").headers["cache-control"] == "no-cache"
+    assert c.get("/index.html").headers["cache-control"] == "no-cache"
+    assert "immutable" in c.get("/assets/index-AbC.js").headers["cache-control"]
+    assert c.get("/assets/missing.js").status_code == 404
+
+
 def test_system_and_server(client):
     s = client.get("/api/system").json()
     assert {"cpu_percent", "memory_percent", "storage_percent", "network", "services"} <= s.keys()

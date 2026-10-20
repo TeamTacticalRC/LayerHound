@@ -828,4 +828,14 @@ settings.after_save.append(lambda changed: 'usage_stats' in changed and stats.ch
 threading.Thread(target=printer_poller,daemon=True,name='layerhound-printers').start()
 
 # Must stay last: a mount at / would otherwise shadow the /api routes above
-if DIST.is_dir(): app.mount('/',StaticFiles(directory=DIST,html=True),name='web')
+class DashboardFiles(StaticFiles):
+ # The page itself must always be checked with the board, or a browser keeps showing an older
+ # dashboard after an update (or another board's, at the same layerhound.local address) and the
+ # "LayerHound has been updated" bar never goes away. The scripts and styles it loads have their
+ # contents' fingerprint in their names, so those can be kept for good.
+ async def get_response(self,path,scope):
+  r=await super().get_response(path,scope)
+  if path.startswith('assets/') and r.status_code==200: r.headers['Cache-Control']='public, max-age=31536000, immutable'
+  elif r.headers.get('content-type','').startswith('text/html'): r.headers['Cache-Control']='no-cache'
+  return r
+if DIST.is_dir(): app.mount('/',DashboardFiles(directory=DIST,html=True),name='web')

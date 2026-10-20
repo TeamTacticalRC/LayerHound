@@ -786,6 +786,13 @@ function App() {
     catch (e) { setError(e.message || "Can't reach LayerHound"); }
   }, []);
   useEffect(() => { check(); }, [check]);
+  // Can't reach LayerHound yet (often just a board still starting up): keep trying by itself
+  useEffect(() => {
+    if (status || !error) return;
+    const t = setTimeout(check, 5000);
+    return () => clearTimeout(t);
+  }, [status, error, check]);
+  const retry = () => { setError(""); check(); };   // shows "Loading…" again while it asks
   useEffect(() => {
     // Any API call that finds the session gone (expired, signed out elsewhere) brings back the sign-in screen
     const onSignedOut = () => check();
@@ -798,7 +805,13 @@ function App() {
   if (!status) return (
     <AuthShell>
       <div className="flex items-center justify-center gap-2 py-4 text-sm text-slate-400">
-        {error ? <><CircleX size={16} className="text-red-300" /> {error}. <button onClick={check} className="text-violet-300 hover:text-violet-200">Try again</button></> : <><Loader2 size={16} className="animate-spin" /> Loading…</>}
+        {error ? (
+          <div className="text-center" role="status">
+            <div className="flex items-center justify-center gap-2"><CircleX size={16} className="text-red-300" /> Can't reach LayerHound yet.</div>
+            <p className="mt-1 text-xs text-slate-500">If the board was just switched on, it can take a minute or two. Trying again every few seconds… ({error})</p>
+            <button onClick={retry} className="mt-2 text-violet-300 hover:text-violet-200">Try again now</button>
+          </div>
+        ) : <><Loader2 size={16} className="animate-spin" /> Loading…</>}
       </div>
     </AuthShell>
   );

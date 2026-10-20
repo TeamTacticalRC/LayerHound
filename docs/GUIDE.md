@@ -27,6 +27,8 @@ LayerHound watches your 3D printers and the small server it runs on, all in one 
 
 **No cable handy?** After a minute or so, the board creates its own Wi-Fi network called **LayerHound-Setup**. Join it from your phone, and a setup page opens. Pick your home Wi-Fi, enter its password, name your farm and create your admin account. The board then joins your Wi-Fi. Reconnect your phone to your Wi-Fi and open **http://layerhound.local**.
 
+**Started with a cable and want Wi-Fi instead?** Add your Wi-Fi in **Network → Wi-Fi** first, then unplug the cable. If you unplug it first, the board can't be reached until **LayerHound-Setup** comes back (after a few minutes) and you add your Wi-Fi from your phone.
+
 ### Running it with Docker
 
 If you already use Docker (on a Linux PC, a NAS, or Docker Desktop), download [docker-compose.yml](../docker-compose.yml), put it in a folder, and run `docker compose up -d` there. Then open **http://THIS-MACHINE:8080**.
@@ -130,7 +132,7 @@ All of this is in **Settings → Login & users**:
 
 ## Wi-Fi and the setup hotspot
 
-- **Change Wi-Fi:** **Network → Wi-Fi**.
+- **Change Wi-Fi:** **Network → Wi-Fi**. Moving a board from a cable to Wi-Fi? Add the Wi-Fi here before unplugging the cable.
 - **Setup hotspot** (**Settings → Setup hotspot**): **Auto** turns it on for small boards and off for PCs and laptops, so a laptop never turns its Wi-Fi into a hotspot. You can also choose **On** or **Off**.
 - **When the board can't reach any network for a few minutes:** it starts the **LayerHound-Setup** Wi-Fi network so you can reconnect it from your phone. If LayerHound is already set up, you'll be asked to sign in as an admin first. The hotspot turns itself off once the board is back online.
 

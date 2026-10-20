@@ -54,11 +54,20 @@ def record_scan(results):
  for r in results or []:
   p=r.get('printer')
   if not p: continue
-  remember(p['type'],p['host'],p.get('port'),p.get('serial'),name=r.get('hostname'))
+  # Klipper printers come with their own name and model (network.klipper_identity)
+  name=p['name'] if 'name' in p else r.get('hostname')
+  remember(p['type'],p['host'],p.get('port'),p.get('serial'),name=name,model=p.get('model'))
  if settings.get('auto_add_klipper'): add_all_klipper()
 
 def _host(url):
  return urllib.parse.urlparse(url if '://' in url else 'http://'+url).hostname
+
+def plain_name(f):
+ # The name to suggest: what the printer calls itself, unless that's a generic computer name
+ # (found before printers were asked for a better one), then its model or kind
+ if f['name'] and not (f['type']=='moonraker' and network.generic_host(f['name'])): return f['name']
+ if f['model']: return f"Bambu Lab {f['model']}" if f['type']=='bambu' else f['model']
+ return {'moonraker':'Klipper printer','bambu':'Bambu Lab printer','octoprint':'OctoPrint printer'}.get(f['type'],'Printer')
 
 def suggestions():
  # Found, not dismissed, and not already on the dashboard (same address, or same Bambu serial)
@@ -69,9 +78,13 @@ def suggestions():
  for f in found:
   if f['host'] in hosts or (f['serial'] and f['serial'].upper() in serials): continue
   f['label']={'moonraker':'Klipper','bambu':'Bambu Lab','octoprint':'OctoPrint'}.get(f['type'],f['type'])
-  f['suggested_name']=f['name'] or (f"Bambu Lab {f['model']}" if f['type']=='bambu' and f['model'] else f"{f['label']} printer")
+  f['suggested_name']=plain_name(f)
   f['awaiting_approval']=f['key'] in _octo
   out.append(f)
+ # Two printers with the same name (two of the same model): tell them apart by address
+ names=[f['suggested_name'] for f in out]
+ for f in out:
+  if names.count(f['suggested_name'])>1: f['suggested_name']+=f" ({f['host']})"
  return out
 
 # ---- Automatic scans -------------------------------------------------------------------------
@@ -135,7 +148,7 @@ def _base(f):
 
 def add_found(key,name=None,access_code=None,api_key=None):
  f=_find(key)
- payload={'name':(name or '').strip() or f['name'] or ('Bambu Lab printer' if f['type']=='bambu' else 'Printer'),
+ payload={'name':(name or '').strip() or plain_name(f),
   'printer_type':f['type'],'base_url':_base(f)}
  if f['type']=='bambu':
   code=(access_code or '').strip()
@@ -152,7 +165,7 @@ def add_all_klipper():
  added=[]
  for f in suggestions():
   if f['type']=='moonraker':
-   try: added.append(add_found(f['key']))
+   try: added.append(add_found(f['key'],f['suggested_name']))
    except Exception as e: print(f"[discovery] couldn't add {f['host']}: {e}",flush=True)
  return added
 

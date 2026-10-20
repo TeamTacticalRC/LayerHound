@@ -286,6 +286,39 @@ def http_json(url,timeout=3):
   with urllib.request.urlopen(url,timeout=timeout) as r: return json.loads(r.read().decode())
  except Exception: return None
 
+def http_text(url,timeout=3,limit=4000):
+ try:
+  with urllib.request.urlopen(url,timeout=timeout) as r: return r.read(limit).decode(errors='replace')
+ except Exception: return None
+
+# What a Klipper printer calls itself. Its computer's network name is often generic ("mkspi" on an
+# Elegoo, "lava" on every Snapmaker U1), so look for better first: the name and model a Snapmaker
+# reports, the model in a Creality's network name ("K2Plus-5793"), or the "Machine type" line at
+# the top of an Elegoo's printer.cfg.
+CREALITY_HOST=re.compile(r'^(k1c|k1max|k1se|k1|k2plus|k2pro|k2)(?:[-_][0-9a-f]+)?$',re.I)
+CREALITY_MODELS={'k1':'K1','k1c':'K1C','k1max':'K1 Max','k1se':'K1 SE','k2':'K2','k2plus':'K2 Plus','k2pro':'K2 Pro'}
+GENERIC_HOSTS=('mkspi','lava','localhost','raspberrypi','mainsailos','fluiddpi','klipper','debian','armbian','ubuntu','orangepi','btt-cb1','pi')
+def generic_host(name): return not name or name.strip().lower().startswith(GENERIC_HOSTS)
+
+def klipper_identity(base,hostname):
+ # (name to suggest, model), either may be None
+ model=given=None
+ s=http_json(base+'/machine/system_info')
+ p=(((s or {}).get('result') or {}).get('system_info') or {}).get('product_info')
+ if isinstance(p,dict):   # Snapmaker
+  model=(p.get('machine_type') or '').strip() or None; given=(p.get('device_name') or '').strip() or None
+ m=CREALITY_HOST.match(hostname or '')
+ if not model and m: model='Creality '+CREALITY_MODELS[m.group(1).lower()]
+ if not model:
+  found=re.search(r'^#\s*Machine type:\s*(.+?)\s*$',http_text(base+'/server/files/config/printer.cfg') or '',re.M|re.I)
+  if found:
+   t=found.group(1).title()
+   model=('Elegoo ' if t.lower().startswith('neptune') else '')+t
+ # A name the owner gave it wins, unless it's just the model again ("U1" on a Snapmaker U1)
+ if given and not (model and given.lower() in (model.lower(),model.split()[-1].lower())): return given,model
+ if model: return model,model
+ return (None if generic_host(hostname) else hostname),None
+
 def identify(ip):
  # Recognise the printer types the dashboard supports, and fill in what the Add printer form needs.
  # Klipper first: some Klipper printers (e.g. Snapmaker U1) also listen on Bambu's port 8883.
@@ -293,7 +326,9 @@ def identify(ip):
  for port in (7125,80):
   if tcp(ip,port,1.5) is None: continue
   info=http_json(f'http://{ip}:{port}/printer/info')
-  if info and 'result' in info: return {'kind':'printer','label':'Klipper printer','hostname':info['result'].get('hostname'),'printer':{'type':'moonraker','host':ip,'port':port}}
+  if info and 'result' in info:
+   host=info['result'].get('hostname'); name,model=klipper_identity(f'http://{ip}:{port}',host)
+   return {'kind':'printer','label':model or 'Klipper printer','hostname':host,'printer':{'type':'moonraker','host':ip,'port':port,'name':name,'model':model}}
  if tcp(ip,8883,0.8) is not None:
   serial=bambu_cert(ip)
   if serial is not None: return {'kind':'printer','label':'Bambu Lab printer','printer':{'type':'bambu','host':ip,'port':8883,'serial':serial or None}}

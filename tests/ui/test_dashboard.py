@@ -313,3 +313,24 @@ def test_upload_progress_and_weak_connection(browser, base_url):
     api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
     assert not page.problems.items, page.problems.items
     page.context.close()
+
+
+def test_board_still_starting_up(browser, base_url):
+    # LayerHound doesn't answer yet (a board still starting): say so, keep trying, and let "Try again now" work
+    ctx = browser.new_context(viewport={"width": 1440, "height": 900}); page = ctx.new_page()
+    down = {"on": True}; asked = []
+    def status(r):
+        asked.append(1)
+        r.abort() if down["on"] else r.continue_()
+    page.route("**/api/auth/status", status)
+    page.goto(base_url)
+    page.get_by_text("Can't reach LayerHound yet.").wait_for()
+    n = len(asked)
+    page.get_by_role("button", name="Try again now").click()
+    page.wait_for_timeout(300)
+    assert len(asked) > n                                    # it really asked again
+    page.get_by_text("Can't reach LayerHound yet.").wait_for()
+    down["on"] = False                                       # the board is up now: no click needed
+    page.get_by_text("Can't reach LayerHound yet.").wait_for(state="detached", timeout=15000)
+    assert page.get_by_role("heading").count() > 0           # whichever screen comes next (sign-in, setup, dashboard)
+    ctx.close()

@@ -144,3 +144,41 @@ def test_viewers_cannot_add_or_dismiss(client):
     assert v.post("/api/discovery/scan").status_code == 403
     assert v.post("/api/discovery/moonraker:1.2.3.4:7125/add", json={}).status_code == 403
     assert v.post("/api/discovery/moonraker:1.2.3.4:7125/octoprint/check").status_code == 403
+
+
+def test_klipper_printers_named_by_what_they_say_they_are(monkeypatch):
+    # Real answers from the farm: two Snapmaker U1s ("lava"), a Creality K2 Plus, an Elegoo Neptune 4 Max ("mkspi")
+    import network
+    def http_json(url, timeout=3):
+        if "192.0.2.28" in url: return {"result": {"system_info": {"product_info": {"machine_type": "Snapmaker U1", "device_name": "U1 New"}}}}
+        if "192.0.2.29" in url: return {"result": {"system_info": {"product_info": {"machine_type": "Snapmaker U1", "device_name": "U1"}}}}
+        return {"result": {"system_info": {"distribution": {"name": "OpenWrt"}}}}
+    cfg = "#####\n# Machine type: NEPTUNE 4 MAX\n# Current configuration version: V1.6\n"
+    monkeypatch.setattr(network, "http_json", http_json)
+    monkeypatch.setattr(network, "http_text", lambda url, timeout=3, limit=4000: cfg if "192.0.2.155" in url else "[include fluidd.cfg]\n")
+    k = network.klipper_identity
+    assert k("http://192.0.2.28:7125", "lava") == ("U1 New", "Snapmaker U1")     # the name the owner gave it
+    assert k("http://192.0.2.29:7125", "lava") == ("Snapmaker U1", "Snapmaker U1")   # "U1" is just the model again
+    assert k("http://192.0.2.98:7125", "K2Plus-5793") == ("Creality K2 Plus", "Creality K2 Plus")
+    assert k("http://192.0.2.155:80", "mkspi") == ("Elegoo Neptune 4 Max", "Elegoo Neptune 4 Max")
+    assert k("http://192.0.2.50:7125", "voron") == ("voron", None)                 # a name someone chose
+    assert k("http://192.0.2.51:7125", "mkspi") == (None, None)                    # nothing better than generic
+
+
+def test_suggested_names(client):
+    discovery.record_scan([
+        {"ip": "127.0.0.31", "hostname": "lava", "printer": {"type": "moonraker", "host": "127.0.0.31", "port": 7125, "name": "Snapmaker U1", "model": "Snapmaker U1"}},
+        {"ip": "127.0.0.32", "hostname": "lava", "printer": {"type": "moonraker", "host": "127.0.0.32", "port": 7125, "name": "Snapmaker U1", "model": "Snapmaker U1"}},
+        {"ip": "127.0.0.33", "hostname": "mkspi", "printer": {"type": "moonraker", "host": "127.0.0.33", "port": 80, "name": None, "model": None}},
+    ])
+    s = {f["host"]: f for f in discovery.suggestions()}
+    # Two of the same model are told apart by address; a generic computer name isn't used
+    assert s["127.0.0.31"]["suggested_name"] == "Snapmaker U1 (127.0.0.31)" and s["127.0.0.32"]["suggested_name"] == "Snapmaker U1 (127.0.0.32)"
+    assert s["127.0.0.33"]["suggested_name"] == "Klipper printer"
+    # Found earlier with only the computer name: a later scan with a better name replaces it
+    discovery.dismiss(s["127.0.0.33"]["key"])
+    discovery.remember("moonraker", "127.0.0.34", 80, name="mkspi")
+    assert {f["host"]: f for f in discovery.suggestions()}["127.0.0.34"]["suggested_name"] == "Klipper printer"
+    discovery.record_scan([{"ip": "127.0.0.34", "hostname": "mkspi", "printer": {"type": "moonraker", "host": "127.0.0.34", "port": 80, "name": "Elegoo Neptune 4 Max", "model": "Elegoo Neptune 4 Max"}}])
+    assert {f["host"]: f for f in discovery.suggestions()}["127.0.0.34"]["suggested_name"] == "Elegoo Neptune 4 Max"
+    for k in [f["key"] for f in discovery.suggestions() if f["host"].startswith("127.0.0.3")]: discovery.dismiss(k)

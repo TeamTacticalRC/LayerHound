@@ -100,6 +100,8 @@ LayerHound **watches** your printers. Controlling them is optional and off by de
 - **On the printer:** the G-code files already stored on it, newest first, with a search box. Pick one.
 - **Upload:** send a sliced G-code file from your computer or phone, and start it right away or just store it on the printer.
 - **Big files and weak Wi-Fi:** the panel shows how far the file has got on its way to the printer. If the printer stops taking it (usually a weak Wi-Fi signal), LayerHound tries once more by itself, then tells you. A printer that keeps answering slowly shows **Weak connection** on its card: moving the router closer, or using a cable if the printer has a network port, makes uploads much faster.
+
+  ![Uploading a file: "Sending to Elegoo Neptune 4 Max… 62%"](screenshots/upload-progress.png)
 - Before starting, you tick **The bed is clear and ready to print**, with the printer's camera shown above. Only start a print you'd be comfortable leaving running; you may not be there to watch it.
 - LayerHound says **Printing** only once the printer reports it's printing.
 - Not for Bambu Lab printers yet: use Bambu Studio or Bambu Handy.
@@ -118,11 +120,18 @@ LayerHound **watches** your printers. Controlling them is optional and off by de
 | **Settings** | In tabs: **General** (farm name, accent color, appearance, alerts), **Printers** (printer controls, discovery), **Accounts** (users, recovery key, your password), **Network** (remote access, setup hotspot) and **System** (updates, backups, recent problems, maintenance, fan, usage stats). |
 
 **Make it yours** (**Settings → General → Appearance**; each device remembers its own choices):
+
+![The Appearance section: theme tiles, printer card size and confetti](screenshots/settings.png)
+
 - **Theme:** Midnight (dark), Daylight (light), Workshop, Blueprint, Terminal, High contrast, or match the device's light or dark setting. The moon, sun and screen buttons under the logo switch between dark, light and match device quickly.
 - **Printer cards:** Comfortable, or Compact to fit more printers on a screen.
 - **Celebrate finished prints:** a short burst of confetti when a print finishes while the dashboard is open.
 - **Wall screen:** a big, read-only view of your printers with a clock and no menu, for a TV or monitor. Open it with the screen button at the top right, or bookmark `http://layerhound.local/?wall=1` on the screen that should always show it. Press Esc to leave.
 - **Color tags** are set per printer (**Edit printer → Color tag**), so every device shows them: a colored strip on the printer's card.
+
+![The wall screen on a TV: printers with color tags and a large clock](screenshots/wall-screen.png)
+
+![Edit printer, with the color tag swatches](screenshots/color-tag.png)
 
 **Cooling fan:** on the LayerHound board, the fan runs quietly when the board is cool and speeds up as it warms. Adjust it in **Settings → Cooling fan**.
 

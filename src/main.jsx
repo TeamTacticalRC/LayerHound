@@ -1068,7 +1068,7 @@ function UploadProgress({ printer, browser, sending }) {
     <div className="mt-3" data-testid="upload-progress">
       <div className="h-1.5 rounded-full bg-white/6"><div className={`h-full rounded-full transition-all ${sending?.phase === "retrying" ? "bg-amber-400" : "bg-violet-500"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div>
       <p className={`mt-2 flex items-center gap-2 text-xs ${sending?.phase === "retrying" ? "text-amber-200" : "text-slate-400"}`}>{spin && <Loader2 size={13} className="animate-spin" />} {text}</p>
-      {sending && browser < 1 && <p className="mt-1 text-[11px] text-slate-600">Still uploading from this device: {Math.round(browser * 100)}%</p>}
+      {sending && browser > 0 && browser < 1 && <p className="mt-1 text-[11px] text-slate-600">Still uploading from this device: {Math.round(browser * 100)}%</p>}
     </div>
   );
 }

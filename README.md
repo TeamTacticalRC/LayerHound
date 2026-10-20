@@ -67,6 +67,15 @@ Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its
 
 ## Screenshots
 
+**Make it yours:** six theme packs (here Workshop, Blueprint, Terminal and Daylight), picked per screen.
+![The dashboard in the Workshop, Blueprint, Terminal and Daylight themes](docs/screenshots/themes.png)
+
+**Wall screen:** a big, read-only view for a TV or monitor across the room, with a clock and no menu.
+![Wall screen: five printers with color tags, status and a large clock](docs/screenshots/wall-screen.png)
+
+**Compact cards and color tags:** fit more printers on a screen, and tell them apart at a glance.
+![Print Farm page with compact printer cards, each with a colored strip](docs/screenshots/compact-cards.png)
+
 **Light or dark:** each screen picks its own.
 ![Dashboard in light mode](docs/screenshots/dashboard-light.png)
 
@@ -82,10 +91,10 @@ Any printer can use a **Camera URL** (a snapshot or MJPEG stream address) in its
 **Services:** health checks and quick-launch tiles for your other apps, with Home Assistant and Pi-hole stats.
 ![Services page](docs/screenshots/services.png)
 
-**Settings:** farm name, accent color, light or dark, units, alerts, fan, accounts, backups and updates.
-![Settings page](docs/screenshots/settings.png)
+**Settings:** in tabs: farm name and accent color, appearance (themes, card size, wall screen), alerts, printers, accounts, network, updates and backups.
+![Settings, General tab: farm name, accent color and the Appearance section's theme tiles](docs/screenshots/settings.png)
 
-<sub>Screenshots are from a real five-printer farm running LayerHound on a Radxa ROCK 4D. The public IP address, hardware addresses, Wi-Fi name and account names have been replaced.</sub>
+<sub>The Dashboard, light mode, History, Server, Network and Services screenshots are from a real five-printer farm running LayerHound on a Radxa ROCK 4D, with the public IP address, hardware addresses, Wi-Fi name and account names replaced. The themes, wall screen, compact cards and Settings screenshots use sample printers.</sub>
 
 ## Develop: run it on your computer
 

@@ -279,7 +279,7 @@ def test_board_password_on_a_card(browser, base_url):
     page.context.close()
 
 
-def test_upload_progress_and_weak_connection(browser, base_url):
+def test_upload_progress_and_weak_connection(browser, base_url, admin_state):
     # A printer on weak Wi-Fi (faked in the browser): a "Weak connection" note, and an upload that
     # shows the board's progress sending it on, including a retry
     page = new_page(browser, base_url)

@@ -636,3 +636,31 @@ def test_usb_copy_gets_minutes(monkeypatch):
     monkeypatch.setattr(main, "arrived", arrived)
     assert max(main.USB_ARRIVAL_WAIT, 96_000_000 / main.USB_BYTES_PER_SECOND) >= 1800   # a 96 MB file: half an hour
     assert max(main.USB_ARRIVAL_WAIT, 9_500_000 / main.USB_BYTES_PER_SECOND) >= 180
+
+
+_real_snapshot = main.snapshot   # the farm fixture swaps it for a fake
+
+
+def test_busy_receiving_a_file_is_not_offline(monkeypatch):
+    # The Elegoo on weak Wi-Fi stops answering while it takes in a big file: keep its last reading
+    # and say it's receiving, rather than showing it offline; once the upload ends, offline is offline
+    row = {"id": 9901, "name": "Far Elegoo", "printer_type": "moonraker", "base_url": "http://127.0.0.1:9", "serial": None,
+           "api_key": None, "enabled": 1, "camera_url": "", "color": None}
+    answers = {"up": True}
+    def moonraker(base):
+        if not answers["up"]: raise TimeoutError("timed out")
+        return {"connected": True, "state": "idle", "job": None}
+    monkeypatch.setattr(main, "moonraker", moonraker)
+    monkeypatch.setattr(main.media, "has_camera", lambda r: False)
+    monkeypatch.setattr(main, "OFFLINE_GRACE", 0)
+    assert _real_snapshot(row)["state"] == "idle"
+    answers["up"] = False
+    main.uploads[9901] = {"name": "big.gcode", "total": 10, "sent": 4, "phase": "sending", "result": None}
+    try:
+        x = _real_snapshot(row)
+        assert x["receiving"] and x["connected"] and x["state"] == "idle"
+        assert _real_snapshot(row, grace=False)["connected"] is False   # confirming an action still needs a real answer
+        main.uploads[9901]["result"] = {"status": "uploaded", "name": "big.gcode"}
+        assert _real_snapshot(row)["state"] == "offline"
+    finally:
+        main.uploads.pop(9901, None)

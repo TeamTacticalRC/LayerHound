@@ -188,7 +188,13 @@ def snapshot(r,grace=True):
   last_good[key]=(time.time(),x); ok=True
  except Exception as e:
   prev=last_good.get(key)
-  if grace and prev and time.time()-prev[0]<OFFLINE_GRACE: x=prev[1]
+  # A printer taking in a file from the board (a big upload on weak Wi-Fi, a slow USB copy) is often
+  # too busy to answer; that's not offline. Keep its last reading and say it's receiving a file.
+  job=uploads.get(r['id'])
+  receiving=grace and job is not None and not job.get('result')
+  if grace and prev and (receiving or time.time()-prev[0]<OFFLINE_GRACE): x={**prev[1],'receiving':receiving} if receiving else prev[1]
+  elif receiving:
+   x=dict(connected=True,state='idle',raw_state='busy',job=None,progress=0,eta_seconds=0,nozzle=0,nozzle_target=0,bed=0,bed_target=0,firmware=None,error=None,receiving=True)
   else:
    detail=f'{type(e).__name__}: {e}'
    if _logged_errors.get(key)!=detail:

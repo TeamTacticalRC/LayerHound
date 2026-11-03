@@ -221,6 +221,7 @@ function normalizePrinter(p) {
     cameraUrl: p.camera_url ?? "",
     color: PRINTER_COLORS[p.color] ? p.color : null,
     upload: p.upload ?? null,   // a file on its way from the board: {phase, percent, usb}
+    receiving: !!p.receiving,   // too busy taking in that file to answer: its last reading, not "offline"
   };
 }
 
@@ -346,8 +347,9 @@ function PrinterCard({ printer, onSelect, compact, readOnly }) {
     idle: ["IDLE", "text-sky-300", "border-sky-500/20", "bg-sky-500/6"],
     complete: ["COMPLETE", "text-emerald-300", "border-emerald-500/20", "bg-emerald-500/6"],
     offline: ["OFFLINE", "text-red-300", "border-red-500/20", "bg-red-500/6"],
+    receiving: ["BUSY", "text-amber-300", "border-amber-500/25", "bg-amber-500/6"],
   };
-  const [label, text, border, bg] = styles[printer.state] ?? styles.idle;
+  const [label, text, border, bg] = styles[printer.receiving ? "receiving" : printer.state] ?? styles.idle;
   const tag = tagColor(printer) && <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 rounded-t-2xl" style={{ background: tagColor(printer) }} />;
   if (compact) return (
     <button onClick={() => onSelect(printer)} data-testid="printer-card" className={`group relative min-w-0 overflow-hidden text-left rounded-2xl border ${border} ${bg} px-3 pb-2.5 pt-3 transition hover:border-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}>
@@ -361,7 +363,7 @@ function PrinterCard({ printer, onSelect, compact, readOnly }) {
       </div>
       <div className="mt-1.5 flex justify-between gap-2 text-[11px] text-slate-500">
         <span className={`truncate ${!printer.job && printer.upload ? "text-violet-300" : ""}`} title={printer.job || undefined}>{printer.job || uploadNote(printer.upload) || "No active job"}</span>
-        <span className="shrink-0 tabular-nums">{printer.state === "printing" || printer.state === "paused" ? `${printer.progress}% · ${printer.eta}` : printer.weakLink ? "Weak connection" : ""}</span>
+        <span className="shrink-0 tabular-nums">{printer.state === "printing" || printer.state === "paused" ? `${printer.progress}% · ${printer.eta}` : printer.receiving ? "Receiving a file" : printer.weakLink ? "Weak connection" : ""}</span>
       </div>
     </button>
   );
@@ -1177,7 +1179,8 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
   const connection = (
     <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
-        <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : printer.weakLink ? "Connected, but weak" : "Connected"}</div>
+        <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : printer.receiving ? "Busy receiving a file" : printer.weakLink ? "Connected, but weak" : "Connected"}</div>
+        {printer.receiving && <div className="mt-2 text-xs text-amber-200/90">{printer.name} is too busy taking in the file to answer, so this shows its last reading. It answers again once the file is in.</div>}
         {printer.weakLink && <div className="mt-2 text-xs text-amber-200/90">{printer.name} often answers slowly or drops out, so files take longer to send and may time out. A stronger Wi-Fi signal (the router closer, or a cable if it has a network port) fixes it.</div>}
         {printer.firmware && <div className="mt-3 text-xs text-slate-600">Firmware {printer.firmware}</div>}
         {printer.state === "offline" && printer.error && <div className="mt-3 break-words text-xs text-red-300/80">{printer.error}</div>}

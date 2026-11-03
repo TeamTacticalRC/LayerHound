@@ -314,14 +314,17 @@ def test_upload_progress_and_weak_connection(browser, base_url, admin_state):
         page.wait_for_timeout(100)
     held[0].fulfill(json={"status": "accepted", "name": "big.gcode"})   # the board has it and carries on by itself
     progress["upload"] = {**progress["upload"], "sent": 900, "phase": "sending"}
-    fake["upload"] = {"phase": "sending", "percent": 90, "usb": False}
+    fake["upload"] = {"phase": "sending", "percent": 90, "usb": False}; fake["receiving"] = True   # too busy to answer
     page.get_by_text("Sending to Far Elegoo… 90%").wait_for()
     # The card says so too, and closed and reopened while the board is still sending: it carries on showing it
     page.keyboard.press("Escape"); page.get_by_role("dialog").wait_for(state="detached")
-    page.get_by_test_id("printer-card").get_by_text("Uploading 90%").wait_for()
+    card = page.get_by_test_id("printer-card")
+    card.get_by_text("Uploading 90%").wait_for()
+    card.get_by_text("BUSY").wait_for(); assert card.get_by_text("OFFLINE").count() == 0   # amber, not red
     page.get_by_text("Far Elegoo").first.click()
+    page.get_by_text("Busy receiving a file").wait_for()
     page.get_by_text("Sending to Far Elegoo… 90%").wait_for()
-    fake["upload"] = None
+    fake["upload"] = None; fake["receiving"] = False
     progress["upload"] = {**progress["upload"], "sent": 1000, "phase": "done", "result": {"status": "uploaded", "name": "big.gcode", "folder": ""}}
     page.get_by_text("Uploaded big.gcode to Far Elegoo.").wait_for()
     assert page.get_by_test_id("upload-progress").count() == 0 and cleared   # shown, so the board forgets it

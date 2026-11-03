@@ -1094,6 +1094,7 @@ function UploadProgress({ printer, browser, sending }) {
   const pct = sending?.total ? sending.sent / sending.total : browser;
   const text = !sending ? `Uploading… ${Math.round(browser * 100)}%`
     : sending.phase === "starting" ? "Waiting for the printer to start…"
+    : sending.phase === "checking" && sending.usb ? `Saving to the USB drive. ${printer.name} is slow at this, so it can take a few minutes…`
     : sending.phase === "checking" ? `${printer.name} is slow to answer. Checking the file arrived…`
     : sending.phase === "retrying" ? `The connection to ${printer.name} dropped. Trying again… ${Math.round(pct * 100)}%`
     : `Sending to ${printer.name}… ${Math.round(pct * 100)}%`;

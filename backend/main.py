@@ -442,10 +442,13 @@ def deliver(r,name,src,start,job,who,folder=''):
    problems.record('control',f"{r['name']}: sending {name} failed",f'{got} sent, {UPLOAD_TRIES} tries. {type(e).__name__}: {e}')
    raise HTTPException(502,msg)
 
-def arrived(r,name,size):
- # After a slow answer to an upload: is the file there, whole? (Checked a few times; the printer
- # may still be saving it.)
- end=time.time()+ARRIVAL_WAIT
+# Copying onto a USB drive is slow on some printers (the Elegoo Neptune 4 took minutes for 9.5 MB):
+# give it at least this long, plus time for the file's size
+USB_ARRIVAL_WAIT=180; USB_BYTES_PER_SECOND=50_000
+def arrived(r,name,size,wait=None):
+ # After a slow answer to an upload: is the file there, whole? (Checked every few seconds; the
+ # printer may still be saving it.)
+ end=time.time()+(ARRIVAL_WAIT if wait is None else wait)
  while True:
   try:
    if any(f['path']==name and (not f.get('size') or f['size']==size) for f in printer_files(r)): return True
@@ -643,8 +646,8 @@ async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear
   path=f'{folder}/{name}' if folder else name
   # Saving onto a USB drive: the Elegoo reports an error after copying it, or answers too late to wait for
   if outcome=='check' or (outcome=='slow' and folder):
-   job['phase']='checking'
-   if not await run_in_threadpool(arrived,r,path,size):
+   job.update(phase='checking',usb=True)
+   if not await run_in_threadpool(arrived,r,path,size,max(USB_ARRIVAL_WAIT,size/USB_BYTES_PER_SECOND)):
     problems.record('control',f"{r['name']}: couldn't save {name} to its USB drive")
     raise HTTPException(502,f"{r['name']} couldn't save the file to its USB drive. Try saving it on the printer instead.")
    print(f"[control] {who}: {name} is on {r['name']}'s USB drive despite the error",flush=True)

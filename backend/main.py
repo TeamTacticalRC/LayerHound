@@ -422,6 +422,11 @@ def deliver(r,name,src,start,job,who,folder=''):
   except Exception as e:
    if src.failed: raise HTTPException(400,'The upload from this device stopped before the whole file arrived. Try again.')
    if body_done[0] and slow_reply(e): return 'slow'   # all of it went out; the answer is just slow
+   # Some printers (the Elegoo Neptune 4) copy a file onto their USB drive and then report an error
+   # anyway ("Unable to save file", from a detail USB drives don't support): check if it's there
+   if folder and body_done[0] and getattr(e,'code',None)==500:
+    print(f"[control] {who}: {r['name']} reported an error saving {name} to its USB drive; checking whether it's there",flush=True)
+    return 'check'
    said=printer_said(e)
    if said or isinstance(e,urllib.error.HTTPError):
     print(f"[control] {who}: {r['name']} refused {name}: {said or e}",flush=True)
@@ -635,9 +640,27 @@ async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear
    except Exception: pass
    raise
   outcome=await sender
+  path=f'{folder}/{name}' if folder else name
+  # Saving onto a USB drive: the Elegoo reports an error after copying it, or answers too late to wait for
+  if outcome=='check' or (outcome=='slow' and folder):
+   job['phase']='checking'
+   if not await run_in_threadpool(arrived,r,path,size):
+    problems.record('control',f"{r['name']}: couldn't save {name} to its USB drive")
+    raise HTTPException(502,f"{r['name']} couldn't save the file to its USB drive. Try saving it on the printer instead.")
+   print(f"[control] {who}: {name} is on {r['name']}'s USB drive despite the error",flush=True)
+   if not start: return {'status':'uploaded','name':name,'folder':folder}
+   # It didn't start it (it thought saving failed), so start it now, unless it got there by itself
+   said=None
+   if (await run_in_threadpool(confirm_read,r))['state']=='printing': return await confirm_started(r,name,who)
+   try: await run_in_threadpool(post_json,clean_url(r['base_url'])+'/printer/print/start?filename='+urllib.parse.quote(path))
+   except Exception as e:
+    said=printer_said(e)
+    if not (slow_reply(e) or said): raise HTTPException(502,control_error(e))
+   job['phase']='starting'
+   return await confirm_started(r,name,who,said)
   if outcome=='slow' and not start:
    job['phase']='checking'
-   if not await run_in_threadpool(arrived,r,f'{folder}/{name}' if folder else name,size):
+   if not await run_in_threadpool(arrived,r,path,size):
     problems.record('control',f"{r['name']}: {name} was sent, but it didn't show up in its files")
     raise HTTPException(502,f"The whole file was sent, but {r['name']} hasn't confirmed it arrived. Check its file list in a minute.")
   print(f"[control] {who}: sent {name} ({size} bytes) to {r['name']}{f' ({folder})' if folder else ''}{', start' if start else ''}{' (slow answer)' if outcome=='slow' else ''}",flush=True)

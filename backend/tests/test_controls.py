@@ -557,3 +557,53 @@ def test_storage_list_survives_a_printer_that_cant_say(client, starting, monkeyp
     def fail(u, headers=None, timeout=None): raise TimeoutError("timed out")
     monkeypatch.setattr(main, "get_json", fail)
     assert client.get(f"/api/printers/{ids['moonraker']}/storage").json()["storage"] == [{"id": "", "label": "On the printer"}]
+
+
+def test_usb_upload_the_elegoo_says_failed_but_saved(client, starting, monkeypatch):
+    # The Elegoo copies the file onto its USB drive, then answers 500 "Unable to save file" anyway
+    import io
+    ids, states, sent, uploads = starting
+    pid = ids["moonraker"]; data = b"G1\n" * 100
+    def elegoo(url, fields, name, src, headers=None, progress=None):
+        progress(len(src.read_all()), True)
+        raise urllib.error.HTTPError(url, 500, "Internal Server Error", {}, io.BytesIO(b'{"error": {"message": "Internal Server Error"}}'))
+    monkeypatch.setattr(main, "send_file", elegoo)
+    on_drive = [{"path": "sda1/cube.gcode", "name": "cube.gcode", "size": len(data)}]
+    monkeypatch.setattr(main, "printer_files", lambda r: on_drive)
+    assert upload(client, pid, data=data, folder="sda1").json() == {"status": "uploaded", "name": "cube.gcode", "folder": "sda1"}
+    # Asked to start: LayerHound starts it, since the printer thought saving failed
+    started = []
+    def post(u, body=None, headers=None):
+        started.append(u); states[pid] = "printing"; return 204
+    monkeypatch.setattr(main, "post_json", post)
+    r = upload(client, pid, data=data, folder="sda1", start=True, bed_clear=True).json()
+    assert r["status"] == "done" and started == ["http://127.0.0.1:9/printer/print/start?filename=sda1/cube.gcode"]
+    # Really not there (or cut short): say so
+    states[pid] = "idle"; monkeypatch.setattr(main, "ARRIVAL_WAIT", 0)
+    on_drive[0]["size"] = 7
+    r = upload(client, pid, data=data, folder="sda1")
+    assert r.status_code == 502 and "couldn't save the file to its USB drive" in r.json()["detail"]
+    # Saving on the printer itself: a 500 is still an error
+    r = upload(client, pid, data=data)
+    assert r.status_code == 502
+
+
+def test_usb_upload_slow_answer(client, starting, monkeypatch):
+    # The Elegoo took 91 s to answer after copying onto its USB drive: check, and start only if it didn't
+    ids, states, sent, uploads = starting
+    pid = ids["moonraker"]; data = b"G1\n" * 50
+    def slow(url, fields, name, src, headers=None, progress=None):
+        progress(len(src.read_all()), True)
+        if fields.get("print") == "true" and slow.starts: states[pid] = "printing"
+        raise TimeoutError("timed out")
+    slow.starts = False
+    monkeypatch.setattr(main, "send_file", slow)
+    monkeypatch.setattr(main, "printer_files", lambda r: [{"path": "sda1/cube.gcode", "name": "cube.gcode", "size": len(data)}])
+    monkeypatch.setattr(main, "confirm_read", lambda r: {"id": r["id"], "name": r["name"], "state": states[r["id"]]})
+    started = []
+    def post(u, body=None, headers=None): started.append(u); states[pid] = "printing"; return 204
+    monkeypatch.setattr(main, "post_json", post)
+    assert upload(client, pid, data=data, folder="sda1", start=True, bed_clear=True).json()["status"] == "done" and len(started) == 1
+    # It started by itself after all: not started twice
+    states[pid] = "idle"; slow.starts = True; started.clear()
+    assert upload(client, pid, data=data, folder="sda1", start=True, bed_clear=True).json()["status"] == "done" and started == []

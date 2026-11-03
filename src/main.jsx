@@ -1022,7 +1022,7 @@ function StartPrint({ printer, onDone }) {
             <input className={`${inputClass} min-w-0 flex-1`} placeholder="Search files" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search the printer's files" />
             <Segmented label="Sort files" value={sort} onChange={setSort} options={[["newest", "Newest"], ["name", "A–Z"]]} />
           </div>
-          <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/8" role="radiogroup" aria-label="Files on the printer">
+          <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-white/8" role="radiogroup" aria-label="Files on the printer">
             {listError ? (
               <div className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm text-red-300">
                 <span>Couldn't load the printer's files: {listError}</span>
@@ -1042,7 +1042,7 @@ function StartPrint({ printer, onDone }) {
               ) : (
                 <div key={f.path} className={`flex items-stretch border-b border-white/6 last:border-0 ${chosen === f.path ? "bg-violet-500/12" : "hover:bg-white/[.03]"}`}>
                   <button type="button" role="radio" aria-checked={chosen === f.path} onClick={() => setChosen(f.path)} className="min-w-0 flex-1 px-3 py-2 text-left">
-                    <div className="truncate text-sm text-white">{f.name}</div>
+                    <div className="break-words text-sm text-white">{f.name}</div>
                     <div className="truncate text-[11px] text-slate-500">{[f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : null, f.size ? formatBytes(f.size) : null, f.modified ? fmtDate(f.modified * 1000, { dateStyle: "medium" }) : null].filter(Boolean).join(" · ")}</div>
                   </button>
                   <button type="button" onClick={() => setDeleting({ path: f.path })} aria-label={`Delete ${f.name} from the printer`} title="Delete from the printer"
@@ -1122,17 +1122,58 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
     catch (e) { setError(e.message); setRemoving(false); setConfirmRemove(false); }
   };
 
-  return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l border-white/10 bg-[var(--lh-sunken)] p-6 shadow-2xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-widest text-violet-400">Printer detail</div>
-          <h2 className="mt-1 flex items-center gap-2 text-xl font-semibold text-white"><ColorDot printer={printer} size={12} /> {printer.name}</h2>
-          {printer.address && <div className="mt-1 text-xs text-slate-500">{printer.address}</div>}
-        </div>
-        <button onClick={close} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Close"><X size={20} /></button>
+  const showStart = !isDemo && isAdmin() && (printer.state === "idle" || printer.state === "complete" || started) && printer.type !== "bambu";
+  const camera = printer.hasCamera && !isDemo && <CameraView printer={printer} />;
+  const connection = (
+    <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
+        <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
+        <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : printer.weakLink ? "Connected, but weak" : "Connected"}</div>
+        {printer.weakLink && <div className="mt-2 text-xs text-amber-200/90">{printer.name} often answers slowly or drops out, so files take longer to send and may time out. A stronger Wi-Fi signal (the router closer, or a cable if it has a network port) fixes it.</div>}
+        {printer.firmware && <div className="mt-3 text-xs text-slate-600">Firmware {printer.firmware}</div>}
+        {printer.state === "offline" && printer.error && <div className="mt-3 break-words text-xs text-red-300/80">{printer.error}</div>}
+        {printer.eta && printer.eta !== "—" && <div className="mt-3 text-xs text-slate-600">Time left {printer.eta}</div>}
       </div>
-      <div className="mt-8 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
+  );
+  const headerBtn = "flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[.03] px-2.5 py-1.5 text-sm text-slate-200 hover:bg-white/[.06] disabled:opacity-50";
+  return (
+    // A centered window (full screen on a phone): status, camera and controls on the left, starting
+    // a print and the printer's files on the right. Esc, the X or a click outside closes it.
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 sm:items-center sm:p-6" onClick={close}>
+      <div role="dialog" aria-modal="true" aria-labelledby="printer-detail-title" data-testid="printer-detail" onClick={e => e.stopPropagation()}
+        className="flex max-h-full w-full flex-col overflow-hidden bg-[var(--lh-sunken)] shadow-2xl sm:max-h-[90vh] sm:max-w-5xl sm:rounded-2xl sm:border sm:border-white/10">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-b border-white/8 px-6 py-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs uppercase tracking-widest text-violet-400">Printer detail</div>
+          <h2 id="printer-detail-title" className="mt-1 flex items-center gap-2 truncate text-xl font-semibold text-white"><ColorDot printer={printer} size={12} /> {printer.name}</h2>
+          {printer.address && <div className="mt-0.5 truncate text-xs text-slate-500">{printer.address}</div>}
+        </div>
+        {/* On a phone the buttons get their own row under the name; on a computer they sit beside it */}
+        {!isDemo && <div className="order-last flex w-full items-center gap-1.5 sm:order-none sm:w-auto">
+          <button data-admin onClick={() => onEdit(printer)} title="Edit printer" aria-label="Edit printer" className={headerBtn}><Pencil size={15} /> Edit</button>
+          <button data-admin onClick={runTest} disabled={testing} title="Test connection" aria-label="Test connection" className={headerBtn}>{testing ? <Loader2 size={15} className="animate-spin" /> : <Plug size={15} />} {testing ? "Testing…" : "Test connection"}</button>
+          <button data-admin onClick={() => setConfirmRemove(true)} title="Remove printer" aria-label="Remove printer" className={`${headerBtn} hover:border-red-500/30 hover:text-red-300`}><Trash2 size={15} /> Remove</button>
+        </div>}
+        <button onClick={close} className="shrink-0 rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Close"><X size={20} /></button>
+      </div>
+      {testResult && (
+        <div className={`shrink-0 border-b px-6 py-2.5 text-xs ${testResult.ok ? "border-emerald-500/20 bg-emerald-500/6 text-emerald-300" : "border-red-500/20 bg-red-500/6 text-red-300"}`} role="status">{testResult.message}</div>
+      )}
+      {confirmRemove && (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-red-500/20 bg-red-500/6 px-6 py-3">
+          <div className="text-sm text-red-200">Remove {printer.name} from the dashboard? Its print history stays.</div>
+          <div className="flex gap-2">
+            <button onClick={remove} disabled={removing} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-sm font-medium text-[#fff] hover:bg-red-500 disabled:opacity-50">{removing ? "Removing…" : "Remove printer"}</button>
+            <button onClick={() => setConfirmRemove(false)} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">Keep it</button>
+          </div>
+        </div>
+      )}
+      {error && <div className="shrink-0 border-b border-red-500/20 bg-red-500/6 px-6 py-2.5 text-xs text-red-300">{error}</div>}
+      <div className="overflow-y-auto p-4 sm:p-6">
+      {isDemo && <p className="mb-4 text-xs text-slate-600">This is a demo printer. Add a real printer from the Print Farm page to test or remove it.</p>}
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+      {/* Left: what it's doing. Right: starting a print, or (while it's busy) the camera and connection */}
+      <div className="min-w-0 [&>*:first-child]:mt-0">
+      <div className="rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
         <div className="flex items-start gap-4">
           <PartThumb printer={printer} size={96} className="p-1" />
           <div className="min-w-0">
@@ -1149,46 +1190,15 @@ function DetailPanel({ printer, close, onRemoved, onEdit, isDemo }) {
         </div>
       </div>
       {!isDemo && isAdmin() && (printer.state === "printing" || printer.state === "paused") && <PrintControls printer={printer} onDone={onRemoved} />}
-      {printer.hasCamera && !isDemo && <CameraView printer={printer} />}
-      {!isDemo && isAdmin() && (printer.state === "idle" || printer.state === "complete" || started) && printer.type !== "bambu" && <StartPrint printer={printer} onDone={() => { setStarted(true); onRemoved(); }} />}
-      <div className="mt-4 rounded-2xl border border-white/8 bg-[var(--lh-card)] p-5">
-        <div className="text-xs uppercase tracking-wider text-slate-600">Connection</div>
-        <div className="mt-3 flex items-center gap-2 text-sm text-slate-300"><StatusDot good={printer.state !== "offline"} /> {printer.state === "offline" ? "Offline" : printer.weakLink ? "Connected, but weak" : "Connected"}</div>
-        {printer.weakLink && <div className="mt-2 text-xs text-amber-200/90">{printer.name} often answers slowly or drops out, so files take longer to send and may time out. A stronger Wi-Fi signal (the router closer, or a cable if it has a network port) fixes it.</div>}
-        {printer.firmware && <div className="mt-3 text-xs text-slate-600">Firmware {printer.firmware}</div>}
-        {printer.state === "offline" && printer.error && <div className="mt-3 break-words text-xs text-red-300/80">{printer.error}</div>}
-        {printer.eta && printer.eta !== "—" && <div className="mt-3 text-xs text-slate-600">Time left {printer.eta}</div>}
+      {showStart && camera}
+      {showStart && connection}
       </div>
-
-      {isDemo ? (
-        <p className="mt-4 text-xs text-slate-600">This is a demo printer. Add a real printer from the Print Farm page to test or remove it.</p>
-      ) : (
-        <div className="mt-4 space-y-3">
-          <button data-admin onClick={() => onEdit(printer)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06]">
-            <Pencil size={16} /> Edit printer
-          </button>
-          <button data-admin onClick={runTest} disabled={testing} className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/[.06] disabled:opacity-50">
-            {testing ? <Loader2 size={16} className="animate-spin" /> : <Plug size={16} />} {testing ? "Testing…" : "Test connection"}
-          </button>
-          {testResult && (
-            <div className={`rounded-xl border px-4 py-3 text-xs ${testResult.ok ? "border-emerald-500/20 bg-emerald-500/6 text-emerald-300" : "border-red-500/20 bg-red-500/6 text-red-300"}`}>{testResult.message}</div>
-          )}
-          {confirmRemove ? (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/6 p-4">
-              <div className="text-sm text-red-200">Remove {printer.name} from the dashboard?</div>
-              <div className="mt-3 flex gap-2">
-                <button onClick={remove} disabled={removing} className="flex-1 rounded-lg bg-red-500/80 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-red-500 disabled:opacity-50">{removing ? "Removing…" : "Remove printer"}</button>
-                <button onClick={() => setConfirmRemove(false)} className="flex-1 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/5">Keep it</button>
-              </div>
-            </div>
-          ) : (
-            <button data-admin onClick={() => setConfirmRemove(true)} className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm text-slate-500 hover:bg-red-500/6 hover:text-red-300">
-              <Trash2 size={16} /> Remove printer
-            </button>
-          )}
-          {error && <div className="text-xs text-red-300">{error}</div>}
-        </div>
-      )}
+      <div className="min-w-0 [&>*:first-child]:mt-0">
+      {showStart ? <StartPrint printer={printer} onDone={() => { setStarted(true); onRemoved(); }} /> : <>{camera}{connection}</>}
+      </div>
+      </div>
+      </div>
+      </div>
     </div>
   );
 }

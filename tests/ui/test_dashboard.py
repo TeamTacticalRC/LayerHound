@@ -484,3 +484,18 @@ def test_delete_a_file_on_the_printer(browser, base_url, admin_state):
     api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
     assert not page.problems.items, page.problems.items
     page.context.close()
+
+
+def test_printer_detail_window(browser, base_url, admin_state):
+    page = signed_in_with_farm(browser, base_url)
+    for close in ("escape", "outside"):
+        page.get_by_test_id("printer-card").filter(has_text="Shelf U1").first.click()
+        dialog = page.get_by_role("dialog", name="Shelf U1")
+        dialog.wait_for()
+        box = dialog.bounding_box()
+        assert box["width"] > 900 and abs((box["x"] + box["width"] / 2) - 720) < 5   # wide, and centered
+        if close == "escape": page.keyboard.press("Escape")
+        else: page.mouse.click(20, 880)                                                # the dimmed area outside
+        dialog.wait_for(state="detached")
+    assert not page.problems.items, page.problems.items
+    page.context.close()

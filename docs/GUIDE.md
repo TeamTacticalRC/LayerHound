@@ -98,6 +98,7 @@ LayerHound **watches** your printers. Controlling them is optional and off by de
 
 **Starting a print from LayerHound (Klipper and OctoPrint).** With Printer controls on, also turn on **Also allow starting prints**. An idle or finished printer's panel then shows **Start a print**:
 - **On the printer:** the G-code files already stored on it, newest first, with a search box. Pick one.
+- **Clearing out old files:** the bin icon next to a file deletes it from the printer, after asking. It can't be undone, and the file a printer is printing can't be deleted.
 - **Upload:** send a sliced G-code file from your computer or phone, and start it right away or just store it on the printer.
 - **Big files and weak Wi-Fi:** the panel shows how far the file has got on its way to the printer. If the printer stops taking it (usually a weak Wi-Fi signal), LayerHound tries once more by itself, then tells you. A printer that keeps answering slowly shows **Weak connection** on its card: moving the router closer, or using a cable if the printer has a network port, makes uploads much faster.
 

@@ -481,3 +481,48 @@ def test_real_upload_while_the_file_arrives_and_a_real_stall(tmp_path, monkeypat
         assert main.stalled(e.value)
     finally:
         server.shutdown()
+
+
+def test_delete_a_file_on_the_printer(client, starting, monkeypatch):
+    import io
+    ids, states, sent, uploads = starting
+    deleted = []
+    def delete(u, headers=None):
+        deleted.append((u, headers))
+        if "missing" in u: raise urllib.error.HTTPError(u, 404, "Not Found", {}, io.BytesIO(b"{}"))
+        return 200
+    monkeypatch.setattr(main, "delete_request", delete)
+    url = lambda pid, path: f"/api/printers/{pid}/files?path={path}"
+    # Klipper by its path in the gcodes folder; OctoPrint with its API key
+    assert client.delete(url(ids["moonraker"], "shelf/old%20part.gcode")).json() == {"status": "deleted", "path": "shelf/old part.gcode"}
+    assert deleted[-1] == ("http://127.0.0.1:9/server/files/gcodes/shelf/old%20part.gcode", None)
+    client.delete(url(ids["octoprint"], "parts/a.gcode"))
+    assert deleted[-1] == ("http://127.0.0.1:9/api/files/local/parts/a.gcode", {"X-Api-Key": "OCTOKEY"})
+    # Only G-code files, nothing outside the printer's file folder
+    for bad in ("notes.txt", "../secret.gcode", "%2Fetc%2Fx.gcode", "a//b.gcode"):
+        assert client.delete(url(ids["moonraker"], bad)).status_code == 400, bad
+    # Gone already: said plainly
+    r = client.delete(url(ids["moonraker"], "missing.gcode"))
+    assert r.status_code == 404 and "isn't on the printer" in r.json()["detail"]
+    # Never the file it's printing
+    pid = ids["moonraker"]
+    monkeypatch.setattr(main, "snapshot", lambda r, grace=True: {"id": r["id"], "name": r["name"], "state": "printing", "job": "cube.gcode"})
+    r = client.delete(url(pid, "shelf/cube.gcode"))
+    assert r.status_code == 409 and "printing this file" in r.json()["detail"]
+    n = len(deleted)
+    assert client.delete(url(pid, "other.gcode")).status_code == 200 and len(deleted) == n + 1   # other files are fine
+    # Bambu: not supported; viewers: never
+    assert client.delete(url(ids["bambu"], "x.gcode")).status_code == 409
+    client.post("/api/auth/users", json={"username": "delviewer", "password": "del viewer 12", "role": "viewer"})
+    v = new_client(); v.post("/api/auth/login", json={"username": "delviewer", "password": "del viewer 12"})
+    assert v.delete(url(pid, "other.gcode")).status_code == 403
+
+
+def test_delete_with_a_slow_answer_checks_the_file_list(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    def slow(u, headers=None): raise TimeoutError("timed out")
+    monkeypatch.setattr(main, "delete_request", slow)
+    monkeypatch.setattr(main, "printer_files", lambda r: [{"path": "keep.gcode"}])
+    assert client.delete(f"/api/printers/{ids['moonraker']}/files?path=gone.gcode").json()["status"] == "deleted"
+    r = client.delete(f"/api/printers/{ids['moonraker']}/files?path=keep.gcode")
+    assert r.status_code == 502

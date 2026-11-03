@@ -120,7 +120,7 @@ def test_addons_page_hidden_until_the_light_is_released(browser, base_url):
     page.context.close()
 
 
-def test_print_controls(browser, base_url):
+def test_print_controls(browser, base_url, admin_state):
     # A printer that reports it's printing (faked in the browser), and a faked "sent" from the printer
     page = new_page(browser, base_url)
     assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
@@ -147,7 +147,7 @@ def test_print_controls(browser, base_url):
     page.context.close()
 
 
-def test_start_a_print(browser, base_url):
+def test_start_a_print(browser, base_url, admin_state):
     # An idle printer with two files on it (faked in the browser), and a faked confirmed start
     page = new_page(browser, base_url)
     assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
@@ -453,4 +453,34 @@ def test_confetti_when_a_print_finishes(browser, base_url, admin_state):
     farm[0].update(state="complete", progress=100); page.wait_for_timeout(11000)
     assert page.evaluate("window.__lhConfetti") == 1
     page.evaluate("localStorage.removeItem('lh-confetti')")
+    page.context.close()
+
+
+def test_delete_a_file_on_the_printer(browser, base_url, admin_state):
+    import json
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    fake = {"id": 4246, "name": "Shelf Klipper", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "idle",
+            "progress": 0, "nozzle": 25, "bed": 24, "base_url": "http://127.0.0.1:9"}
+    files = [{"path": "old_test.gcode", "name": "old_test.gcode", "size": 1234, "modified": 1750000000},
+             {"path": "keep.gcode", "name": "keep.gcode", "size": 99, "modified": 1740000000}]
+    deleted = []
+    page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
+    page.route("**/api/printers/4246/files", lambda r: r.fulfill(json={"files": files}))
+    page.route("**/api/printers/4246/files?*", lambda r: (deleted.append(r.request.url), r.fulfill(json={"status": "deleted", "path": "old_test.gcode"})))
+    assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
+    page.reload(); open_page(page, "Print Farm"); page.get_by_text("Shelf Klipper").first.click()
+    page.get_by_role("button", name="Delete old_test.gcode from the printer").click()
+    # It asks first; "Keep it" changes nothing
+    confirm = page.get_by_test_id("delete-file")
+    confirm.get_by_text("This can't be undone.", exact=False).wait_for()
+    confirm.get_by_role("button", name="Keep it").click()
+    assert deleted == [] and page.get_by_role("radio", name="old_test.gcode").count() == 1
+    page.get_by_role("button", name="Delete old_test.gcode from the printer").click()
+    page.get_by_test_id("delete-file").get_by_role("button", name="Delete file").click()
+    page.get_by_role("radio", name="old_test.gcode").wait_for(state="detached")
+    assert len(deleted) == 1 and "path=old_test.gcode" in deleted[0]
+    assert page.get_by_role("radio", name="keep.gcode").count() == 1
+    api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
+    assert not page.problems.items, page.problems.items
     page.context.close()

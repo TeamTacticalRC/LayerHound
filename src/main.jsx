@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile, getPrintProgress } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile, getPrintProgress, deletePrinterFile } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -963,7 +963,17 @@ function StartPrint({ printer, onDone }) {
   const [sending, setSending] = useState(null);   // the board's progress sending an upload on to the printer
   const [msg, setMsg] = useState(null);
   const [listError, setListError] = useState("");
+  const [deleting, setDeleting] = useState(null);   // { path, busy, error }: asking before deleting a file from the printer
   const enabled = prefs.printer_controls && prefs.printer_start;
+  const removeFile = async path => {
+    setDeleting({ path, busy: true });
+    try {
+      await deletePrinterFile(printer.id, path);
+      setFiles(fs => fs?.filter(f => f.path !== path) ?? fs);
+      if (chosen === path) setChosen(null);
+      setDeleting(null);
+    } catch (e) { setDeleting({ path, error: e.message }); }
+  };
   // While uploading, follow the file on its way from the board to the printer
   const uploading = busy !== null && source === "upload";
   useEffect(() => {
@@ -1020,12 +1030,24 @@ function StartPrint({ printer, onDone }) {
               </div>
             ) : files === null ? <div className="flex items-center gap-2 p-3 text-sm text-slate-500"><Loader2 size={14} className="animate-spin" /> Loading files… (some printers take a few seconds)</div>
               : !shown.length ? <div className="p-3 text-sm text-slate-500">{files.length ? "No files match." : "No G-code files on the printer."}</div>
-              : shown.map(f => (
-                <button key={f.path} type="button" role="radio" aria-checked={chosen === f.path} onClick={() => setChosen(f.path)}
-                  className={`block w-full border-b border-white/6 px-3 py-2 text-left last:border-0 ${chosen === f.path ? "bg-violet-500/12" : "hover:bg-white/[.03]"}`}>
-                  <div className="truncate text-sm text-white">{f.name}</div>
-                  <div className="truncate text-[11px] text-slate-500">{[f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : null, f.size ? formatBytes(f.size) : null, f.modified ? fmtDate(f.modified * 1000, { dateStyle: "medium" }) : null].filter(Boolean).join(" · ")}</div>
-                </button>
+              : shown.map(f => deleting?.path === f.path ? (
+                <div key={f.path} className="border-b border-red-500/20 bg-red-500/6 px-3 py-2 last:border-0" data-testid="delete-file">
+                  <div className="text-sm text-red-200">Delete <span className="font-medium">{f.name}</span> from {printer.name}? This can't be undone.</div>
+                  {deleting.error && <div className="mt-1 text-xs text-red-300">{deleting.error}</div>}
+                  <div className="mt-2 flex gap-2">
+                    <button type="button" onClick={() => removeFile(f.path)} disabled={deleting.busy} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs font-medium text-[#fff] hover:bg-red-500 disabled:opacity-50">{deleting.busy ? "Deleting…" : "Delete file"}</button>
+                    <button type="button" onClick={() => setDeleting(null)} disabled={deleting.busy} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5">Keep it</button>
+                  </div>
+                </div>
+              ) : (
+                <div key={f.path} className={`flex items-stretch border-b border-white/6 last:border-0 ${chosen === f.path ? "bg-violet-500/12" : "hover:bg-white/[.03]"}`}>
+                  <button type="button" role="radio" aria-checked={chosen === f.path} onClick={() => setChosen(f.path)} className="min-w-0 flex-1 px-3 py-2 text-left">
+                    <div className="truncate text-sm text-white">{f.name}</div>
+                    <div className="truncate text-[11px] text-slate-500">{[f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : null, f.size ? formatBytes(f.size) : null, f.modified ? fmtDate(f.modified * 1000, { dateStyle: "medium" }) : null].filter(Boolean).join(" · ")}</div>
+                  </button>
+                  <button type="button" onClick={() => setDeleting({ path: f.path })} aria-label={`Delete ${f.name} from the printer`} title="Delete from the printer"
+                    className="shrink-0 px-3 text-slate-600 hover:text-red-300"><Trash2 size={15} /></button>
+                </div>
               ))}
           </div>
         </div>

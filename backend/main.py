@@ -487,6 +487,41 @@ def list_printer_files(pid:int,request:Request):
   problems.record('control',f"{r['name']}: couldn't list its files: {control_error(e)}",f'{type(e).__name__}: {e}')
   raise HTTPException(502,control_error(e))
 
+def delete_request(u,headers=None):
+ r=urllib.request.Request(u,method='DELETE',headers=headers or {})
+ with urllib.request.urlopen(r,timeout=CONTROL_TIMEOUT) as x: return x.status
+
+@app.delete('/api/printers/{pid}/files')
+def delete_printer_file(pid:int,path:str,request:Request):
+ # Delete a file stored on the printer (the "On the printer" list). Admins only, with the same
+ # switches as sending files; the dashboard asks first. Never the file it's printing right now.
+ r=start_printer_row(pid,request)
+ parts=path.split('/')
+ if not path.lower().endswith(PRINT_EXT) or path.startswith('/') or '..' in parts or '' in parts: raise HTTPException(400,'Choose a G-code file from the printer')
+ now_state=snapshot(r,False)
+ if now_state['state'] in ('printing','paused') and path.rsplit('/',1)[-1]==(now_state.get('job') or ''):
+  raise HTTPException(409,f"{r['name']} is {now_state['state']} this file. Cancel the print first, or delete it once it's finished.")
+ base=clean_url(r['base_url']); who=(getattr(request.state,'who',None) or {}).get('username') or '?'
+ try:
+  if r['printer_type']=='moonraker': delete_request(base+'/server/files/gcodes/'+urllib.parse.quote(path))
+  else:
+   key=vault.decrypt(r['api_key'])
+   delete_request(base+'/api/files/local/'+urllib.parse.quote(path),{'X-Api-Key':key} if key else {})
+ except Exception as e:
+  if getattr(e,'code',None)==404: raise HTTPException(404,"That file isn't on the printer any more.")
+  said=printer_said(e)
+  # A slow answer: whether it's gone shows in the printer's file list
+  if slow_reply(e):
+   try:
+    if not any(f['path']==path for f in printer_files(r)):
+     print(f"[control] {who}: deleted {path} from {r['name']} (slow answer)",flush=True); return {'status':'deleted','path':path}
+   except Exception: pass
+  print(f"[control] {who}: deleting {path} from {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+  problems.record('control',f"{r['name']}: deleting a file failed: {said or control_error(e)}",f'{type(e).__name__}: {e}')
+  raise HTTPException(502,f"{r['name']} answered: {said}" if said else control_error(e))
+ print(f"[control] {who}: deleted {path} from {r['name']}",flush=True)
+ return {'status':'deleted','path':path}
+
 async def confirm_started(r,name,who,said=None):
  # The printer must report printing; never say "Printing" on hope alone
  end=time.time()+START_WAIT; after=last=None

@@ -526,3 +526,34 @@ def test_delete_with_a_slow_answer_checks_the_file_list(client, starting, monkey
     assert client.delete(f"/api/printers/{ids['moonraker']}/files?path=gone.gcode").json()["status"] == "deleted"
     r = client.delete(f"/api/printers/{ids['moonraker']}/files?path=keep.gcode")
     assert r.status_code == 502
+
+
+def test_usb_drive_files_and_uploads(client, starting, monkeypatch):
+    # An Elegoo shows its USB drive as the "sda1" folder; files there are labeled, and uploads can go there
+    ids, states, sent, uploads = starting
+    pid = ids["moonraker"]
+    def get_json(u, headers=None, timeout=None):
+        if "/server/files/directory" in u: return {"result": {"dirs": [{"dirname": "sda1"}, {"dirname": "shelf"}], "files": []}}
+        return {"result": [{"path": "sda1/hauler.gcode", "modified": 2, "size": 5}, {"path": "mailers.gcode", "modified": 1, "size": 9},
+                           {"path": "shelf/part.gcode", "modified": 0, "size": 1}]}
+    monkeypatch.setattr(main, "get_json", get_json)
+    files = {f["path"]: f["storage"] for f in client.get(f"/api/printers/{pid}/files").json()["files"]}
+    assert files == {"sda1/hauler.gcode": "usb", "mailers.gcode": "printer", "shelf/part.gcode": "printer"}
+    assert client.get(f"/api/printers/{pid}/storage").json()["storage"] == [{"id": "", "label": "On the printer"}, {"id": "sda1", "label": "USB drive"}]
+    # OctoPrint: only its own storage
+    assert client.get(f"/api/printers/{ids['octoprint']}/storage").json()["storage"] == [{"id": "", "label": "On the printer"}]
+    # Upload to the USB drive: Moonraker's "path" field
+    r = upload(client, pid, folder="sda1").json()
+    assert r == {"status": "uploaded", "name": "cube.gcode", "folder": "sda1"} and uploads[-1][1] == {"root": "gcodes", "path": "sda1", "print": "false"}
+    assert upload(client, pid).json()["folder"] == "" and "path" not in uploads[-1][1]
+    # Only a USB drive folder, and only on Klipper
+    for bad in ("shelf", "../x", "sda1/../.."):
+        assert upload(client, pid, folder=bad).status_code == 400, bad
+    assert upload(client, ids["octoprint"], folder="sda1").status_code == 400
+
+
+def test_storage_list_survives_a_printer_that_cant_say(client, starting, monkeypatch):
+    ids, states, sent, uploads = starting
+    def fail(u, headers=None, timeout=None): raise TimeoutError("timed out")
+    monkeypatch.setattr(main, "get_json", fail)
+    assert client.get(f"/api/printers/{ids['moonraker']}/storage").json()["storage"] == [{"id": "", "label": "On the printer"}]

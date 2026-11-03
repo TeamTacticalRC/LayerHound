@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile, getPrintProgress, deletePrinterFile } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile, getPrintProgress, deletePrinterFile, getPrinterStorage } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -958,6 +958,8 @@ function StartPrint({ printer, onDone }) {
   const [chosen, setChosen] = useState(null);
   const [upload, setUpload] = useState(null);
   const [startNow, setStartNow] = useState(true);
+  const [storage, setStorage] = useState(null);   // where an upload can go: the printer itself, plus any USB drive
+  const [saveTo, setSaveTo] = useState("");
   const [clear, setClear] = useState(false);
   const [busy, setBusy] = useState(null);   // null | {progress} (uploading) | "starting"
   const [sending, setSending] = useState(null);   // the board's progress sending an upload on to the printer
@@ -995,6 +997,10 @@ function StartPrint({ printer, onDone }) {
   const starting = source === "printer" || startNow;
   const ready = (source === "printer" ? !!chosen : !!upload) && (!starting || clear) && !busy;
   // Newest first is the printer's own order; A–Z sorts by file name (numbers in order: 2 before 10)
+  useEffect(() => { if (enabled && source === "upload" && storage === null) getPrinterStorage(printer.id).then(r => setStorage(r.storage)).catch(() => setStorage([])); }, [enabled, source, storage, printer.id]);
+  // Say where each file is when the printer has a USB drive ("sda1" on an Elegoo means its USB drive)
+  const hasUsb = (files ?? []).some(f => f.storage === "usb");
+  const where = f => f.storage === "usb" ? "USB drive" : f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : hasUsb ? "On the printer" : null;
   const shown = (files ?? []).filter(f => f.path.toLowerCase().includes(search.toLowerCase()))
     .sort(sort === "name" ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) : (a, b) => (b.modified ?? 0) - (a.modified ?? 0));
   const go = async () => {
@@ -1002,8 +1008,8 @@ function StartPrint({ printer, onDone }) {
     try {
       let r;
       if (source === "printer") { setBusy("starting"); r = await startPrinterFile(printer.id, chosen); }
-      else { setBusy({ progress: 0 }); r = await sendPrintFile(printer.id, upload, startNow, p => setBusy(p < 1 ? { progress: p } : "starting")); }
-      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: (r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}.` : `Printing ${r.name}.`) + (r.note ? ` The printer also reported: ${r.note}` : "") });
+      else { setBusy({ progress: 0 }); r = await sendPrintFile(printer.id, upload, startNow, p => setBusy(p < 1 ? { progress: p } : "starting"), saveTo); }
+      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: (r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}${r.folder ? "'s USB drive" : ""}.` : `Printing ${r.name}.`) + (r.note ? ` The printer also reported: ${r.note}` : "") });
       setClear(false); onDone();
       if (r.status === "uploaded") { setUpload(null); setFiles(null); setListError(""); }
     } catch (e) { setMsg({ ok: false, text: e.message }); }
@@ -1043,7 +1049,7 @@ function StartPrint({ printer, onDone }) {
                 <div key={f.path} className={`flex items-stretch border-b border-white/6 last:border-0 ${chosen === f.path ? "bg-violet-500/12" : "hover:bg-white/[.03]"}`}>
                   <button type="button" role="radio" aria-checked={chosen === f.path} onClick={() => setChosen(f.path)} className="min-w-0 flex-1 px-3 py-2 text-left">
                     <div className="break-words text-sm text-white">{f.name}</div>
-                    <div className="truncate text-[11px] text-slate-500">{[f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : null, f.size ? formatBytes(f.size) : null, f.modified ? fmtDate(f.modified * 1000, { dateStyle: "medium" }) : null].filter(Boolean).join(" · ")}</div>
+                    <div className="truncate text-[11px] text-slate-500">{[where(f), f.size ? formatBytes(f.size) : null, f.modified ? fmtDate(f.modified * 1000, { dateStyle: "medium" }) : null].filter(Boolean).join(" · ")}</div>
                   </button>
                   <button type="button" onClick={() => setDeleting({ path: f.path })} aria-label={`Delete ${f.name} from the printer`} title="Delete from the printer"
                     className="shrink-0 px-3 text-slate-600 hover:text-red-300"><Trash2 size={15} /></button>
@@ -1057,6 +1063,12 @@ function StartPrint({ printer, onDone }) {
             <CloudUpload size={16} /> {upload ? `${upload.name} (${formatBytes(upload.size)})` : "Choose a sliced G-code file"}
             <input type="file" accept=".gcode,.gco,.g,.bgcode" className="sr-only" onChange={e => setUpload(e.target.files?.[0] ?? null)} aria-label="G-code file to upload" />
           </label>
+          {storage?.length > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-slate-300">Save to</span>
+              <Segmented label="Save to" value={saveTo} onChange={setSaveTo} options={storage.map(s => [s.id, s.label])} />
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={startNow} onChange={e => setStartNow(e.target.checked)} className="accent-violet-500" /> Start printing right away</label>
         </div>
       )}

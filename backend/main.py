@@ -405,11 +405,11 @@ def stalled(e):
  # The printer stopped taking the file (or never answered the connection): a weak network link
  return isinstance(e,urllib.error.URLError) and isinstance(getattr(e,'reason',None),TimeoutError) or isinstance(e,TimeoutError)
 
-def deliver(r,name,src,start,job,who):
+def deliver(r,name,src,start,job,who,folder=''):
  # Send the file to the printer, trying once more if the connection drops partway.
  # Returns 'sent', or 'slow' when the whole file went out but the printer is slow to answer.
  base=clean_url(r['base_url'])
- if r['printer_type']=='moonraker': url,fields,headers=base+'/server/files/upload',{'root':'gcodes','print':'true' if start else 'false'},None
+ if r['printer_type']=='moonraker': url,fields,headers=base+'/server/files/upload',{'root':'gcodes',**({'path':folder} if folder else {}),'print':'true' if start else 'false'},None
  else:
   key=vault.decrypt(r['api_key'])
   url,fields,headers=base+'/api/files/local',{'select':'true' if start else 'false','print':'true' if start else 'false'},({'X-Api-Key':key} if key else {})
@@ -460,8 +460,25 @@ def start_printer_row(pid,request):
 
 FILES_TIMEOUT=20   # some printers (the Elegoo Neptune 4) sometimes take several seconds to answer anything
 
+# Some Klipper printers show a plugged-in USB drive as a folder in their file list: "sda1" on an
+# Elegoo Neptune 4, "USB" or "udisk" on others. Files there are labeled "USB drive".
+USB_FOLDER=re.compile(r'^(sd[a-z]\d*|usb\w*|udisk\w*|mmcblk\d+p\d+)$',re.I)
+def file_storage(path):
+ top=path.split('/',1)[0] if '/' in path else ''
+ return 'usb' if top and USB_FOLDER.match(top) else 'printer'
+
+def printer_storage(r):
+ # Where an upload can go: the printer's own storage, plus each USB drive it has plugged in
+ # (Klipper only; an OctoPrint upload always goes to OctoPrint's own storage)
+ places=[{'id':'','label':'On the printer'}]
+ if r['printer_type']!='moonraker': return places
+ d=get_json(clean_url(r['base_url'])+'/server/files/directory?path=gcodes&extended=false',timeout=FILES_TIMEOUT).get('result',{})
+ usb=sorted(x['dirname'] for x in d.get('dirs',[]) if USB_FOLDER.match(x.get('dirname',''))) 
+ for i,n in enumerate(usb): places.append({'id':n,'label':'USB drive' if len(usb)==1 else f'USB drive ({n})'})
+ return places
+
 def printer_files(r):
- # The printer's own stored files, newest first: [{path, name, size, modified}]
+ # The printer's own stored files, newest first: [{path, name, size, modified, storage}]
  base=clean_url(r['base_url'])
  if r['printer_type']=='moonraker':
   rows=[{'path':f['path'],'size':f.get('size'),'modified':f.get('modified')} for f in get_json(base+'/server/files/list?root=gcodes',timeout=FILES_TIMEOUT).get('result',[])]
@@ -474,9 +491,18 @@ def printer_files(r):
   walk(get_json(base+'/api/files/local?recursive=true',{'X-Api-Key':key} if key else {},timeout=FILES_TIMEOUT).get('files',[]))
   rows=out
  # G-code only, and no hidden files (like the "._name.gcode" copies a Mac leaves on USB drives)
- rows=[{**x,'name':x['path'].rsplit('/',1)[-1]} for x in rows if str(x['path']).lower().endswith(PRINT_EXT)]
+ rows=[{**x,'name':x['path'].rsplit('/',1)[-1],'storage':file_storage(x['path'])} for x in rows if str(x['path']).lower().endswith(PRINT_EXT)]
  rows=[x for x in rows if not x['name'].startswith('.') and not any(part.startswith('.') for part in x['path'].split('/'))]
  return sorted(rows,key=lambda x:-(x['modified'] or 0))[:500]
+
+@app.get('/api/printers/{pid}/storage')
+def list_printer_storage(pid:int,request:Request):
+ r=start_printer_row(pid,request)
+ try: return {'storage':printer_storage(r)}
+ except Exception as e:
+  # Not knowing about USB drives is fine: uploads still go to the printer's own storage
+  print(f"[control] listing storage on {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+  return {'storage':[{'id':'','label':'On the printer'}]}
 
 @app.get('/api/printers/{pid}/files')
 def list_printer_files(pid:int,request:Request):
@@ -574,10 +600,12 @@ async def print_stored(pid:int,b:StartFile,request:Request):
  return await confirm_started(r,b.path.rsplit('/',1)[-1],who,said)
 
 @app.put('/api/printers/{pid}/print')
-async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear:bool=False):
- # Upload a file to the printer (raw body), passing it on as it arrives, and start it if asked
+async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear:bool=False,folder:str=''):
+ # Upload a file to the printer (raw body), passing it on as it arrives, and start it if asked.
+ # folder: a USB drive's folder from /storage ("" = the printer's own storage).
  r=start_printer_row(pid,request)
  name=print_name(name)
+ if folder and (r['printer_type']!='moonraker' or not USB_FOLDER.match(folder)): raise HTTPException(400,'Choose where to save the file: on the printer or its USB drive')
  if start and not bed_clear: raise HTTPException(400,'Confirm that the bed is clear before starting a print')
  size=int(request.headers.get('content-length') or 0)
  if size>MAX_PRINT_FILE: raise HTTPException(413,'That file is larger than 1 GB')
@@ -589,7 +617,7 @@ async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear
  tmp=tmp_dir/f'.{os.urandom(6).hex()}.part'; who=(getattr(request.state,'who',None) or {}).get('username') or '?'
  job=uploads[pid]={'name':name,'total':size,'received':0,'sent':0,'attempt':1,'phase':'sending'}
  src=Incoming(tmp,size); tmp.touch()
- sender=asyncio.ensure_future(run_in_threadpool(deliver,r,name,src,start,job,who))
+ sender=asyncio.ensure_future(run_in_threadpool(deliver,r,name,src,start,job,who,folder))
  try:
   try:
    got=0
@@ -609,11 +637,11 @@ async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear
   outcome=await sender
   if outcome=='slow' and not start:
    job['phase']='checking'
-   if not await run_in_threadpool(arrived,r,name,size):
+   if not await run_in_threadpool(arrived,r,f'{folder}/{name}' if folder else name,size):
     problems.record('control',f"{r['name']}: {name} was sent, but it didn't show up in its files")
     raise HTTPException(502,f"The whole file was sent, but {r['name']} hasn't confirmed it arrived. Check its file list in a minute.")
-  print(f"[control] {who}: sent {name} ({size} bytes) to {r['name']}{', start' if start else ''}{' (slow answer)' if outcome=='slow' else ''}",flush=True)
-  if not start: return {'status':'uploaded','name':name}
+  print(f"[control] {who}: sent {name} ({size} bytes) to {r['name']}{f' ({folder})' if folder else ''}{', start' if start else ''}{' (slow answer)' if outcome=='slow' else ''}",flush=True)
+  if not start: return {'status':'uploaded','name':name,'folder':folder}
   job['phase']='starting'
   return await confirm_started(r,name,who)
  finally:

@@ -288,6 +288,7 @@ def test_upload_progress_and_weak_connection(browser, base_url, admin_state):
             "progress": 0, "nozzle": 25, "bed": 24, "base_url": "http://127.0.0.1:9", "link": "weak"}
     page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
     page.route("**/api/printers/4245/files", lambda r: r.fulfill(json={"files": []}))
+    page.route("**/api/printers/4245/storage", lambda r: r.fulfill(json={"storage": [{"id": "", "label": "On the printer"}]}))
     progress = {"upload": {"name": "big.gcode", "total": 1000, "received": 1000, "sent": 400, "attempt": 2, "phase": "retrying"}}
     page.route("**/api/printers/4245/print/progress", lambda r: r.fulfill(json=progress))
     held = []
@@ -497,5 +498,35 @@ def test_printer_detail_window(browser, base_url, admin_state):
         if close == "escape": page.keyboard.press("Escape")
         else: page.mouse.click(20, 880)                                                # the dimmed area outside
         dialog.wait_for(state="detached")
+    assert not page.problems.items, page.problems.items
+    page.context.close()
+
+
+def test_usb_drive_labels_and_save_to(browser, base_url, admin_state):
+    page = new_page(browser, base_url)
+    assert api(page, "POST", "/api/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})["status"] == 200
+    fake = {"id": 4247, "name": "USB Elegoo", "printer_type": "moonraker", "model": "Klipper", "connected": True, "state": "idle",
+            "progress": 0, "nozzle": 25, "bed": 24, "base_url": "http://127.0.0.1:9"}
+    files = [{"path": "sda1/hauler.gcode", "name": "hauler.gcode", "size": 1234, "modified": 1750000000, "storage": "usb"},
+             {"path": "mailers.gcode", "name": "mailers.gcode", "size": 99, "modified": 1740000000, "storage": "printer"}]
+    sent = []
+    page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
+    page.route("**/api/printers/4247/files", lambda r: r.fulfill(json={"files": files}))
+    page.route("**/api/printers/4247/storage", lambda r: r.fulfill(json={"storage": [{"id": "", "label": "On the printer"}, {"id": "sda1", "label": "USB drive"}]}))
+    page.route("**/api/printers/4247/print?*", lambda r: (sent.append(r.request.url), r.fulfill(json={"status": "uploaded", "name": "part.gcode", "folder": "sda1"})))
+    assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
+    page.reload(); open_page(page, "Print Farm"); page.get_by_text("USB Elegoo").first.click()
+    # Where each file is, in plain words ("sda1" is the Elegoo's USB drive)
+    page.get_by_role("radio", name="hauler.gcode").get_by_text("USB drive", exact=False).wait_for()
+    page.get_by_role("radio", name="mailers.gcode").get_by_text("On the printer", exact=False).wait_for()
+    # Upload to the USB drive
+    page.get_by_role("radio", name="Upload").click()
+    page.get_by_role("radiogroup", name="Save to").get_by_role("radio", name="USB drive").click()
+    page.get_by_label("G-code file to upload").set_input_files({"name": "part.gcode", "mimeType": "text/plain", "buffer": b"G1 X1\n"})
+    page.get_by_label("Start printing right away").uncheck()
+    page.get_by_role("button", name="Upload", exact=True).click()
+    page.get_by_text("Uploaded part.gcode to USB Elegoo's USB drive.").wait_for()
+    assert "folder=sda1" in sent[0]
+    api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
     assert not page.problems.items, page.problems.items
     page.context.close()

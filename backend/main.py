@@ -618,67 +618,98 @@ async def print_file(pid:int,request:Request,name:str,start:bool=False,bed_clear
  size=int(request.headers.get('content-length') or 0)
  if size>MAX_PRINT_FILE: raise HTTPException(413,'That file is larger than 1 GB')
  if not size: raise HTTPException(400,'The file is empty')
- if pid in uploads: raise HTTPException(409,f"A file is already being sent to {r['name']}. Wait for it to finish.")
+ if pid in uploads and not uploads[pid].get('result'): raise HTTPException(409,f"A file is already being sent to {r['name']}. Wait for it to finish.")
  state=(await run_in_threadpool(snapshot,r,False))['state']
  if state not in ('idle','complete'): raise HTTPException(409,f"{r['name']} is {state}. Files can be sent when it's idle or finished.")
  tmp_dir=DB_PATH.parent/'data'/'uploads'; tmp_dir.mkdir(parents=True,exist_ok=True)
  tmp=tmp_dir/f'.{os.urandom(6).hex()}.part'; who=(getattr(request.state,'who',None) or {}).get('username') or '?'
- job=uploads[pid]={'name':name,'total':size,'received':0,'sent':0,'attempt':1,'phase':'sending'}
+ job=uploads[pid]={'name':name,'total':size,'received':0,'sent':0,'attempt':1,'phase':'sending','folder':folder,'start':start,'result':None}
  src=Incoming(tmp,size); tmp.touch()
  sender=asyncio.ensure_future(run_in_threadpool(deliver,r,name,src,start,job,who,folder))
  try:
-  try:
-   got=0
-   with open(tmp,'wb') as f:
-    async for chunk in request.stream():
-     got+=len(chunk)
-     if got>size: raise HTTPException(400,'The file is bigger than the browser said it would be. Try again.')
-     if sender.done(): continue   # sending already failed: take the rest without keeping it, then say why
-     f.write(chunk); f.flush(); src.wrote(len(chunk)); job['received']=got
-   if got<size: raise HTTPException(400,'The upload from this device was cut short. Try again.')
-   src.finish(True)
-  except BaseException:
-   src.finish(False)
-   try: await sender
-   except Exception: pass
-   raise
-  outcome=await sender
-  path=f'{folder}/{name}' if folder else name
-  # Saving onto a USB drive: the Elegoo reports an error after copying it, or answers too late to wait for
-  if outcome=='check' or (outcome=='slow' and folder):
-   job.update(phase='checking',usb=True)
-   if not await run_in_threadpool(arrived,r,path,size,max(USB_ARRIVAL_WAIT,size/USB_BYTES_PER_SECOND)):
-    problems.record('control',f"{r['name']}: couldn't save {name} to its USB drive")
-    raise HTTPException(502,f"{r['name']} couldn't save the file to its USB drive. Try saving it on the printer instead.")
-   print(f"[control] {who}: {name} is on {r['name']}'s USB drive despite the error",flush=True)
-   if not start: return {'status':'uploaded','name':name,'folder':folder}
-   # It didn't start it (it thought saving failed), so start it now, unless it got there by itself
-   said=None
-   if (await run_in_threadpool(confirm_read,r))['state']=='printing': return await confirm_started(r,name,who)
-   try: await run_in_threadpool(post_json,clean_url(r['base_url'])+'/printer/print/start?filename='+urllib.parse.quote(path))
-   except Exception as e:
-    said=printer_said(e)
-    if not (slow_reply(e) or said): raise HTTPException(502,control_error(e))
-   job['phase']='starting'
-   return await confirm_started(r,name,who,said)
-  if outcome=='slow' and not start:
-   job['phase']='checking'
-   if not await run_in_threadpool(arrived,r,path,size):
-    problems.record('control',f"{r['name']}: {name} was sent, but it didn't show up in its files")
-    raise HTTPException(502,f"The whole file was sent, but {r['name']} hasn't confirmed it arrived. Check its file list in a minute.")
-  print(f"[control] {who}: sent {name} ({size} bytes) to {r['name']}{f' ({folder})' if folder else ''}{', start' if start else ''}{' (slow answer)' if outcome=='slow' else ''}",flush=True)
-  if not start: return {'status':'uploaded','name':name,'folder':folder}
-  job['phase']='starting'
-  return await confirm_started(r,name,who)
- finally:
+  got=0
+  with open(tmp,'wb') as f:
+   async for chunk in request.stream():
+    got+=len(chunk)
+    if got>size: raise HTTPException(400,'The file is bigger than the browser said it would be. Try again.')
+    if sender.done(): continue   # sending already failed: take the rest without keeping it, then say why
+    f.write(chunk); f.flush(); src.wrote(len(chunk)); job['received']=got
+  if got<size: raise HTTPException(400,'The upload from this device was cut short. Try again.')
+  src.finish(True)
+ except BaseException:
+  src.finish(False)
+  try: await sender
+  except Exception: pass
   tmp.unlink(missing_ok=True); uploads.pop(pid,None)
+  raise
+ # This device's part is done. The board finishes by itself (sending on, retrying, waiting for a
+ # slow USB copy, starting the print) while the dashboard follows /print/progress, so nothing waits
+ # minutes on one connection that a browser could drop.
+ task=asyncio.ensure_future(complete_upload(pid,job,r,name,size,folder,start,sender,tmp,who))
+ background.add(task); task.add_done_callback(background.discard)   # keep it alive until it's done
+ return {'status':'accepted','name':name}
+
+background=set()
+RESULT_KEEP=600   # how long a finished upload's result stays for the dashboard to show
+
+async def complete_upload(pid,job,r,name,size,folder,start,sender,tmp,who):
+ try: result=await finish_upload(job,r,name,size,folder,start,sender,who)
+ except HTTPException as e: result={'status':'error','detail':e.detail}
+ except Exception as e:
+  print(f"[control] {who}: sending {name} to {r['name']} failed: {type(e).__name__}: {e}",flush=True)
+  problems.record('control',f"{r['name']}: sending {name} failed",f'{type(e).__name__}: {e}')
+  result={'status':'error','detail':f"Sending the file to {r['name']} went wrong ({type(e).__name__}). Try again."}
+ finally: tmp.unlink(missing_ok=True)
+ job.update(phase='done',result=result,finished=time.time())
+ # Kept a while, so a reopened printer window can still show how it went
+ await asyncio.sleep(RESULT_KEEP)
+ if uploads.get(pid) is job: uploads.pop(pid,None)
+
+async def finish_upload(job,r,name,size,folder,start,sender,who):
+ outcome=await sender
+ path=f'{folder}/{name}' if folder else name
+ # Saving onto a USB drive: the Elegoo reports an error after copying it, or answers too late to wait for
+ if outcome=='check' or (outcome=='slow' and folder):
+  job.update(phase='checking',usb=True)
+  if not await run_in_threadpool(arrived,r,path,size,max(USB_ARRIVAL_WAIT,size/USB_BYTES_PER_SECOND)):
+   problems.record('control',f"{r['name']}: couldn't save {name} to its USB drive")
+   raise HTTPException(502,f"{r['name']} couldn't save the file to its USB drive. Try saving it on the printer instead.")
+  print(f"[control] {who}: {name} is on {r['name']}'s USB drive despite the error",flush=True)
+  if not start: return {'status':'uploaded','name':name,'folder':folder}
+  # It didn't start it (it thought saving failed), so start it now, unless it got there by itself
+  said=None
+  if (await run_in_threadpool(confirm_read,r))['state']=='printing': return await confirm_started(r,name,who)
+  try: await run_in_threadpool(post_json,clean_url(r['base_url'])+'/printer/print/start?filename='+urllib.parse.quote(path))
+  except Exception as e:
+   said=printer_said(e)
+   if not (slow_reply(e) or said): raise HTTPException(502,control_error(e))
+  job['phase']='starting'
+  return await confirm_started(r,name,who,said)
+ if outcome=='slow' and not start:
+  job['phase']='checking'
+  if not await run_in_threadpool(arrived,r,path,size):
+   problems.record('control',f"{r['name']}: {name} was sent, but it didn't show up in its files")
+   raise HTTPException(502,f"The whole file was sent, but {r['name']} hasn't confirmed it arrived. Check its file list in a minute.")
+ print(f"[control] {who}: sent {name} ({size} bytes) to {r['name']}{f' ({folder})' if folder else ''}{', start' if start else ''}{' (slow answer)' if outcome=='slow' else ''}",flush=True)
+ if not start: return {'status':'uploaded','name':name,'folder':folder}
+ job['phase']='starting'
+ return await confirm_started(r,name,who)
+
 
 @app.get('/api/printers/{pid}/print/progress')
 def print_progress(pid:int,request:Request):
- # How a file on its way to the printer is getting on, for the dashboard while it waits
+ # How a file on its way to the printer is getting on, and how it ended (result), for the dashboard
  start_printer_row(pid,request)
  j=uploads.get(pid)
  return {'upload':j and dict(j)}
+
+@app.delete('/api/printers/{pid}/print/progress')
+def clear_print_result(pid:int,request:Request):
+ # The dashboard has shown how an upload ended: forget it
+ start_printer_row(pid,request)
+ j=uploads.get(pid)
+ if j and j.get('result'): uploads.pop(pid,None)
+ return {'status':'ok'}
 
 # Which build of the dashboard is being served: the hashed name of its main script, which changes
 # with every build. Open tabs compare it with their own to offer a reload after an update.
@@ -839,7 +870,13 @@ def printers():
   else: out.append(None); stale.append(r)
  fresh=iter(check_all(stale))
  # Keep display order; names and color tags come from the database so changes show immediately
- return {'printers':[{**(x or next(fresh)),'name':r['name'],'color':r['color']} for r,x in zip(rows,out)]}
+ return {'printers':[{**(x or next(fresh)),'name':r['name'],'color':r['color'],'upload':upload_note(r['id'])} for r,x in zip(rows,out)]}
+
+def upload_note(pid):
+ # A file on its way to this printer, for its card: {phase, percent, usb}
+ j=uploads.get(pid)
+ if not j or j.get('result'): return None
+ return {'phase':j['phase'],'percent':round(100*j['sent']/max(1,j['total'])),'usb':bool(j.get('usb'))}
 @app.get('/api/printers/{pid}')
 def printer(pid:int,grace:bool=True):
  c=db(); r=c.execute('SELECT * FROM printers WHERE id=?',(pid,)).fetchone(); c.close()

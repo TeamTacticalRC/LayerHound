@@ -158,6 +158,7 @@ def test_start_a_print(browser, base_url, admin_state):
              {"path": "aardvark.gcode", "name": "aardvark.gcode", "size": 99, "modified": 1740000000}]
     page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
     page.route("**/api/printers/4243/files", lambda r: r.fulfill(json={"files": files}))
+    page.route("**/api/printers/4243/print/progress", lambda r: r.fulfill(json={"upload": None}))   # nothing on its way
     started = []
     page.route("**/api/printers/4243/print", lambda r: (started.append(r.request.post_data_json), r.fulfill(json={"status": "done", "name": "car_shelf.gcode", "printer": {**fake, "state": "printing"}})))
     assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
@@ -289,10 +290,14 @@ def test_upload_progress_and_weak_connection(browser, base_url, admin_state):
     page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
     page.route("**/api/printers/4245/files", lambda r: r.fulfill(json={"files": []}))
     page.route("**/api/printers/4245/storage", lambda r: r.fulfill(json={"storage": [{"id": "", "label": "On the printer"}]}))
-    progress = {"upload": {"name": "big.gcode", "total": 1000, "received": 1000, "sent": 400, "attempt": 2, "phase": "retrying"}}
-    page.route("**/api/printers/4245/print/progress", lambda r: r.fulfill(json=progress))
+    progress = {"upload": None}
+    def follow(r):
+        if r.request.method == "DELETE": progress["upload"] = None; cleared.append(1); return r.fulfill(json={"status": "ok"})
+        r.fulfill(json=progress)
+    cleared = []
+    page.route("**/api/printers/4245/print/progress", follow)
     held = []
-    page.route("**/api/printers/4245/print?*", lambda r: held.append(r))   # answered later, like a slow upload
+    page.route("**/api/printers/4245/print?*", lambda r: held.append(r))   # answered once the board has the file
     assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
     page.reload(); open_page(page, "Print Farm")
     page.get_by_text("Weak connection").first.wait_for()
@@ -302,15 +307,24 @@ def test_upload_progress_and_weak_connection(browser, base_url, admin_state):
     page.get_by_label("G-code file to upload").set_input_files({"name": "big.gcode", "mimeType": "text/plain", "buffer": b"G1 X1\n" * 1000})
     page.get_by_label("Start printing right away").uncheck()
     page.get_by_role("button", name="Upload", exact=True).click()
+    progress["upload"] = {"name": "big.gcode", "total": 1000, "received": 1000, "sent": 400, "attempt": 2, "phase": "retrying", "result": None}
     page.get_by_text("The connection to Far Elegoo dropped. Trying again… 40%").wait_for()
-    progress["upload"] = {**progress["upload"], "sent": 900, "phase": "sending"}
-    page.get_by_text("Sending to Far Elegoo… 90%").wait_for()
     for _ in range(50):
         if held: break
         page.wait_for_timeout(100)
-    held[0].fulfill(json={"status": "uploaded", "name": "big.gcode"})
+    held[0].fulfill(json={"status": "accepted", "name": "big.gcode"})   # the board has it and carries on by itself
+    progress["upload"] = {**progress["upload"], "sent": 900, "phase": "sending"}
+    fake["upload"] = {"phase": "sending", "percent": 90, "usb": False}
+    page.get_by_text("Sending to Far Elegoo… 90%").wait_for()
+    # The card says so too, and closed and reopened while the board is still sending: it carries on showing it
+    page.keyboard.press("Escape"); page.get_by_role("dialog").wait_for(state="detached")
+    page.get_by_test_id("printer-card").get_by_text("Uploading 90%").wait_for()
+    page.get_by_text("Far Elegoo").first.click()
+    page.get_by_text("Sending to Far Elegoo… 90%").wait_for()
+    fake["upload"] = None
+    progress["upload"] = {**progress["upload"], "sent": 1000, "phase": "done", "result": {"status": "uploaded", "name": "big.gcode", "folder": ""}}
     page.get_by_text("Uploaded big.gcode to Far Elegoo.").wait_for()
-    assert page.get_by_test_id("upload-progress").count() == 0
+    assert page.get_by_test_id("upload-progress").count() == 0 and cleared   # shown, so the board forgets it
     api(page, "PUT", "/api/settings", {"printer_controls": False, "printer_start": False})
     assert not page.problems.items, page.problems.items
     page.context.close()
@@ -468,6 +482,7 @@ def test_delete_a_file_on_the_printer(browser, base_url, admin_state):
     deleted = []
     page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
     page.route("**/api/printers/4246/files", lambda r: r.fulfill(json={"files": files}))
+    page.route("**/api/printers/4246/print/progress", lambda r: r.fulfill(json={"upload": None}))   # nothing on its way
     page.route("**/api/printers/4246/files?*", lambda r: (deleted.append(r.request.url), r.fulfill(json={"status": "deleted", "path": "old_test.gcode"})))
     assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
     page.reload(); open_page(page, "Print Farm"); page.get_by_text("Shelf Klipper").first.click()
@@ -513,7 +528,13 @@ def test_usb_drive_labels_and_save_to(browser, base_url, admin_state):
     page.route("**/api/printers", lambda r: r.fulfill(json={"printers": [fake]}) if r.request.method == "GET" else r.continue_())
     page.route("**/api/printers/4247/files", lambda r: r.fulfill(json={"files": files}))
     page.route("**/api/printers/4247/storage", lambda r: r.fulfill(json={"storage": [{"id": "", "label": "On the printer"}, {"id": "sda1", "label": "USB drive"}]}))
-    page.route("**/api/printers/4247/print?*", lambda r: (sent.append(r.request.url), r.fulfill(json={"status": "uploaded", "name": "part.gcode", "folder": "sda1"})))
+    progress = {"upload": None}
+    def put(r):
+        sent.append(r.request.url); r.fulfill(json={"status": "accepted", "name": "part.gcode"})
+        progress["upload"] = {"name": "part.gcode", "total": 6, "received": 6, "sent": 6, "phase": "done", "usb": True,
+                              "result": {"status": "uploaded", "name": "part.gcode", "folder": "sda1"}}
+    page.route("**/api/printers/4247/print?*", put)
+    page.route("**/api/printers/4247/print/progress", lambda r: r.fulfill(json=progress if r.request.method == "GET" else {"status": "ok"}))
     assert api(page, "PUT", "/api/settings", {"printer_controls": True, "printer_start": True})["status"] == 200
     page.reload(); open_page(page, "Print Farm"); page.get_by_text("USB Elegoo").first.click()
     # Where each file is, in plain words ("sda1" is the Elegoo's USB drive)

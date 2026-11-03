@@ -19,8 +19,28 @@ ADMIN = {"username": "owner", "password": "correct horse battery"}
 HEADERS = {"X-Requested-With": "LayerHound"}
 
 
+# One event loop for the whole run. By default the test client starts a fresh loop for each request
+# and stops it afterwards, which strands background work (like a printer upload finishing after its
+# request has answered). Sharing one loop keeps it running, without starting the app's own samplers.
+from anyio.from_thread import start_blocking_portal  # noqa: E402
+_portal_cm = start_blocking_portal()
+_portal = _portal_cm.__enter__()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    # Stop the shared loop (and any upload results still waiting out RESULT_KEEP), or the run never exits
+    _portal.call(_cancel_background)
+    _portal_cm.__exit__(None, None, None)
+
+
+async def _cancel_background():
+    for t in list(main.background): t.cancel()
+
+
 def new_client():
-    return TestClient(main.app, headers=HEADERS)
+    c = TestClient(main.app, headers=HEADERS)
+    c.portal = _portal
+    return c
 
 
 @pytest.fixture(scope="session")

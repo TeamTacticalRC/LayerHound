@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile, getPrintProgress, deletePrinterFile, getPrinterStorage } from "./api";
+import { getStats, getDiscovery, scanForPrinters, addFoundPrinter, addAllKlipper, dismissFoundPrinter, allowOctoPrint, checkOctoPrint, shutdownBoard, getUpdates, checkUpdates, installUpdate, getHealth, getHotspot, joinWifi, getAuthStatus, setupLayerHound, login, logout, changePassword, recoverPassword, getRecovery, makeRecoveryKey, setBoardPassword, getRemote, remoteAction, getLightbar, getProblems, clearProblems, reportPageError, getUsers, addUser, editUser, deleteUser, getKeys, addKey, deleteKey, getWifi, connectWifi, forgetWifi, getHistory, getHistoryStats, deleteHistoryJob, importHistory, getSettings, saveSettings, getAbout, clearHistory, restoreBackup, restartDashboard, getServices, addService, editService, deleteService, restartContainer, getNetwork, addNetDevice, editNetDevice, deleteNetDevice, startScan, getScan, getSystem, getServer, getServerHistory, getStorage, listFiles, newFolder, renameFile, deleteFile, emptyTrash, downloadUrl, uploadFile, getPrinters, createPrinter, updatePrinter, reorderPrinters, deletePrinter, testPrinter, controlPrinter, getPrinterFiles, startPrinterFile, sendPrintFile, getPrintProgress, clearPrintResult, deletePrinterFile, getPrinterStorage } from "./api";
 import { createRoot } from "react-dom/client";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Cpu,
@@ -220,8 +220,16 @@ function normalizePrinter(p) {
     hasCamera: !!p.has_camera,
     cameraUrl: p.camera_url ?? "",
     color: PRINTER_COLORS[p.color] ? p.color : null,
+    upload: p.upload ?? null,   // a file on its way from the board: {phase, percent, usb}
   };
 }
+
+// The card's line for a file on its way to the printer (the board finishes it by itself)
+const uploadNote = u => !u ? null
+  : u.phase === "starting" ? "Starting the print…"
+  : u.phase === "checking" ? (u.usb ? "Saving to USB…" : "Checking the file arrived…")
+  : u.phase === "retrying" ? `Retrying upload ${u.percent}%`
+  : `Uploading ${u.percent}%`;
 
 // The slicer's preview of the part being printed. The file name in the URL makes the
 // browser fetch a fresh image when a new print starts.
@@ -352,7 +360,7 @@ function PrinterCard({ printer, onSelect, compact, readOnly }) {
         <div className={`h-full rounded-full ${printer.state === "printing" ? "bg-violet-500" : "bg-slate-600"}`} style={{ width: `${printer.progress}%` }} />
       </div>
       <div className="mt-1.5 flex justify-between gap-2 text-[11px] text-slate-500">
-        <span className="truncate" title={printer.job || undefined}>{printer.job || "No active job"}</span>
+        <span className={`truncate ${!printer.job && printer.upload ? "text-violet-300" : ""}`} title={printer.job || undefined}>{printer.job || uploadNote(printer.upload) || "No active job"}</span>
         <span className="shrink-0 tabular-nums">{printer.state === "printing" || printer.state === "paused" ? `${printer.progress}% · ${printer.eta}` : printer.weakLink ? "Weak connection" : ""}</span>
       </div>
     </button>
@@ -373,7 +381,7 @@ function PrinterCard({ printer, onSelect, compact, readOnly }) {
         <PartThumb printer={printer} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex justify-between text-xs">
-            <span className="truncate pr-3 text-slate-400" title={printer.job || undefined}>{printer.job || "No active job"}</span>
+            <span className={`truncate pr-3 ${!printer.job && printer.upload ? "text-violet-300" : "text-slate-400"}`} title={printer.job || undefined}>{printer.job || uploadNote(printer.upload) || "No active job"}</span>
             <span className="font-semibold text-white">{printer.progress}%</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/6">
@@ -976,14 +984,41 @@ function StartPrint({ printer, onDone }) {
       setDeleting(null);
     } catch (e) { setDeleting({ path, error: e.message }); }
   };
-  // While uploading, follow the file on its way from the board to the printer
+  // While uploading, follow the file on its way from the board to the printer. The board takes the
+  // file and finishes by itself (sending on, retrying, a slow USB copy, starting it), so how it ended
+  // arrives here as upload.result rather than as the upload's own answer.
   const uploading = busy !== null && source === "upload";
+  const waiter = React.useRef(null);
+  const waitForResult = () => new Promise(resolve => { waiter.current = resolve; });
   useEffect(() => {
     if (!uploading) { setSending(null); return; }
     let live = true;
-    const t = setInterval(() => getPrintProgress(printer.id).then(r => live && setSending(r.upload)).catch(() => {}), 1000);
+    const t = setInterval(() => getPrintProgress(printer.id).then(r => {
+      if (!live) return;
+      setSending(r.upload);
+      if (r.upload?.result && waiter.current) { const done = waiter.current; waiter.current = null; done(r.upload.result); }
+    }).catch(() => {}), 1000);
     return () => { live = false; clearInterval(t); };
   }, [uploading, printer.id]);
+  const showResult = (r, fromBoard) => {
+    if (fromBoard) clearPrintResult(printer.id).catch(() => {});   // shown: the board can forget it
+    if (r.status === "error") { setMsg({ ok: false, text: r.detail }); return; }
+    setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: (r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}${r.folder ? "'s USB drive" : ""}.` : `Printing ${r.name}.`) + (r.note ? ` The printer also reported: ${r.note}` : "") });
+    setClear(false); onDone();
+    if (r.status === "uploaded") { setUpload(null); setFiles(null); setListError(""); }
+  };
+  // Reopened while a file is still on its way (or just finished): carry on showing it
+  useEffect(() => {
+    let live = true;
+    getPrintProgress(printer.id).then(async ({ upload: u }) => {
+      if (!live || !u) return;
+      if (u.result) { showResult(u.result, true); return; }
+      setSource("upload"); setBusy({ progress: 1 }); setSending(u);
+      const r = await waitForResult();
+      if (live) { showResult(r, true); setBusy(null); }
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [printer.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (enabled && source === "printer" && files === null && !listError) getPrinterFiles(printer.id).then(r => setFiles(r.files)).catch(e => setListError(e.message)); }, [enabled, source, files, listError, printer.id]);
   if (!enabled) return <p className="mt-3 text-xs text-slate-600">To start prints from here, turn on <SettingsLink tab="printers">Settings → Printer controls → Also allow starting prints</SettingsLink>.</p>;
   // After starting, once the printer is busy, just show how it went
@@ -1008,10 +1043,12 @@ function StartPrint({ printer, onDone }) {
     try {
       let r;
       if (source === "printer") { setBusy("starting"); r = await startPrinterFile(printer.id, chosen); }
-      else { setBusy({ progress: 0 }); r = await sendPrintFile(printer.id, upload, startNow, p => setBusy(p < 1 ? { progress: p } : "starting"), saveTo); }
-      setMsg(r.status === "unconfirmed" ? { warn: true, text: r.message, name: r.name } : { ok: true, text: (r.status === "uploaded" ? `Uploaded ${r.name} to ${printer.name}${r.folder ? "'s USB drive" : ""}.` : `Printing ${r.name}.`) + (r.note ? ` The printer also reported: ${r.note}` : "") });
-      setClear(false); onDone();
-      if (r.status === "uploaded") { setUpload(null); setFiles(null); setListError(""); }
+      else {
+        setBusy({ progress: 0 });
+        r = await sendPrintFile(printer.id, upload, startNow, p => setBusy({ progress: p }), saveTo);
+        if (r.status === "accepted") { setBusy({ progress: 1 }); r = await waitForResult(); }
+      }
+      showResult(r, source === "upload");
     } catch (e) { setMsg({ ok: false, text: e.message }); }
     setBusy(null);
   };

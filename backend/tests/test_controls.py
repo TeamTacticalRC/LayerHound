@@ -154,9 +154,29 @@ def starting(client, farm, monkeypatch):
     client.put("/api/settings", json={"printer_start": False})
 
 
+class Finished:
+    # How a background upload ended, shaped like a response: 200 with the result, or 502 with the error
+    def __init__(self, result):
+        self.status_code = 502 if result["status"] == "error" else 200
+        self._json = {"detail": result["detail"]} if result["status"] == "error" else result
+    def json(self): return self._json
+
+
 def upload(c, pid, data=b"G28\nG1 X10\n", name="cube.gcode", **q):
+    # The board takes the file, answers "accepted", and finishes in the background; follow it like the
+    # dashboard does, then clear the result
+    import time as t
     qs = "&".join(f"{k}={str(v).lower()}" for k, v in q.items())
-    return c.put(f"/api/printers/{pid}/print?name={name}&{qs}", content=data)
+    r = c.put(f"/api/printers/{pid}/print?name={name}&{qs}", content=data)
+    if r.status_code != 200: return r
+    assert r.json()["status"] == "accepted"
+    end = t.time() + 20
+    while t.time() < end:
+        j = c.get(f"/api/printers/{pid}/print/progress").json()["upload"]
+        if j and j.get("result"):
+            c.delete(f"/api/printers/{pid}/print/progress")
+            return Finished(j["result"])
+    raise AssertionError(f"the upload never finished: {c.get(f'/api/printers/{pid}/print/progress').json()}")
 
 
 def test_multipart_body(tmp_path):
